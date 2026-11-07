@@ -1,0 +1,242 @@
+{
+  "id": "volt",
+  "plateScale": 4.969,
+  "serverHeight": 192,
+  "source": "web/assets/art/volt.png",
+  "width": 667,
+  "height": 962,
+  "box": {
+    "w": 659,
+    "h": 954
+  },
+  "joints": {
+    "root": [
+      334,
+      529
+    ],
+    "hip": [
+      334,
+      500
+    ],
+    "chest": [
+      334,
+      309
+    ],
+    "neck": [
+      334,
+      195
+    ],
+    "head": [
+      334,
+      90
+    ],
+    "shoulderF": [
+      432,
+      290
+    ],
+    "elbowF": [
+      531,
+      386
+    ],
+    "handF": [
+      446,
+      500
+    ],
+    "shoulderB": [
+      235,
+      290
+    ],
+    "elbowB": [
+      136,
+      386
+    ],
+    "handB": [
+      221,
+      500
+    ],
+    "kneeF": [
+      413,
+      729
+    ],
+    "footF": [
+      465,
+      958
+    ],
+    "kneeB": [
+      254,
+      729
+    ],
+    "footB": [
+      202,
+      958
+    ],
+    "skirt": [
+      334,
+      634
+    ]
+  },
+  "parts": [
+    {
+      "id": "armB",
+      "z": 0,
+      "pivot": "shoulderB",
+      "crop": {
+        "x": 103,
+        "y": 233,
+        "w": 190,
+        "h": 317
+      },
+      "ball": 0.06,
+      "bones": [
+        "shoulderB",
+        "elbowB",
+        "handB"
+      ],
+      "drive": [
+        "shoulderB",
+        "elbowB"
+      ],
+      "restAngle": 1.9513,
+      "follow": [
+        "handB"
+      ],
+      "followK": 0.15,
+      "spin": 0.8,
+      "clamp": 0.62
+    },
+    {
+      "id": "legB",
+      "z": 1,
+      "pivot": "hip",
+      "crop": {
+        "x": 29,
+        "y": 567,
+        "w": 284,
+        "h": 391
+      },
+      "ball": 0.075,
+      "bones": [
+        "hip",
+        "kneeB",
+        "footB"
+      ],
+      "drive": [
+        "hip",
+        "kneeB"
+      ],
+      "restAngle": 1.8925,
+      "follow": [],
+      "followK": 0,
+      "spin": 0.45,
+      "clamp": 0.32
+    },
+    {
+      "id": "torso",
+      "z": 2,
+      "pivot": "hip",
+      "crop": {
+        "x": 4,
+        "y": 38,
+        "w": 499,
+        "h": 607
+      },
+      "ball": 0.075,
+      "bones": [
+        "hip",
+        "chest",
+        "neck",
+        "shoulderF",
+        "shoulderB",
+        "skirt"
+      ],
+      "drive": [
+        "hip",
+        "chest"
+      ],
+      "restAngle": -1.5708,
+      "follow": [],
+      "followK": 0,
+      "spin": 0.45,
+      "clamp": 0.5
+    },
+    {
+      "id": "legF",
+      "z": 3,
+      "pivot": "hip",
+      "crop": {
+        "x": 258,
+        "y": 424,
+        "w": 390,
+        "h": 470
+      },
+      "ball": 0.08,
+      "bones": [
+        "hip",
+        "kneeF",
+        "footF"
+      ],
+      "drive": [
+        "hip",
+        "kneeF"
+      ],
+      "restAngle": 1.249,
+      "follow": [],
+      "followK": 0,
+      "spin": 0.45,
+      "clamp": 0.32
+    },
+    {
+      "id": "head",
+      "z": 4,
+      "pivot": "neck",
+      "crop": {
+        "x": 85,
+        "y": 4,
+        "w": 391,
+        "h": 239
+      },
+      "ball": 0.05,
+      "bones": [
+        "neck",
+        "head"
+      ],
+      "drive": [
+        "neck",
+        "head"
+      ],
+      "restAngle": -1.5708,
+      "follow": [],
+      "followK": 0,
+      "spin": 1,
+      "clamp": 0.42
+    },
+    {
+      "id": "armF",
+      "z": 5,
+      "pivot": "shoulderF",
+      "crop": {
+        "x": 370,
+        "y": 228,
+        "w": 293,
+        "h": 370
+      },
+      "ball": 0.065,
+      "bones": [
+        "shoulderF",
+        "elbowF",
+        "handF"
+      ],
+      "drive": [
+        "shoulderF",
+        "elbowF"
+      ],
+      "restAngle": 1.1071,
+      "follow": [
+        "handF"
+      ],
+      "followK": 0.15,
+      "spin": 0.8,
+      "clamp": 0.62
+    }
+  ]
+}

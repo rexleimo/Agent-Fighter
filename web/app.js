@@ -1,3 +1,5 @@
+import { loadRig, drawRig } from './rig.js';
+
 const $ = (id) => document.getElementById(id);
 const GROUND = 330;
 const COLOR_A = '#35d6a4';
@@ -349,7 +351,14 @@ function line(c, a, b, width, color, outline) {
  * images load (or if an asset is missing), so the site never shows an empty
  * arena. All art is 100% original: no SNK / KOF assets are used.
  * ------------------------------------------------------------------------ */
-const ART = { images: Object.create(null), stage: null, failed: new Set(), requested: false };
+const ART = {
+  images: Object.create(null),
+  rigs: Object.create(null),
+  rigPending: new Set(),
+  stage: null,
+  failed: new Set(),
+  requested: false,
+};
 
 function artImage(id) {
   const img = ART.images[id];
@@ -402,48 +411,42 @@ function blitFighter(c, img, gx, gy, W, H, dir, sx, sy, lean, bob) {
   c.scale(dir * sx, sy);
   c.drawImage(img, -W / 2, -H + 6, W, H);
 }
-
-/** Illustration slices, paired with the server skeleton joint that drives them. */
-const ART_SLICES = [
-  { from: 0, to: 0.26, joint: 'head', bend: 0.0016 },
-  { from: 0.26, to: 0.56, joint: 'chest', bend: 0.0012 },
-  { from: 0.56, to: 0.76, joint: 'hip', bend: 0.0008 },
-  { from: 0.76, to: 1, joint: 'kneeF', bend: 0.0011 },
-];
-
 /**
- * Skeleton-driven illustration. The kernel sends each joint's displacement
- * from the neutral stance every frame; the four body slices follow those
- * joints (head bobs, torso leans into a punch, legs stretch into a kick),
- * while whole-body squat / lean / knockdown come from the same data.
- * No client-side animation state machine: this is a projection, not a game.
+ * Skeleton-driven cutout puppet. Every body part the bake step produced is
+ * rotated by the same angular delta the kernel applied to that limb, so the
+ * painted fighter performs the move the server actually resolved.
+ * There is no client-side animation state machine here: this is a projection.
  */
+const RIG_STATES = { knockdown: true };
+
+function rigLocalJoints(f, sk) {
+  const local = {};
+  for (const [k, v] of Object.entries(sk.joints)) local[k] = [(v[0] - f.x) * (f.facing || 1), v[1] - f.y];
+  return local;
+}
+
+function ensureRig(id) {
+  if (ART.rigs[id] || ART.rigPending.has(id) || !id) return;
+  ART.rigPending.add(id);
+  loadRig(id).then((rig) => {
+    ART.rigs[id] = rig;
+    repaintArt();
+  }).catch(() => { ART.failed.add('rig:' + id); });
+}
+
 function drawSpriteBody(c, img, o) {
-  const { f, pal, dir, gx, gy, side } = o;
+  const { f, def, pal, dir, gx, gy } = o;
   const H = 204;
   const W = H * (img.naturalWidth / img.naturalHeight);
   const state = f.state || 'idle';
   const acting = state === 'attack' || state === 'projectile' || state === 'special';
   const m = S.moves[f.moveId];
   const active = Boolean(m && acting && f.moveFrame >= m.startup && f.moveFrame < m.startup + m.active);
-  const t = (S.current && S.current.frame) || 0;
-  const delta = (f.skeleton && f.skeleton.delta) || null;
-  const dHead = delta ? delta.head : [0, 0];
-  const dChest = delta ? delta.chest : [0, 0];
-  const dHand = delta ? delta.handF : [0, 0];
   let sx = 1, sy = 1, lean = 0, bob = 0, flash = 1;
-  if (state === 'walk' || state === 'dash') bob = Math.sin(t * 0.24) * 2.2;
+  if (state === 'walk' || state === 'dash') bob = Math.sin(((S.current && S.current.frame) || 0) * 0.24) * 2.2;
   if (f.y < -2) bob = -2;
-  if (state === 'hitstun') { lean = -0.12 * dir; flash = 1.7; }
-  if (state === 'guard' || f.blockstun > 0) { sx = 0.95; sy = 0.97; }
+  if (state === 'hitstun') flash = 1.6;
   if (state === 'knockdown') { lean = -1.12 * dir; bob = 10; }
-  if (acting) lean += 0.05 * (active ? 1 : 0.4) * dir;
-  if (delta) {
-    // Crouch lowers the head joint by ~75 units: squash the whole body to
-    // match, so the picture and its hurtboxes shrink together.
-    sy *= Math.max(0.56, Math.min(1.08, 1 - dHead[1] / 300));
-    lean += Math.max(-0.2, Math.min(0.2, dHand[0] * 0.0016 + dChest[0] * 0.002)) * dir;
-  }
 
   c.save();
   const glow = c.createRadialGradient(gx, gy - 82, 8, gx, gy - 82, W * 0.7);
@@ -453,43 +456,30 @@ function drawSpriteBody(c, img, o) {
   c.beginPath(); c.ellipse(gx, gy - 82, W * 0.7, H * 0.58, 0, 0, Math.PI * 2); c.fill();
   c.restore();
 
-  if (active) {
+  const rig = ART.rigs[def.id];
+  const sk = f.skeleton;
+  const rigid = RIG_STATES[state] || !sk;
+  const local = sk && !rigid ? rigLocalJoints(f, sk) : {};
+  const delta = sk && !rigid ? sk.delta || {} : {};
+
+  if (active && rig) {
     c.save();
-    c.globalAlpha = 0.24;
-    c.filter = 'brightness(1.7)';
-    blitFighter(c, img, gx - 20 * dir, gy, W, H, dir, sx, sy, lean, bob);
+    c.globalAlpha = 0.22;
+    c.filter = 'brightness(1.7) saturate(1.2)';
+    drawRig(c, rig, { H, x: gx - 18 * dir, y: gy, dir, squashX: sx, squashY: sy, lean, bob, localJoints: local, delta });
     c.restore();
   }
 
   c.save();
   const filters = [];
-  if (flash > 1) filters.push('brightness(' + flash + ')', 'saturate(1.25)');
-  if (side === 'b') filters.push('hue-rotate(-16deg)', 'saturate(1.08)', 'brightness(0.96)', 'drop-shadow(0 0 5px rgba(91,140,255,.75))');
+  if (flash > 1) filters.push('brightness(' + flash + ')', 'saturate(1.2)');
+  if (o.side === 'b') filters.push('hue-rotate(-14deg)', 'saturate(1.06)', 'brightness(0.97)', 'drop-shadow(0 0 5px rgba(91,140,255,.7))');
   if (filters.length) c.filter = filters.join(' ');
-  c.translate(gx, gy + bob);
-  c.rotate(lean);
-  c.scale(dir * sx, sy);
-  // Faint full-body underlay hides the seams between independently moved slices.
-  c.globalAlpha = 0.2;
-  c.drawImage(img, -W / 2, -H + 6, W, H);
-  c.globalAlpha = 1;
-  if (delta) {
-    for (const sl of ART_SLICES) {
-      const d = delta[sl.joint] || [0, 0];
-      c.save();
-      c.translate(d[0] * 0.34, d[1] * 0.2);
-      c.rotate(d[0] * sl.bend);
-      c.drawImage(
-        img,
-        0, img.naturalHeight * sl.from,
-        img.naturalWidth, img.naturalHeight * (sl.to - sl.from),
-        -W / 2, -H + 6 + H * sl.from,
-        W, H * (sl.to - sl.from),
-      );
-      c.restore();
-    }
+  if (rig) {
+    drawRig(c, rig, { H, x: gx, y: gy, dir, squashX: sx, squashY: sy, lean, bob, localJoints: local, delta });
   } else {
-    c.drawImage(img, -W / 2, -H + 6, W, H);
+    // Still loading (or no rig baked for this id): draw the plate whole.
+    blitFighter(c, img, gx, gy, W, H, dir, sx, sy, lean, bob);
   }
   c.restore();
 
@@ -508,6 +498,7 @@ function drawSpriteBody(c, img, o) {
     c.restore();
   }
 }
+
 
 const FALLBACK_FIGHTER = {
   palette: { base: '#c8d6e2', shade: '#5a7288', light: '#ffffff', accent: '#8fe6ff', aura: 'rgba(190,220,240,.16)' },
@@ -664,6 +655,7 @@ function drawFighter(c, f, side, frame, match) {
   // would show as a coloured block behind the illustration, so use a thin
   // side-colour outline instead.
   const sprite = artImage(def.id);
+  if (sprite) ensureRig(def.id);
   c.save();
   if (sprite) {
     const sh = c.createRadialGradient(gx, GROUND + 2, 2, gx, GROUND + 2, 54 * bulk);

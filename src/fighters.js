@@ -29,10 +29,14 @@
  * ship 100% original names, silhouettes, palettes and move names.
  *
  * Each fighter has an AI-generated original full-body illustration in
- * web/assets/art/<id>.png (alpha PNG, produced by scripts/matte.mjs). The
- * browser composites it over a painted stage plate and drives lean / scale /
- * flip / ghost / hit-flash from the authoritative frame state. Procedural
- * Canvas geometry remains only as a fallback: zero third-party art.
+ * web/assets/art/<id>.png (alpha PNG, produced by scripts/matte.mjs). That
+ * plate is not drawn as one sticker: scripts/rig-bake.mjs cuts it into six
+ * body parts (back arm, back leg, torso, front leg, head, front arm) with a
+ * pivot, a paint order and a rotation limit each, and web/rig.js turns every
+ * part by the same angular delta the server applied to the neutral stance.
+ * So the picture performs the move the kernel resolved, and the drawing stays
+ * pixel-aligned with the hitboxes it is built from. Procedural Canvas
+ * geometry remains only as a fallback: zero third-party art.
  *
  * M2 scope ------------------------------------------------------------------
  * Fighter identity flows through registration -> matchmaking -> observation

@@ -1,0 +1,242 @@
+{
+  "id": "prism",
+  "plateScale": 4.958,
+  "serverHeight": 192,
+  "source": "web/assets/art/prism.png",
+  "width": 642,
+  "height": 960,
+  "box": {
+    "w": 634,
+    "h": 952
+  },
+  "joints": {
+    "root": [
+      321,
+      528
+    ],
+    "hip": [
+      321,
+      499
+    ],
+    "chest": [
+      321,
+      309
+    ],
+    "neck": [
+      321,
+      194
+    ],
+    "head": [
+      321,
+      90
+    ],
+    "shoulderF": [
+      416,
+      290
+    ],
+    "elbowF": [
+      511,
+      385
+    ],
+    "handF": [
+      429,
+      499
+    ],
+    "shoulderB": [
+      226,
+      290
+    ],
+    "elbowB": [
+      131,
+      385
+    ],
+    "handB": [
+      213,
+      499
+    ],
+    "kneeF": [
+      397,
+      728
+    ],
+    "footF": [
+      448,
+      956
+    ],
+    "kneeB": [
+      245,
+      728
+    ],
+    "footB": [
+      194,
+      956
+    ],
+    "skirt": [
+      321,
+      632
+    ]
+  },
+  "parts": [
+    {
+      "id": "armB",
+      "z": 0,
+      "pivot": "shoulderB",
+      "crop": {
+        "x": 117,
+        "y": 233,
+        "w": 167,
+        "h": 314
+      },
+      "ball": 0.06,
+      "bones": [
+        "shoulderB",
+        "elbowB",
+        "handB"
+      ],
+      "drive": [
+        "shoulderB",
+        "elbowB"
+      ],
+      "restAngle": 1.9513,
+      "follow": [
+        "handB"
+      ],
+      "followK": 0.15,
+      "spin": 0.8,
+      "clamp": 0.62
+    },
+    {
+      "id": "legB",
+      "z": 1,
+      "pivot": "hip",
+      "crop": {
+        "x": 4,
+        "y": 566,
+        "w": 312,
+        "h": 390
+      },
+      "ball": 0.075,
+      "bones": [
+        "hip",
+        "kneeB",
+        "footB"
+      ],
+      "drive": [
+        "hip",
+        "kneeB"
+      ],
+      "restAngle": 1.8925,
+      "follow": [],
+      "followK": 0,
+      "spin": 0.45,
+      "clamp": 0.32
+    },
+    {
+      "id": "torso",
+      "z": 2,
+      "pivot": "hip",
+      "crop": {
+        "x": 51,
+        "y": 90,
+        "w": 584,
+        "h": 618
+      },
+      "ball": 0.075,
+      "bones": [
+        "hip",
+        "chest",
+        "neck",
+        "shoulderF",
+        "shoulderB",
+        "skirt"
+      ],
+      "drive": [
+        "hip",
+        "chest"
+      ],
+      "restAngle": -1.5708,
+      "follow": [],
+      "followK": 0,
+      "spin": 0.45,
+      "clamp": 0.5
+    },
+    {
+      "id": "legF",
+      "z": 3,
+      "pivot": "hip",
+      "crop": {
+        "x": 245,
+        "y": 423,
+        "w": 376,
+        "h": 436
+      },
+      "ball": 0.08,
+      "bones": [
+        "hip",
+        "kneeF",
+        "footF"
+      ],
+      "drive": [
+        "hip",
+        "kneeF"
+      ],
+      "restAngle": 1.249,
+      "follow": [],
+      "followK": 0,
+      "spin": 0.45,
+      "clamp": 0.32
+    },
+    {
+      "id": "head",
+      "z": 4,
+      "pivot": "neck",
+      "crop": {
+        "x": 152,
+        "y": 4,
+        "w": 352,
+        "h": 238
+      },
+      "ball": 0.05,
+      "bones": [
+        "neck",
+        "head"
+      ],
+      "drive": [
+        "neck",
+        "head"
+      ],
+      "restAngle": -1.5708,
+      "follow": [],
+      "followK": 0,
+      "spin": 1,
+      "clamp": 0.42
+    },
+    {
+      "id": "armF",
+      "z": 5,
+      "pivot": "shoulderF",
+      "crop": {
+        "x": 355,
+        "y": 229,
+        "w": 283,
+        "h": 366
+      },
+      "ball": 0.065,
+      "bones": [
+        "shoulderF",
+        "elbowF",
+        "handF"
+      ],
+      "drive": [
+        "shoulderF",
+        "elbowF"
+      ],
+      "restAngle": 1.1071,
+      "follow": [
+        "handF"
+      ],
+      "followK": 0.15,
+      "spin": 0.8,
+      "clamp": 0.62
+    }
+  ]
+}

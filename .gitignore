@@ -16,3 +16,5 @@ web/downloads/*.zip
 # Generated source plates are reproducible from ImageGen prompts; keep only
 # the processed, alpha-ready art in version control.
 web/assets/art/raw/
+.tmp-rig/
+.rex-harness/

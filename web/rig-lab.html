@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Rig lab · AFL</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b121a; color: #cfe0ee; font: 12px/1.4 ui-monospace, monospace; }
+  h1 { font: 600 14px/1.2 ui-monospace, monospace; padding: 12px 16px; margin: 0; color: #8fe6ff; }
+  .row { display: flex; gap: 4px; padding: 4px 8px; border-bottom: 1px solid #17212c; }
+  .cell { position: relative; width: 150px; height: 230px; background: linear-gradient(#101a24, #0b121a); border-radius: 4px; }
+  .cell canvas { display: block; }
+  .cell b { position: absolute; left: 4px; top: 3px; font-weight: 400; font-size: 9px; color: #6f8aa3; }
+  .who { width: 78px; display: flex; align-items: center; color: #9fd0ff; font-size: 11px; }
+</style>
+</head>
+<body>
+<h1>RIG LAB — 骨架驱动的拆件人偶（每格一个服务端姿态）</h1>
+<div id="grid"></div>
+<script type="module">
+import { skeletonFor } from '/src/combat.js';
+import { loadRig, drawRig } from './rig.js';
+
+const params = new URLSearchParams(location.search);
+const ids = (params.get('ids') || 'abyss,gale,prism,forge').split(',').filter(Boolean);
+const CW = 150, CH = 230, H = 200, GROUND = 205;
+
+const CUM = params.has('cum');
+const CUM_POSE = { state: 'attack', moveId: params.get('move') || 'lp', moveFrame: 4 };
+
+const POSES = [
+  ['idle', { state: 'idle' }],
+  ['walk', { state: 'walk' }],
+  ['crouch', { state: 'crouch' }],
+  ['guard', { state: 'guard' }],
+  ['lp', { state: 'attack', moveId: 'lp', moveFrame: 4 }],
+  ['hp', { state: 'attack', moveId: 'hp', moveFrame: 12 }],
+  ['hk', { state: 'attack', moveId: 'hk', moveFrame: 13 }],
+  ['dp', { state: 'attack', moveId: 'dp', moveFrame: 6 }],
+  ['special', { state: 'special', moveId: 'special', moveFrame: 10 }],
+  ['super', { state: 'attack', moveId: 'super', moveFrame: 14 }],
+  ['hitstun', { state: 'hitstun' }],
+  ['knockdown', { state: 'knockdown' }],
+];
+
+const labels = CUM ? ['part 1', 'part 2', 'part 3', 'part 4', 'part 5', 'part 6'] : POSES.map((p) => p[0]);
+const grid = document.getElementById('grid');
+const rows = [];
+for (const id of ids) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const who = document.createElement('div');
+  who.className = 'who';
+  who.textContent = id;
+  row.append(who);
+  const cells = [];
+  for (const label of labels) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.innerHTML = '<b>' + label + '</b>';
+    const c = document.createElement('canvas');
+    c.width = CW; c.height = CH;
+    cell.append(c);
+    row.append(cell);
+    cells.push(c);
+  }
+  grid.append(row);
+  rows.push({ id, cells });
+}
+
+for (const { id, cells } of rows) {
+  let rig;
+  try {
+    rig = await loadRig(id);
+  } catch (err) {
+    console.error('rig missing for ' + id, err);
+    continue;
+  }
+  const specs = CUM ? labels.map(() => CUM_POSE) : POSES.map((p) => p[1]);
+  const order = rig.parts.map((p) => p.id);
+  specs.forEach((spec, i) => {
+    const f = {
+      x: 480, y: 0, facing: 1, blockstun: 0, hitstun: 0, hasHit: false, hitIds: [],
+      moveId: null, moveFrame: 0, ...spec,
+    };
+    if (f.state === 'hitstun') f.hitstun = 10;
+    const plain = params.has('plain');
+    const sk = skeletonFor(f, 30);
+    const local = {};
+    for (const [k2, v] of Object.entries(sk.joints)) local[k2] = [(v[0] - f.x) * f.facing, v[1] - f.y];
+    const ctx = cells[i].getContext('2d');
+    const shown = CUM
+      ? { ...rig, parts: rig.parts.slice(0, i + 1) }
+      : rig;
+    drawRig(ctx, shown, {
+      H, x: CW / 2, y: GROUND, dir: 1,
+      localJoints: plain ? {} : local, delta: plain ? {} : sk.delta,
+      squashY: 1, squashX: 1, lean: 0, bob: 0,
+    });
+  });
+}
+// Self-check report: the verifier reads this instead of eyeballing pixels.
+// A fighter whose parts never move, or whose pose renders empty, fails here.
+const report = rows.map(({ id, cells }) => {
+  const data = cells.map((c) => c.getContext('2d').getImageData(0, 0, CW, CH).data);
+  const nonEmpty = data.map((d) => {
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n += 1;
+    return n;
+  });
+  const diff = (a, b) => {
+    let n = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      if (Math.abs(a[i] - b[i]) > 12 || Math.abs(a[i + 1] - b[i + 1]) > 12 || Math.abs(a[i + 2] - b[i + 2]) > 12) n += 1;
+    }
+    return n;
+  };
+  return {
+    id,
+    nonEmpty,
+    idleVsHp: diff(data[0], data[5]),
+    idleVsIdle: diff(data[0], data[0]),
+    idleVsCrouch: diff(data[0], data[2]),
+  };
+});
+window.__rigReport = report;
+document.title = 'rig-lab-ready';
+</script>
+</body>
+</html>

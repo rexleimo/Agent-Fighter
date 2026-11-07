@@ -33,7 +33,7 @@ export const HITBOX_COLORS = Object.freeze({
   hurt: '#38d9c0', hit: '#ff5d6c', push: '#8ea3b8', bone: '#ffd166',
 });
 
-const BASE_POSE = Object.freeze({
+export const BASE_POSE = Object.freeze({
   root: [0, 0], hip: [0, -88], chest: [0, -140], neck: [0, -158], head: [0, -178],
   shoulderF: [16, -148], elbowF: [30, -120], handF: [40, -104],
   shoulderB: [-14, -148], elbowB: [-26, -118], handB: [-34, -100],

@@ -57,6 +57,9 @@ function readBody(req) {
 // /docs/../data/league.json cannot leak tokens.
 const ROOT_DIRS = {
   '/sdk/': path.join(ROOT, 'sdk'),
+  // Read-only game source. The pose lab (web/rig-lab.html) imports the same
+  // skeleton code the kernel uses, so the preview cannot drift from the game.
+  '/src/': path.join(ROOT, 'src'),
   '/docs/': path.join(ROOT, 'docs'),
   '/examples/': path.join(ROOT, 'examples'),
   '/skills/': path.join(ROOT, 'skills'),

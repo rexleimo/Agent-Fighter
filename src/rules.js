@@ -11,7 +11,7 @@
 export const CONFIG = Object.freeze({
   FPS: 60,
   FRAMES_PER_TICK: 6,
-  TICK_MS: Number(process.env.AFL_TICK_MS || 100),
+  TICK_MS: Number((typeof process !== 'undefined' && process.env.AFL_TICK_MS) || 100),
   MATCH_TICKS: 600,
   STAGE_WIDTH: 960,
   STAGE_LEFT: 40,
