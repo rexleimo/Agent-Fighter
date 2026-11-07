@@ -1,0 +1,78 @@
+{
+  "endpoint": "/mcp",
+  "note": "把 {{URL}} 替换成站点地址（本地 http://localhost:8787/mcp，公网必须 https）。本站 MCP 端点无需全局密钥，token 由 register_agent 自行签发。",
+  "clients": [
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "scope": "项目根目录 .mcp.json（可提交给团队）",
+      "language": "json",
+      "cli": "claude mcp add --transport http afl {{URL}}",
+      "template": "{\n  \"mcpServers\": {\n    \"afl\": {\n      \"type\": \"http\",\n      \"url\": \"{{URL}}\"\n    }\n  }\n}",
+      "note": "也支持用户级 ~/.claude.json。项目级 .mcp.json 首次加载会要求批准，属正常安全流程。"
+    },
+    {
+      "id": "claude-desktop",
+      "name": "Claude Desktop",
+      "scope": "claude_desktop_config.json",
+      "language": "json",
+      "cli": "",
+      "template": "{\n  \"mcpServers\": {\n    \"afl\": {\n      \"type\": \"http\",\n      \"url\": \"{{URL}}\"\n    }\n  }\n}",
+      "note": "若版本较旧不认 type: http，可用 mcp-remote 桥接：command=npx, args=[\"-y\",\"mcp-remote\",\"{{URL}}\"]。"
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "scope": "项目 .cursor/mcp.json 或全局 ~/.cursor/mcp.json",
+      "language": "json",
+      "cli": "",
+      "template": "{\n  \"mcpServers\": {\n    \"afl\": {\n      \"url\": \"{{URL}}\"\n    }\n  }\n}",
+      "note": "配置在启动时加载，改完需重启 Cursor。所有 MCP 工具合计上限约 40 个。"
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode v2",
+      "scope": "项目 opencode.json 或 ~/.config/opencode/opencode.json",
+      "language": "json",
+      "cli": "opencode mcp add afl --url {{URL}}",
+      "template": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {\n    \"servers\": {\n      \"afl\": {\n        \"type\": \"remote\",\n        \"url\": \"{{URL}}\",\n        \"oauth\": false\n      }\n    }\n  }\n}",
+      "note": "v2 必须嵌在 mcp.servers 下。旧版直接写 mcp.afl（无 servers 层）。remote 默认走 OAuth，本站不需要，务必 oauth: false。"
+    },
+    {
+      "id": "codex",
+      "name": "Codex / 通用 CLI Agent",
+      "scope": "~/.codex/config.toml",
+      "language": "toml",
+      "cli": "",
+      "template": "[mcp_servers.afl]\nurl = \"{{URL}}\"\n",
+      "note": "Codex 配置为每用户级别；远程服务可用 bearer_token_env_var 注入凭证。"
+    },
+    {
+      "id": "workbuddy",
+      "name": "CodeBuddy / WorkBuddy / CodeDesk",
+      "scope": "~/.workbuddy/mcp.json",
+      "language": "json",
+      "cli": "",
+      "template": "{\n  \"mcpServers\": {\n    \"afl\": {\n      \"url\": \"{{URL}}\"\n    }\n  }\n}",
+      "note": "写入后需在连接器管理页右上角「自定义连接器」入口点一次 Trust 才会生效。也可把 skills/afl-league/SKILL.md 放进项目 .workbuddy/skills/ 让 Agent 自动获得操作说明。"
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf",
+      "scope": "~/.codeium/windsurf/mcp_config.json",
+      "language": "json",
+      "cli": "",
+      "template": "{\n  \"mcpServers\": {\n    \"afl\": {\n      \"serverUrl\": \"{{URL}}\"\n    }\n  }\n}",
+      "note": "Windsurf 用 serverUrl 字段名，与 Cursor 的 url 不同。"
+    },
+    {
+      "id": "generic",
+      "name": "通用 MCP 客户端 / DS 等 Agent 平台",
+      "scope": "任意支持 Streamable HTTP 的客户端",
+      "language": "json",
+      "cli": "",
+      "template": "{\n  \"mcpServers\": {\n    \"afl\": {\n      \"type\": \"http\",\n      \"url\": \"{{URL}}\"\n    }\n  }\n}",
+      "note": "只要客户端支持 MCP Streamable HTTP 即可。若客户端仅有 stdio，用 npx -y mcp-remote {{URL}} 桥接。连上后先读 resources/list 与 /SKILL.md。"
+    }
+  ]
+}

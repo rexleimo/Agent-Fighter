@@ -1,0 +1,260 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 632" width="680" height="632">
+<rect width="680" height="632" fill="#0a121b"/>
+<text x="14" y="24" fill="#e7eef6" font-size="15" font-weight="700" font-family="ui-monospace,monospace">骨架 / 判定框 / 帧数据 · 真实内核导出</text>
+<rect x="14" y="34" width="8" height="8" fill="#38d9c0"/><text x="26" y="42" fill="#9fb3c6" font-size="10" font-family="ui-monospace,monospace">HURT 受击框</text><rect x="162" y="34" width="8" height="8" fill="#ff5d6c"/><text x="174" y="42" fill="#9fb3c6" font-size="10" font-family="ui-monospace,monospace">HIT 攻击框</text><rect x="310" y="34" width="8" height="8" fill="#8ea3b8"/><text x="322" y="42" fill="#9fb3c6" font-size="10" font-family="ui-monospace,monospace">PUSH 碰撞框</text><rect x="458" y="34" width="8" height="8" fill="#ffd166"/><text x="470" y="42" fill="#9fb3c6" font-size="10" font-family="ui-monospace,monospace">BONE 骨架</text>
+<rect x="12" y="54" width="320" height="182" rx="7" fill="#101b27" stroke="#22384c"/>
+<text x="24" y="74" fill="#e7eef6" font-size="12" font-weight="600" font-family="ui-monospace,monospace">待机 <tspan fill="#7f94a8" font-size="10">idle</tspan></text>
+<line x1="20" y1="202" x2="324" y2="202" stroke="#31465a" stroke-width="1"/>
+<rect x="137.7" y="121.0" width="17.5" height="81.0" fill="none" stroke="#8ea3b8" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>
+<rect x="139.5" y="111.8" width="13.8" height="16.6" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="135.8" y="135.3" width="21.2" height="30.4" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="136.7" y="169.8" width="19.3" height="40.5" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<line x1="146.4" y1="202.0" x2="146.4" y2="161.5" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="161.5" x2="146.4" y2="137.6" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="137.6" x2="146.4" y2="129.3" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="129.3" x2="146.4" y2="120.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="137.6" x2="153.8" y2="133.9" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="153.8" y1="133.9" x2="160.2" y2="146.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="160.2" y1="146.8" x2="164.8" y2="154.2" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="137.6" x2="140.0" y2="133.9" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="140.0" y1="133.9" x2="134.4" y2="147.7" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="134.4" y1="147.7" x2="130.8" y2="156.0" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="161.5" x2="152.8" y2="180.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="152.8" y1="180.8" x2="156.5" y2="201.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="161.5" x2="140.0" y2="180.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="140.0" y1="180.8" x2="136.3" y2="201.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<circle cx="146.4" cy="202.0" r="1.4" fill="#ffe1a2"/>
+<circle cx="146.4" cy="161.5" r="1.4" fill="#ffe1a2"/>
+<circle cx="146.4" cy="137.6" r="1.4" fill="#ffe1a2"/>
+<circle cx="146.4" cy="129.3" r="1.4" fill="#ffe1a2"/>
+<circle cx="146.4" cy="120.1" r="2.2" fill="#ffe1a2"/>
+<circle cx="153.8" cy="133.9" r="1.4" fill="#ffe1a2"/>
+<circle cx="160.2" cy="146.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="164.8" cy="154.2" r="1.4" fill="#ff9f6b"/>
+<circle cx="140.0" cy="133.9" r="1.4" fill="#ffe1a2"/>
+<circle cx="134.4" cy="147.7" r="1.4" fill="#ffe1a2"/>
+<circle cx="130.8" cy="156.0" r="1.4" fill="#ffe1a2"/>
+<circle cx="152.8" cy="180.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="156.5" cy="201.1" r="1.4" fill="#ff9f6b"/>
+<circle cx="140.0" cy="180.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="136.3" cy="201.1" r="1.4" fill="#ffe1a2"/>
+<rect x="162.0" y="88" width="0.0" height="5" fill="#ffc15c" opacity=".85"/>
+<rect x="162.0" y="88" width="0.0" height="5" fill="#ff5d6c" opacity=".85"/>
+<rect x="162.0" y="88" width="0.0" height="5" fill="#8ca0b8" opacity=".85"/>
+<text x="162" y="106" fill="#8fa4b8" font-size="9" font-family="ui-monospace,monospace">READY</text>
+<text x="24" y="226" fill="#6f869b" font-size="9" font-family="ui-monospace,monospace">中立骨架，三段受击框</text>
+<rect x="344" y="54" width="320" height="182" rx="7" fill="#101b27" stroke="#22384c"/>
+<text x="356" y="74" fill="#e7eef6" font-size="12" font-weight="600" font-family="ui-monospace,monospace">蹲防 <tspan fill="#7f94a8" font-size="10">crouch</tspan></text>
+<line x1="352" y1="202" x2="656" y2="202" stroke="#31465a" stroke-width="1"/>
+<rect x="469.7" y="121.0" width="17.5" height="81.0" fill="none" stroke="#8ea3b8" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>
+<rect x="471.5" y="146.3" width="13.8" height="16.6" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="467.8" y="157.4" width="21.2" height="30.4" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="469.2" y="175.3" width="19.3" height="40.5" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<line x1="478.4" y1="202.0" x2="478.4" y2="178.5" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="178.5" x2="478.4" y2="164.7" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="164.7" x2="478.4" y2="159.7" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="159.7" x2="478.4" y2="154.6" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="164.7" x2="486.2" y2="162.4" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="486.2" y1="162.4" x2="493.1" y2="169.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="493.1" y1="169.8" x2="489.4" y2="172.6" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="164.7" x2="471.5" y2="162.4" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="471.5" y1="162.4" x2="465.5" y2="170.7" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="465.5" y1="170.7" x2="470.1" y2="173.5" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="178.5" x2="488.5" y2="186.4" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="488.5" y1="186.4" x2="492.2" y2="201.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="178.5" x2="469.2" y2="186.4" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="469.2" y1="186.4" x2="466.4" y2="201.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<circle cx="478.4" cy="202.0" r="1.4" fill="#ffe1a2"/>
+<circle cx="478.4" cy="178.5" r="1.4" fill="#ffe1a2"/>
+<circle cx="478.4" cy="164.7" r="1.4" fill="#ffe1a2"/>
+<circle cx="478.4" cy="159.7" r="1.4" fill="#ffe1a2"/>
+<circle cx="478.4" cy="154.6" r="2.2" fill="#ffe1a2"/>
+<circle cx="486.2" cy="162.4" r="1.4" fill="#ffe1a2"/>
+<circle cx="493.1" cy="169.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="489.4" cy="172.6" r="1.4" fill="#ff9f6b"/>
+<circle cx="471.5" cy="162.4" r="1.4" fill="#ffe1a2"/>
+<circle cx="465.5" cy="170.7" r="1.4" fill="#ffe1a2"/>
+<circle cx="470.1" cy="173.5" r="1.4" fill="#ffe1a2"/>
+<circle cx="488.5" cy="186.4" r="1.4" fill="#ffe1a2"/>
+<circle cx="492.2" cy="201.1" r="1.4" fill="#ff9f6b"/>
+<circle cx="469.2" cy="186.4" r="1.4" fill="#ffe1a2"/>
+<circle cx="466.4" cy="201.1" r="1.4" fill="#ffe1a2"/>
+<rect x="494.0" y="88" width="0.0" height="5" fill="#ffc15c" opacity=".85"/>
+<rect x="494.0" y="88" width="0.0" height="5" fill="#ff5d6c" opacity=".85"/>
+<rect x="494.0" y="88" width="0.0" height="5" fill="#8ca0b8" opacity=".85"/>
+<text x="494" y="106" fill="#8fa4b8" font-size="9" font-family="ui-monospace,monospace">READY</text>
+<text x="356" y="226" fill="#6f869b" font-size="9" font-family="ui-monospace,monospace">头框降到 -121，上段拳打空</text>
+<rect x="12" y="244" width="320" height="182" rx="7" fill="#101b27" stroke="#22384c"/>
+<text x="24" y="264" fill="#e7eef6" font-size="12" font-weight="600" font-family="ui-monospace,monospace">重拳 <tspan fill="#7f94a8" font-size="10">hp</tspan></text>
+<line x1="20" y1="392" x2="324" y2="392" stroke="#31465a" stroke-width="1"/>
+<rect x="137.7" y="311.0" width="17.5" height="81.0" fill="none" stroke="#8ea3b8" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>
+<rect x="139.5" y="301.8" width="13.8" height="16.6" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="136.3" y="325.3" width="21.2" height="30.4" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="136.7" y="359.8" width="19.3" height="40.5" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="184.6" y="319.3" width="24.8" height="20.2" fill="rgba(255,93,108,.20)" stroke="#ff5d6c" stroke-width="1.6"/>
+<line x1="146.4" y1="392.0" x2="146.4" y2="351.5" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="351.5" x2="147.8" y2="327.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="147.8" y1="327.1" x2="146.4" y2="319.3" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="319.3" x2="146.4" y2="310.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="147.8" y1="327.1" x2="154.7" y2="324.4" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="154.7" y1="324.4" x2="166.2" y2="332.2" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="166.2" y1="332.2" x2="188.3" y2="331.3" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="147.8" y1="327.1" x2="140.0" y2="323.9" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="140.0" y1="323.9" x2="137.2" y2="339.6" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="137.2" y1="339.6" x2="135.4" y2="347.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="351.5" x2="152.8" y2="370.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="152.8" y1="370.8" x2="156.5" y2="391.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="351.5" x2="140.0" y2="370.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="140.0" y1="370.8" x2="136.3" y2="391.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<circle cx="146.4" cy="392.0" r="1.4" fill="#ffe1a2"/>
+<circle cx="146.4" cy="351.5" r="1.4" fill="#ffe1a2"/>
+<circle cx="147.8" cy="327.1" r="1.4" fill="#ffe1a2"/>
+<circle cx="146.4" cy="319.3" r="1.4" fill="#ffe1a2"/>
+<circle cx="146.4" cy="310.1" r="2.2" fill="#ffe1a2"/>
+<circle cx="154.7" cy="324.4" r="1.4" fill="#ffe1a2"/>
+<circle cx="166.2" cy="332.2" r="1.4" fill="#ffe1a2"/>
+<circle cx="188.3" cy="331.3" r="1.4" fill="#ff9f6b"/>
+<circle cx="140.0" cy="323.9" r="1.4" fill="#ffe1a2"/>
+<circle cx="137.2" cy="339.6" r="1.4" fill="#ffe1a2"/>
+<circle cx="135.4" cy="347.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="152.8" cy="370.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="156.5" cy="391.1" r="1.4" fill="#ff9f6b"/>
+<circle cx="140.0" cy="370.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="136.3" cy="391.1" r="1.4" fill="#ffe1a2"/>
+<rect x="162.0" y="278" width="47.9" height="5" fill="#ffc15c" opacity=".85"/>
+<rect x="209.9" y="278" width="19.2" height="5" fill="#ff5d6c" opacity=".85"/>
+<rect x="229.1" y="278" width="91.0" height="5" fill="#8ca0b8" opacity=".85"/>
+<rect x="214.7" y="276" width="2" height="9" fill="#fff"/>
+<text x="162" y="296" fill="#8fa4b8" font-size="9" font-family="ui-monospace,monospace">10/4/19F · 1 HITBOX</text>
+<text x="24" y="416" fill="#6f869b" font-size="9" font-family="ui-monospace,monospace">handF 前伸，中上段单发框</text>
+<rect x="344" y="244" width="320" height="182" rx="7" fill="#101b27" stroke="#22384c"/>
+<text x="356" y="264" fill="#e7eef6" font-size="12" font-weight="600" font-family="ui-monospace,monospace">重脚 <tspan fill="#7f94a8" font-size="10">hk</tspan></text>
+<line x1="352" y1="392" x2="656" y2="392" stroke="#31465a" stroke-width="1"/>
+<rect x="469.7" y="311.0" width="17.5" height="81.0" fill="none" stroke="#8ea3b8" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>
+<rect x="471.5" y="301.8" width="13.8" height="16.6" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="465.5" y="325.3" width="21.2" height="30.4" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="474.3" y="353.8" width="19.3" height="40.5" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="522.1" y="323.9" width="28.5" height="26.7" fill="rgba(255,93,108,.20)" stroke="#ff5d6c" stroke-width="1.6"/>
+<line x1="478.4" y1="392.0" x2="476.6" y2="351.5" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="476.6" y1="351.5" x2="475.6" y2="327.6" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="475.6" y1="327.6" x2="478.4" y2="319.3" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="319.3" x2="478.4" y2="310.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="475.6" y1="327.6" x2="485.8" y2="323.9" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="485.8" y1="323.9" x2="492.2" y2="336.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="492.2" y1="336.8" x2="496.8" y2="344.2" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="475.6" y1="327.6" x2="472.0" y2="323.9" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="472.0" y1="323.9" x2="466.4" y2="337.7" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="466.4" y1="337.7" x2="460.0" y2="337.7" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="476.6" y1="351.5" x2="495.4" y2="359.3" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="495.4" y1="359.3" x2="527.6" y2="347.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="476.6" y1="351.5" x2="472.0" y2="370.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="472.0" y1="370.8" x2="468.3" y2="391.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<circle cx="478.4" cy="392.0" r="1.4" fill="#ffe1a2"/>
+<circle cx="476.6" cy="351.5" r="1.4" fill="#ffe1a2"/>
+<circle cx="475.6" cy="327.6" r="1.4" fill="#ffe1a2"/>
+<circle cx="478.4" cy="319.3" r="1.4" fill="#ffe1a2"/>
+<circle cx="478.4" cy="310.1" r="2.2" fill="#ffe1a2"/>
+<circle cx="485.8" cy="323.9" r="1.4" fill="#ffe1a2"/>
+<circle cx="492.2" cy="336.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="496.8" cy="344.2" r="1.4" fill="#ff9f6b"/>
+<circle cx="472.0" cy="323.9" r="1.4" fill="#ffe1a2"/>
+<circle cx="466.4" cy="337.7" r="1.4" fill="#ffe1a2"/>
+<circle cx="460.0" cy="337.7" r="1.4" fill="#ffe1a2"/>
+<circle cx="495.4" cy="359.3" r="1.4" fill="#ffe1a2"/>
+<circle cx="527.6" cy="347.8" r="1.4" fill="#ff9f6b"/>
+<circle cx="472.0" cy="370.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="468.3" cy="391.1" r="1.4" fill="#ffe1a2"/>
+<rect x="494.0" y="278" width="49.7" height="5" fill="#ffc15c" opacity=".85"/>
+<rect x="543.7" y="278" width="18.1" height="5" fill="#ff5d6c" opacity=".85"/>
+<rect x="561.8" y="278" width="90.3" height="5" fill="#8ca0b8" opacity=".85"/>
+<rect x="548.2" y="276" width="2" height="9" fill="#fff"/>
+<text x="494" y="296" fill="#8fa4b8" font-size="9" font-family="ui-monospace,monospace">11/4/20F · 1 HITBOX</text>
+<text x="356" y="416" fill="#6f869b" font-size="9" font-family="ui-monospace,monospace">footF 高踢，高段破蹲防</text>
+<rect x="12" y="434" width="320" height="182" rx="7" fill="#101b27" stroke="#22384c"/>
+<text x="24" y="454" fill="#e7eef6" font-size="12" font-weight="600" font-family="ui-monospace,monospace">升龙 <tspan fill="#7f94a8" font-size="10">dp</tspan></text>
+<line x1="20" y1="582" x2="324" y2="582" stroke="#31465a" stroke-width="1"/>
+<rect x="137.7" y="501.0" width="17.5" height="81.0" fill="none" stroke="#8ea3b8" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>
+<rect x="145.9" y="489.5" width="13.8" height="16.6" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="138.6" y="513.0" width="21.2" height="30.4" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="138.1" y="541.5" width="19.3" height="40.5" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="147.3" y="458.3" width="44.2" height="81.0" fill="rgba(255,93,108,.20)" stroke="#ff5d6c" stroke-width="1.6"/>
+<line x1="146.4" y1="582.0" x2="147.3" y2="539.2" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="147.3" y1="539.2" x2="151.0" y2="515.3" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="151.0" y1="515.3" x2="146.4" y2="509.3" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="146.4" y1="509.3" x2="152.8" y2="497.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="151.0" y1="515.3" x2="153.8" y2="513.9" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="153.8" y1="513.9" x2="156.5" y2="503.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="156.5" y1="503.8" x2="158.4" y2="507.9" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="151.0" y1="515.3" x2="140.0" y2="513.9" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="140.0" y1="513.9" x2="137.2" y2="526.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="137.2" y1="526.8" x2="132.6" y2="534.2" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="147.3" y1="539.2" x2="156.5" y2="551.6" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="156.5" y1="551.6" x2="160.2" y2="566.4" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="147.3" y1="539.2" x2="139.0" y2="553.5" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="139.0" y1="553.5" x2="135.4" y2="568.2" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<circle cx="146.4" cy="582.0" r="1.4" fill="#ffe1a2"/>
+<circle cx="147.3" cy="539.2" r="1.4" fill="#ffe1a2"/>
+<circle cx="151.0" cy="515.3" r="1.4" fill="#ffe1a2"/>
+<circle cx="146.4" cy="509.3" r="1.4" fill="#ffe1a2"/>
+<circle cx="152.8" cy="497.8" r="2.2" fill="#ffe1a2"/>
+<circle cx="153.8" cy="513.9" r="1.4" fill="#ffe1a2"/>
+<circle cx="156.5" cy="503.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="158.4" cy="507.9" r="1.4" fill="#ff9f6b"/>
+<circle cx="140.0" cy="513.9" r="1.4" fill="#ffe1a2"/>
+<circle cx="137.2" cy="526.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="132.6" cy="534.2" r="1.4" fill="#ffe1a2"/>
+<circle cx="156.5" cy="551.6" r="1.4" fill="#ffe1a2"/>
+<circle cx="160.2" cy="566.4" r="1.4" fill="#ff9f6b"/>
+<circle cx="139.0" cy="553.5" r="1.4" fill="#ffe1a2"/>
+<circle cx="135.4" cy="568.2" r="1.4" fill="#ffe1a2"/>
+<rect x="162.0" y="468" width="13.9" height="5" fill="#ffc15c" opacity=".85"/>
+<rect x="175.9" y="468" width="32.5" height="5" fill="#ff5d6c" opacity=".85"/>
+<rect x="208.4" y="468" width="111.5" height="5" fill="#8ca0b8" opacity=".85"/>
+<rect x="180.6" y="466" width="2" height="9" fill="#fff"/>
+<text x="162" y="486" fill="#8fa4b8" font-size="9" font-family="ui-monospace,monospace">3/7/24F · 1 HITBOX</text>
+<text x="24" y="606" fill="#6f869b" font-size="9" font-family="ui-monospace,monospace">纵向框覆盖 -176..0，可对空</text>
+<rect x="344" y="434" width="320" height="182" rx="7" fill="#101b27" stroke="#22384c"/>
+<text x="356" y="454" fill="#e7eef6" font-size="12" font-weight="600" font-family="ui-monospace,monospace">超必杀 <tspan fill="#7f94a8" font-size="10">super</tspan></text>
+<line x1="352" y1="582" x2="656" y2="582" stroke="#31465a" stroke-width="1"/>
+<rect x="469.7" y="501.0" width="17.5" height="81.0" fill="none" stroke="#8ea3b8" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>
+<rect x="478.9" y="488.6" width="13.8" height="16.6" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="470.6" y="513.9" width="21.2" height="30.4" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="468.7" y="549.8" width="19.3" height="40.5" fill="rgba(56,217,192,.07)" stroke="#38d9c0" stroke-width="1.1"/>
+<rect x="480.2" y="451.4" width="60.7" height="89.2" fill="rgba(255,93,108,.20)" stroke="#ff5d6c" stroke-width="1.6"/>
+<line x1="478.4" y1="582.0" x2="478.4" y2="541.5" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="541.5" x2="483.9" y2="514.4" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="483.9" y1="514.4" x2="478.4" y2="509.3" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="509.3" x2="485.8" y2="496.9" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="483.9" y1="514.4" x2="485.8" y2="513.9" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="485.8" y1="513.9" x2="496.8" y2="512.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="496.8" y1="512.1" x2="500.9" y2="515.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="483.9" y1="514.4" x2="472.0" y2="513.9" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="472.0" y1="513.9" x2="462.8" y2="530.5" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="462.8" y1="530.5" x2="458.2" y2="534.2" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="541.5" x2="484.8" y2="560.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="484.8" y1="560.8" x2="495.9" y2="581.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="478.4" y1="541.5" x2="472.0" y2="560.8" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<line x1="472.0" y1="560.8" x2="464.6" y2="581.1" stroke="#ffd166" stroke-width="1.3" opacity=".85"/>
+<circle cx="478.4" cy="582.0" r="1.4" fill="#ffe1a2"/>
+<circle cx="478.4" cy="541.5" r="1.4" fill="#ffe1a2"/>
+<circle cx="483.9" cy="514.4" r="1.4" fill="#ffe1a2"/>
+<circle cx="478.4" cy="509.3" r="1.4" fill="#ffe1a2"/>
+<circle cx="485.8" cy="496.9" r="2.2" fill="#ffe1a2"/>
+<circle cx="485.8" cy="513.9" r="1.4" fill="#ffe1a2"/>
+<circle cx="496.8" cy="512.1" r="1.4" fill="#ffe1a2"/>
+<circle cx="500.9" cy="515.8" r="1.4" fill="#ff9f6b"/>
+<circle cx="472.0" cy="513.9" r="1.4" fill="#ffe1a2"/>
+<circle cx="462.8" cy="530.5" r="1.4" fill="#ffe1a2"/>
+<circle cx="458.2" cy="534.2" r="1.4" fill="#ffe1a2"/>
+<circle cx="484.8" cy="560.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="495.9" cy="581.1" r="1.4" fill="#ff9f6b"/>
+<circle cx="472.0" cy="560.8" r="1.4" fill="#ffe1a2"/>
+<circle cx="464.6" cy="581.1" r="1.4" fill="#ffe1a2"/>
+<rect x="494.0" y="468" width="30.4" height="5" fill="#ffc15c" opacity=".85"/>
+<rect x="524.4" y="468" width="36.5" height="5" fill="#ff5d6c" opacity=".85"/>
+<rect x="560.9" y="468" width="91.2" height="5" fill="#8ca0b8" opacity=".85"/>
+<rect x="527.4" y="466" width="2" height="9" fill="#fff"/>
+<text x="494" y="486" fill="#8fa4b8" font-size="9" font-family="ui-monospace,monospace">10/12/30F · 1 HITBOX</text>
+<text x="356" y="606" fill="#6f869b" font-size="9" font-family="ui-monospace,monospace">三段独立 hitId，耗 100 气</text>
+<text x="14" y="626" fill="#5f7488" font-size="9" font-family="ui-monospace,monospace">由 scripts/move-sheet.mjs 调用 skeletonFor / boxesFor / framePhase 生成 · 观战画面与命中判定使用同一份数据</text>
+</svg>

@@ -1,0 +1,12 @@
+{
+  "name": "afl-agent-starter",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "可 fork 的 Agent Fighting League 策略包：改 strategy.mjs 就是调你的 skill",
+  "scripts": {
+    "start": "node agent.mjs",
+    "test": "node strategy.test.mjs"
+  },
+  "engines": { "node": ">=22" }
+}

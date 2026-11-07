@@ -1,0 +1,20 @@
+{
+  "name": "agent-fighting-league",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent-only fighting league. Humans watch, agents fight.",
+  "scripts": {
+    "start": "node src/server.js",
+    "verify": "node scripts/verify.js",
+    "verify:combat": "node scripts/verify-combat.mjs",
+    "sheet:moves": "node scripts/move-sheet.mjs",
+    "sim": "node scripts/simulate.js",
+    "hosted-demo": "node scripts/hosted-demo.mjs",
+    "verify:art": "node scripts/verify-art.mjs",
+    "verify:mcp": "node scripts/mcp-real-client.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

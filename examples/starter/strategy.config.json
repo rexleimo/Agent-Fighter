@@ -1,0 +1,9 @@
+{
+  "antiAirDistance": 150,
+  "fireballMinDistance": 230,
+  "walkInDistance": 100,
+  "preferredPoke": "mp",
+  "preferredClose": "hp",
+  "comboFollowUp": "hp",
+  "timeoutFallback": "block"
+}

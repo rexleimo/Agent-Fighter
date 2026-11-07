@@ -1,0 +1,368 @@
+{
+  "generatedAt": "2026-11-07T09:46:44.643Z",
+  "base": "http://127.0.0.1:8792",
+  "client": "official @modelcontextprotocol/sdk Client + StreamableHTTPClientTransport",
+  "checks": [
+    {
+      "name": "M1 官方 MCP SDK 完成 initialize + notifications/initialized 握手",
+      "ok": true,
+      "detail": "server=agent-fighting-league v0.2.0 sdk=1.32.2"
+    },
+    {
+      "name": "M2 标准 tools/list + resources/list + prompts/list 可用",
+      "ok": true,
+      "detail": "tools=18 resources=9 prompts=4"
+    },
+    {
+      "name": "M3 resources/read + prompts/get 返回真实内容",
+      "ok": true,
+      "detail": "skillBytes=9497 rulesMoves=13"
+    },
+    {
+      "name": "M4 tools/call register_agent 签发真实 token",
+      "ok": true,
+      "detail": "agentId=usr_698cf65093 token=ag_19d55…"
+    },
+    {
+      "name": "M5 get_rules 返回 19 动作 + 权威判定框数据",
+      "ok": true,
+      "detail": "actions=19 movesWithHitboxes=11 joints=15 bones=14"
+    },
+    {
+      "name": "M6 模板 -> validate -> simulate 闭环",
+      "ok": true,
+      "detail": "dsl=afl-strategy/1 offlineWinRate=67% games=9"
+    },
+    {
+      "name": "M7 submit_strategy 落库并生成版本 hash",
+      "ok": true,
+      "detail": "versionHash=d80b2807e6f6 rules=10"
+    },
+    {
+      "name": "M8 join_queue 真的进入排位队列并开出房间",
+      "ok": true,
+      "detail": "queuePosition=1 roomId=r_mw67yi9s_3 opponent=Iron Wall"
+    },
+    {
+      "name": "M9 托管策略真的打完一整局并写入战绩",
+      "ok": true,
+      "detail": "matchId=r_mw67yi9s_3_mw67yi9s_1 ticks=538 result=win reason=ko"
+    },
+    {
+      "name": "M10 WebSocket 观战收到服务端实拍 tick（非前端造数）",
+      "ok": true,
+      "detail": "demoTicks=148 rankedTicks=538"
+    },
+    {
+      "name": "M11 默认观战页血量真实变化、有技能动作（内置策略，非外部 AI）",
+      "ok": true,
+      "detail": "hp {\"hpA\":782,\"hpB\":962} -> {\"hpA\":226,\"hpB\":321} skillActions=71"
+    },
+    {
+      "name": "M12 回放状态哈希链逐拍一致（确定性内核，非随机数）",
+      "ok": true,
+      "detail": "ticks=538 mismatches=0 seed=2388734727 events=252"
+    },
+    {
+      "name": "M13 回放里出现技能 / 血量下降 / 明确胜负",
+      "ok": true,
+      "detail": "skills={\"fireball\":13,\"dash\":21,\"super\":4} hpSum 2000->310"
+    },
+    {
+      "name": "M14 观战页 WS 帧 == 回放离线重算帧（页面数字可复现）",
+      "ok": true,
+      "detail": "compared=538 identical=538"
+    },
+    {
+      "name": "M15 战绩计入 Glicko-2 积分与榜单",
+      "ok": true,
+      "detail": "matches=1 rating=1662 wins=1 losses=0 draws=0"
+    }
+  ],
+  "evidence": {
+    "handshake": {
+      "serverInfo": {
+        "name": "agent-fighting-league",
+        "version": "0.2.0"
+      },
+      "capabilities": {
+        "prompts": {
+          "listChanged": false
+        },
+        "resources": {
+          "subscribe": false,
+          "listChanged": false
+        },
+        "tools": {
+          "listChanged": false
+        }
+      },
+      "transport": "Streamable HTTP (POST /mcp)"
+    },
+    "capabilities": {
+      "tools": [
+        "register_agent",
+        "update_strategy",
+        "get_rules",
+        "get_observation_schema",
+        "join_queue",
+        "submit_strategy",
+        "get_strategy_template",
+        "validate_strategy",
+        "simulate_strategy",
+        "list_fighters",
+        "create_room",
+        "join_room",
+        "list_rooms",
+        "get_my_matches",
+        "get_match_result",
+        "get_leaderboard",
+        "get_replay",
+        "get_agent_stats"
+      ],
+      "resources": [
+        "afl://skill",
+        "afl://strategy-dsl",
+        "afl://strategy-template",
+        "afl://rules",
+        "afl://observation-schema",
+        "afl://fighters",
+        "afl://rooms",
+        "afl://onboarding",
+        "afl://troubleshooting"
+      ],
+      "prompts": [
+        "first-match",
+        "tune-strategy",
+        "analyze-replay",
+        "scrim-rematch"
+      ]
+    },
+    "simulate": {
+      "overallWinRate": 67,
+      "games": 9,
+      "rows": [
+        {
+          "opponent": "brawler",
+          "wins": 3,
+          "losses": 0,
+          "draws": 0,
+          "winRate": 100,
+          "avgHpLeft": 492,
+          "avgTicks": 90
+        },
+        {
+          "opponent": "zoner",
+          "wins": 0,
+          "losses": 0,
+          "draws": 3,
+          "winRate": 0,
+          "avgHpLeft": 0,
+          "avgTicks": 167
+        },
+        {
+          "opponent": "turtle",
+          "wins": 3,
+          "losses": 0,
+          "draws": 0,
+          "winRate": 100,
+          "avgHpLeft": 310,
+          "avgTicks": 538
+        }
+      ],
+      "note": "离线模拟，不是排行榜数据"
+    },
+    "spectate": {
+      "demoRoomTicks": 148,
+      "demoHelloPresence": {
+        "onlineAgents": 0,
+        "waiting": 0,
+        "spectators": 1,
+        "totalRooms": 3,
+        "finishedRooms": 0,
+        "queue": []
+      },
+      "rankedRoomTicks": 538
+    },
+    "demoRoom": {
+      "actions": {
+        "dp": 12,
+        "hp": 11,
+        "hk": 14,
+        "lp": 37,
+        "lk": 8,
+        "ex": 13,
+        "crouch": 7,
+        "throw": 12,
+        "block": 120,
+        "walk_b": 9,
+        "dash": 7,
+        "jump": 5,
+        "mp": 7,
+        "super": 10,
+        "special": 13,
+        "mk": 4,
+        "fireball": 4,
+        "walk_f": 3
+      },
+      "firstHp": {
+        "hpA": 782,
+        "hpB": 962
+      },
+      "lastHp": {
+        "hpA": 226,
+        "hpB": 321
+      },
+      "hpChanged": true,
+      "skillActions": 71
+    },
+    "match": {
+      "matchId": "r_mw67yi9s_3_mw67yi9s_1",
+      "result": "win",
+      "reason": "ko",
+      "winner": "a",
+      "hpA": 310,
+      "hpB": 0,
+      "ticks": 538,
+      "seed": 2388734727,
+      "stateHashMismatches": 0,
+      "actionCounts": {
+        "fireball": 13,
+        "dash": 21,
+        "block": 703,
+        "mp": 292,
+        "super": 4,
+        "lp": 5,
+        "hp": 38
+      },
+      "skillActions": {
+        "fireball": 13,
+        "dash": 21,
+        "super": 4
+      },
+      "events": 252,
+      "hpStart": {
+        "tick": 0,
+        "hpA": 1000,
+        "hpB": 1000,
+        "meterA": 0,
+        "meterB": 0
+      },
+      "hpEnd": {
+        "tick": 537,
+        "hpA": 310,
+        "hpB": 0,
+        "meterA": 300,
+        "meterB": 0
+      },
+      "ratingDelta": 162.3
+    },
+    "frameParity": {
+      "compared": 538,
+      "identical": 538,
+      "firstDiff": null
+    },
+    "ranking": {
+      "leaderboardTop": [
+        {
+          "rank": 1,
+          "id": "usr_698cf65093",
+          "name": "Independent MCP Probe",
+          "label": "我的 Agent",
+          "kind": "rule",
+          "track": "rule_only",
+          "source": "hosted",
+          "versionHash": "d80b2807e6f6",
+          "fighterId": "quartz",
+          "rating": 1662,
+          "rd": 290,
+          "matches": 1,
+          "wins": 1,
+          "losses": 0,
+          "draws": 0,
+          "winRate": 100,
+          "modelCallsPerMatch": 0,
+          "timeouts": 0
+        },
+        {
+          "rank": 2,
+          "id": "demo_hosted",
+          "name": "Hosted Baseline",
+          "label": "托管策略基线",
+          "kind": "rule",
+          "track": "rule_only",
+          "source": "hosted",
+          "versionHash": "d80b2807e6f6",
+          "fighterId": "quartz",
+          "rating": 1594,
+          "rd": 87,
+          "matches": 21,
+          "wins": 1,
+          "losses": 0,
+          "draws": 20,
+          "winRate": 5,
+          "modelCallsPerMatch": 0,
+          "timeouts": 0
+        },
+        {
+          "rank": 3,
+          "id": "zoner",
+          "name": "Blue Wave",
+          "label": "波动牵制",
+          "kind": "rule",
+          "track": "rule_only",
+          "source": "builtin",
+          "versionHash": "ccd199ccfb77",
+          "fighterId": "quartz",
+          "rating": 1593,
+          "rd": 87,
+          "matches": 20,
+          "wins": 0,
+          "losses": 0,
+          "draws": 20,
+          "winRate": 0,
+          "modelCallsPerMatch": 0,
+          "timeouts": 0
+        }
+      ],
+      "stats": {
+        "id": "usr_698cf65093",
+        "name": "Independent MCP Probe",
+        "rating": 1662,
+        "rd": 290,
+        "matches": 1,
+        "wins": 1,
+        "losses": 0,
+        "draws": 0,
+        "modelCalls": 0,
+        "timeouts": 0,
+        "versionHash": "d80b2807e6f6",
+        "strategyHash": "d80b2807e6f62c30",
+        "strategyNote": "anti-air-zoner",
+        "defaultAction": "block",
+        "source": "hosted",
+        "fighterId": "quartz",
+        "hosted": true,
+        "strategyName": "anti-air-zoner",
+        "ruleCount": 10,
+        "autoRequeue": true,
+        "history": [
+          {
+            "matchId": "r_mw67yi9s_3_mw67yi9s_1",
+            "result": "a",
+            "reason": "ko",
+            "rating": 1662
+          }
+        ]
+      }
+    }
+  },
+  "sdkRoot": "D:/Temp/afl-mcp-probe/node_modules",
+  "sdkVersion": "1.32.2",
+  "summary": {
+    "total": 15,
+    "passed": 15,
+    "failed": 0,
+    "connected": true
+  }
+}

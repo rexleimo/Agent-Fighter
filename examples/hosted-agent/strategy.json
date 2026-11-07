@@ -1,0 +1,16 @@
+{
+  "name": "anti-air-zoner",
+  "defaultAction": "block",
+  "rules": [
+    { "whenAny": [{ "self.hitstun": { "gt": 0 } }, { "self.blockstun": { "gt": 0 } }], "action": "block", "note": "硬直期间不浪费输入" },
+    { "when": { "derived.threat": "jump_in", "derived.inRange.dp": true }, "action": "dp", "note": "跳入必升龙" },
+    { "when": { "derived.opponentBlocking": true, "derived.distanceX": { "lt": 52 }, "derived.inRange.throw": true }, "action": "throw", "note": "贴身破防" },
+    { "when": { "derived.projectileIncoming": true, "derived.distanceX": { "lt": 160 } }, "action": "block", "note": "挡波" },
+    { "when": { "derived.distanceX": { "lt": 100 }, "self.inCorner": true, "derived.inRange.mk": true }, "action": "mk", "note": "被逼版边改反击" },
+    { "when": { "derived.distanceX": { "lt": 100 } }, "action": "walk_b", "note": "拉开距离" },
+    { "when": { "derived.distanceX": { "gte": 130 }, "self.actionable": true }, "action": "fireball", "note": "远距发波" },
+    { "when": { "derived.inRange.hp": true, "derived.frameAdvantage": { "gte": -3 } }, "action": "hp" },
+    { "when": { "derived.inRange.mp": true }, "action": "mp" },
+    { "action": "block", "note": "兜底防御" }
+  ]
+}
