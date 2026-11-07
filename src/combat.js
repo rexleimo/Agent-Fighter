@@ -13,7 +13,7 @@
  * World conversion applies `facing` and the fighter's (x, y) position.
  * The browser adds GROUND to every world y it receives.
  */
-import { MOVES, moveTotal } from './rules.js';
+import { MOVES, KITS, moveFor, totalFor } from './rules.js';
 
 /** Bone graph. Front limbs are the ones on the opponent's side. */
 export const BONES = Object.freeze([
@@ -56,14 +56,14 @@ function mixJoint(p, key, x, y, t = 1) {
 
 /** Where a move currently is: startup / active / recovery / free. */
 export function framePhase(f) {
-  const m = MOVES[f.moveId];
+  const m = moveFor(f, f.moveId);
   if (!m || (f.state !== 'attack' && f.state !== 'projectile' && f.state !== 'special' && f.state !== 'dash')) {
     return {
       moveId: f.moveId || null, phase: 'none', frame: 0, total: 0,
       startup: 0, active: 0, recovery: 0, cancelable: false, cancelInto: [],
     };
   }
-  const total = moveTotal(f.moveId);
+  const total = totalFor(f, f.moveId);
   const n = f.moveFrame;
   const phase = n < m.startup ? 'startup' : n < m.startup + m.active ? 'active' : 'recovery';
   const hitLanded = f.hasHit || (f.hitIds && f.hitIds.length > 0);
@@ -88,8 +88,8 @@ export function framePhase(f) {
 export function poseFor(f, frame = 0) {
   const p = clonePose();
   const state = f.state || 'idle';
-  const m = MOVES[f.moveId];
-  const total = m ? moveTotal(f.moveId) : 1;
+  const m = moveFor(f, f.moveId);
+  const total = m ? totalFor(f, f.moveId) : 1;
   const t = m ? clamp01(f.moveFrame / Math.max(1, total)) : 0;
   const swing = Math.sin(clamp01(t) * Math.PI);
   const breath = Math.sin(frame * 0.09) * 1.6;
@@ -134,21 +134,94 @@ export function poseFor(f, frame = 0) {
   if (m && (state === 'attack' || state === 'projectile' || state === 'special')) {
     const windup = m.startup ? clamp01(f.moveFrame / m.startup) : 1;
     const strike = m.active ? clamp01((f.moveFrame - m.startup) / m.active) : 1;
+    // Light and heavy share a pose family but not the same travel: a jab must
+    // not read as a haymaker. `power` widens the *reach* of the strike (and the
+    // counter-rotation of the body), never the windup fraction — otherwise a
+    // jab would fall short of the box its own frame data promises.
+    const power = clamp01(((m.damage || 40) - 30) / 80);
     const ext = f.moveFrame >= m.startup ? swing : 1 - windup;
     switch (m.pose) {
       case 'punch': {
         mixJoint(p, 'chest', 6, -142, 0.5 * ext);
         mixJoint(p, 'shoulderF', 20, -146, 0.6 * ext);
         p.elbowF = [lerp(24, 46, ext), lerp(-118, -132, ext)];
-        p.handF = [lerp(20, 102, ext), lerp(-108, -136, ext)];
+        p.handF = [lerp(20, 96 + 30 * power, ext), lerp(-108, -136, ext)];
         p.handB = [-24, -96]; p.elbowB = [-20, -114];
+        // Heavy punches also drive the rear shoulder back, so the whole upper
+        // body counters instead of one arm waving.
+        p.shoulderB = [-14 - 10 * ext * power, -148];
         break;
       }
       case 'kick': {
         p.hip[0] -= 4;
         p.kneeF = [lerp(18, 40, ext), lerp(-50, -74, ext)];
-        p.footF = [lerp(26, 118, ext), lerp(-6, m.height === 'high' ? -108 : -42, ext)];
+        p.footF = [lerp(26, 118 + 26 * power, ext), lerp(-6, m.height === 'high' ? -108 : -42, ext)];
         p.handB = [-40, -118]; p.chest[0] -= 6;
+        break;
+      }
+      case 'rush': {
+        // Deep lunge: the body travels forward and low, the front arm is
+        // cocked back during startup and thrown through during the active frames.
+        const lunge = 1 - windup * 0.5;
+        p.hip = [16 * lunge, lerp(-88, -76, strike)];
+        p.chest = [lerp(2, 26, strike), -132];
+        p.neck = [lerp(4, 30, strike), -150];
+        p.head = [lerp(6, 34, strike), -170];
+        p.kneeF = [30, -44]; p.footF = [58, -2];
+        p.kneeB = [-16, -50]; p.footB = [-34, -2];
+        p.elbowF = [lerp(-4, 22, ext), lerp(-120, -126, ext)];
+        p.handF = [lerp(-26, 84, ext), lerp(-112, -132, ext)];
+        p.elbowB = [-30, -118]; p.handB = [-48, -104];
+        break;
+      }
+      case 'volley': {
+        // Both hands push the energy out; the fighter sinks into a wide stance
+        // because the recovery is long and he cannot walk during it.
+        p.chest = [lerp(-2, 10, ext), -138];
+        p.elbowF = [lerp(22, 40, ext), -130];
+        p.handF = [lerp(14, 74, ext), lerp(-124, -120, ext)];
+        p.elbowB = [lerp(-16, 22, ext), -126];
+        p.handB = [lerp(-24, 60, ext), lerp(-120, -116, ext)];
+        p.kneeF = [20, -48]; p.footF = [36, -2];
+        p.kneeB = [-18, -46]; p.footB = [-30, -2];
+        break;
+      }
+      case 'counter': {
+        // Weight back, both forearms up: a stance the opponent can read and
+        // punish if they simply wait it out.
+        p.hip = [-8, -84];
+        p.chest = [-14, -138]; p.neck = [-16, -156]; p.head = [-18, -176];
+        p.shoulderF = [-2, -146]; p.elbowF = [8, -132]; p.handF = [16, -160];
+        p.shoulderB = [-26, -146]; p.elbowB = [-16, -130]; p.handB = [-8, -156];
+        p.kneeF = [10, -44]; p.footF = [16, -2];
+        p.kneeB = [-20, -44]; p.footB = [-30, -2];
+        break;
+      }
+      case 'antiAir': {
+        // Rising: the hip leaves the ground and both legs tuck, so the hurtbox
+        // really does climb with the hitbox.
+        const rise = strike;
+        p.hip = [2, lerp(-88, -128, rise)];
+        p.chest = [10, lerp(-140, -180, rise)];
+        p.neck = [12, lerp(-158, -198, rise)];
+        p.head = [14, lerp(-178, -218, rise)];
+        p.elbowF = [22, lerp(-170, -190, rise)];
+        p.handF = [26, lerp(-150, -228, rise)];
+        p.elbowB = [-20, -120]; p.handB = [-30, -104];
+        p.kneeF = [22, lerp(-66, -84, rise)]; p.footF = [30, lerp(-34, -56, rise)];
+        p.kneeB = [-16, lerp(-62, -80, rise)]; p.footB = [-24, lerp(-30, -52, rise)];
+        break;
+      }
+      case 'multi': {
+        // Alternating hands: the second hit comes from the rear hand, so the
+        // two hitboxes read as two different strikes.
+        const alt = Math.sin(clamp01(strike) * Math.PI * 2);
+        p.chest = [6 + 6 * alt, -140];
+        p.elbowF = [lerp(26, 50, ext), -128];
+        p.handF = [lerp(22, 96, ext), lerp(-112, -130, ext)];
+        p.elbowB = [lerp(-22, 14, Math.max(0, alt)), -124];
+        p.handB = [lerp(-30, 78, Math.max(0, alt)), lerp(-104, -126, Math.max(0, alt))];
+        p.kneeF = [18, -46]; p.footF = [28, -2];
         break;
       }
       case 'dp': {
@@ -262,7 +335,7 @@ export function pushboxFor(f) {
 
 /** World-space active hitboxes, anchored to skeleton joints. */
 export function hitboxesFor(f, frame = 0) {
-  const m = MOVES[f.moveId];
+  const m = moveFor(f, f.moveId);
   if (!m || !m.hitboxes || (f.state !== 'attack' && f.state !== 'special' && f.state !== 'projectile')) return [];
   const p = poseFor(f, frame);
   const out = [];
@@ -280,6 +353,7 @@ export function hitboxesFor(f, frame = 0) {
       kind: 'hit', move: f.moveId, hitId: hb.hitId || 0,
       height: hb.height || m.height || 'mid',
       damage: Math.round((hb.damageScale || 1) * m.damage),
+      moveTotal: totalFor(f, f.moveId),
       hitstun: m.hitstun, blockstun: m.blockstun,
       pushback: m.pushback,
       // For multi-hit moves only the segment explicitly marked knocks down,
@@ -296,9 +370,11 @@ export function hitboxesFor(f, frame = 0) {
 
 /** Projectiles carry their own hitbox; no distance shortcut. */
 export function projectileBox(p) {
+  const w = p.w || 30;
+  const h = p.h || 40;
   return {
-    x: Math.round(p.x - 15), y: Math.round(p.y - 22), w: 30, h: 40,
-    kind: 'hit', move: 'fireball', hitId: 0, height: 'mid',
+    x: Math.round(p.x - w / 2), y: Math.round(p.y - h / 2), w, h,
+    kind: 'hit', move: p.move || 'fireball', hitId: 0, height: 'mid',
     damage: p.damage, hitstun: p.hitstun || 16, blockstun: p.blockstun || 10,
     pushback: 9, knockdown: Boolean(p.knockdown), launch: false,
     hitstop: p.hitstop || 4, meterGain: 12, unblockable: false,
@@ -351,13 +427,32 @@ export function publicBoxData() {
     moves[id] = {
       label: m.label, kind: m.kind, pose: m.pose || null,
       startup: m.startup, active: m.active, recovery: m.recovery,
-      totalFrames: moveTotal(id), damage: m.damage || 0,
+      totalFrames: m.startup + m.active + m.recovery, damage: m.damage || 0,
       height: m.height || null, range: m.range || 0,
       meterCost: m.meterCost || 0, cancelInto: m.cancelInto || [],
       cancelWindow: m.cancelWindow || 0, knockdown: Boolean(m.knockdown),
       invuln: m.invuln || 0, armor: m.armor || 0,
       multiHit: Boolean(m.multiHit), hitstop: m.hitstop || 4,
       hitboxes: (m.hitboxes || []).map((h) => ({ ...h })),
+    };
+  }
+  const kits = {};
+  for (const [id, k] of Object.entries(KITS)) {
+    kits[id] = {
+      label: k.label, blurb: k.blurb, tags: [...k.tags],
+      moves: Object.fromEntries(Object.entries(k.moves).map(([action, m]) => [action, {
+        label: m.label, kind: m.kind, pose: m.pose || null,
+        startup: m.startup, active: m.active, recovery: m.recovery,
+        totalFrames: m.startup + m.active + m.recovery, damage: m.damage || 0,
+        height: m.height || null, range: m.range || 0,
+        meterCost: m.meterCost || 0, cancelInto: m.cancelInto || [], cancelWindow: m.cancelWindow || 0,
+        knockdown: Boolean(m.knockdown), invuln: m.invuln || 0, armor: m.armor || 0,
+        multiHit: Boolean(m.multiHit), hitstop: m.hitstop || 4,
+        advance: m.advance ? m.advance.vx : 0,
+        projectile: m.projectile ? { ...m.projectile } : null,
+        counter: m.counter ? { ...m.counter } : null,
+        hitboxes: (m.hitboxes || []).map((h) => ({ ...h })),
+      }])),
     };
   }
   return {
@@ -367,5 +462,8 @@ export function publicBoxData() {
     hurtboxRule: 'head/torso/legs boxes are derived from the live skeleton joints every frame',
     colors: HITBOX_COLORS,
     moves,
+    // Per-fighter skill kits: the three meter actions resolve through these.
+    kits,
+    kitNote: 'A fighter fights with KITS[fighter.kit].moves[action] when that action is special/ex/super, otherwise with moves[action].',
   };
 }

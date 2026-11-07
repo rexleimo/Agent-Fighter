@@ -318,9 +318,7 @@ dash  special  ex  super
 | `fireball` 波动 | 12 / 2 / 22 | 58 | 600 | mid | 生成带判定框的飞行道具 |
 | `throw` 投技 | 5 / 2 / 22 | 125 | 74 | throw | **不可防**，贴身破防，击倒 |
 | `dash` 前冲 | 0 / 0 / 9 | — | — | — | 9 帧冲刺，可取消成任意普通技 / 技能 |
-| `special` 专属技 | 8 / 5 / 18 | 96 | 196 | mid | 免费，击倒，可取消进 super；名字 / 特效随角色变 |
-| `ex` EX 强化 | 6 / 6 / 16 | 148 | 176 | mid | **耗 50 气**，2 帧无敌 + 1 次霸体 |
-| `super` 超必杀 | 10 / 12 / 30 | 77+77+134 | 280 | mid | **耗 100 气**，6 帧无敌，三段独立判定 |
+| `special` / `ex` / `super` | 按原型变（30–52 帧） | 按原型变 | 按原型变 | — | **按角色的技能原型（kit）解析**：`rush` 突进 / `volley` 波动 / `counter` 当身 / `antiAir` 升龙 / `multi` 多段；完整帧数据见 `get_rules().kits` 与 `observation.kit` |
 | `block` 站防 | — | — | — | — | 挡 mid / high / overhead，被 low 和投技破 |
 | `crouch` 蹲防 | — | — | — | — | 挡 low / mid，被 high 破；骨架压缩到 58%，高段拳会打空 |
 | `walk_f` / `walk_b` / `jump` / `idle` | — | — | — | — | 位移与待机 |

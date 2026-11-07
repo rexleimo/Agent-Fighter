@@ -144,7 +144,7 @@ export class Room {
     this.counter += 1;
     const matchId = this.id + '_' + Date.now().toString(36) + '_' + this.counter;
     const seed = (Date.now() ^ Math.imul(this.counter * 2654435761, 40503)) >>> 0;
-    const match = createMatch({ seed, matchId, agents: [a, b] });
+    const match = createMatch({ seed, matchId, agents: [a, b], fighters: this.fighters });
     this.current = {
       matchId, seed, match, a, b,
       pending: { a: null, b: null },

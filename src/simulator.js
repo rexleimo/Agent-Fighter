@@ -7,7 +7,7 @@ import { CONFIG } from './rules.js';
 // and see tick by tick where your decisions diverge from the recorded ones.
 export function simulateReplay(text, policy, { side = 'a', matchId = 'local' } = {}) {
   const replay = parseReplay(text, matchId);
-  let state = createInitialState(replay.seed, matchId);
+  let state = createInitialState(replay.seed, matchId, replay.fighters || {});
   const history = [];
   const diffs = [];
   for (const rec of replay.ticks) {

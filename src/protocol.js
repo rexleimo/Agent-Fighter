@@ -1,4 +1,4 @@
-import { ACTIONS, CONFIG, MOVES, moveTotal } from './rules.js';
+import { ACTIONS, CONFIG, KITS, MOVES, moveFor, moveDamage, totalFor } from './rules.js';
 import { framePhase, hitboxesFor, hurtboxesFor, overlap, publicBoxData } from './combat.js';
 
 export function validateAction(action) {
@@ -6,7 +6,7 @@ export function validateAction(action) {
 }
 
 function fighterView(f) {
-  const total = f.moveId ? moveTotal(f.moveId) : 0;
+  const total = f.moveId ? totalFor(f, f.moveId) : 0;
   const inAttack = f.state === 'attack' || f.state === 'projectile' || f.state === 'special';
   const phase = framePhase(f);
   return {
@@ -18,8 +18,11 @@ function fighterView(f) {
     vy: f.vy,
     facing: f.facing,
     state: f.state,
+    fighterId: f.fighterId,
+    kit: f.kit,
     moveId: f.moveId,
     moveFrame: f.moveFrame,
+    counterWindow: f.counterWindow,
     moveFrames: total,
     recovery: inAttack ? Math.max(0, total - f.moveFrame) : 0,
     hitstun: f.hitstun,
@@ -32,7 +35,7 @@ function fighterView(f) {
     phase: phase.phase,
     canCancel: phase.cancelable,
     cancelInto: phase.cancelInto,
-    meterCost: f.moveId ? (MOVES[f.moveId].meterCost || 0) : 0,
+    meterCost: f.moveId ? (moveFor(f, f.moveId).meterCost || 0) : 0,
     canEx: f.meter >= CONFIG.EX_COST,
     canSuper: f.meter >= CONFIG.SUPER_COST,
     inCorner: f.x <= CONFIG.STAGE_LEFT + 8 || f.x >= CONFIG.STAGE_RIGHT - 8,
@@ -46,6 +49,32 @@ export function moveDictionary() {
   return publicBoxData();
 }
 
+/** The fighter's own kit: three skills, each with the mechanic it carries. */
+function kitObservation(f) {
+  const k = KITS[f.kit];
+  if (!k) return null;
+  const skills = {};
+  for (const action of ['special', 'ex', 'super']) {
+    const m = moveFor(f, action);
+    skills[action] = {
+      name: m.label,
+      mechanic: m.projectile ? 'projectile' : m.counter ? 'counter'
+        : m.advance ? 'advance' : m.multiHit ? 'multi-hit' : (m.invuln ? 'invuln' : 'strike'),
+      startup: m.startup, active: m.active, recovery: m.recovery,
+      potentialDamage: moveDamage(m),
+      range: m.range || 0,
+      meterCost: m.meterCost || 0,
+      knockdown: Boolean(m.knockdown),
+      invuln: m.invuln || 0,
+      armor: m.armor || 0,
+      advance: m.advance ? m.advance.vx : 0,
+      projectile: m.projectile ? { speed: m.projectile.speed, count: m.projectile.count || 1, damage: m.projectile.damage } : null,
+      counter: m.counter ? { ...m.counter } : null,
+    };
+  }
+  return { id: k.id, label: k.label, blurb: k.blurb, tags: [...k.tags], skills };
+}
+
 export function buildObservation(state, side, tick, deadlineMs, history, seed) {
   const other = side === 'a' ? 'b' : 'a';
   const self = state[side];
@@ -56,7 +85,8 @@ export function buildObservation(state, side, tick, deadlineMs, history, seed) {
   const airborne = opp.y < -20;
   const inRange = {};
   for (const id of Object.keys(MOVES)) {
-    if (MOVES[id].range) inRange[id] = dx <= MOVES[id].range;
+    const m = moveFor(self, id);
+    if (m.range) inRange[id] = dx <= m.range;
   }
   const threat = state.projectiles.some((p) => p.owner !== side && Math.abs(p.x - self.x) < 180)
     ? 'projectile'
@@ -71,7 +101,7 @@ export function buildObservation(state, side, tick, deadlineMs, history, seed) {
   const myHurt = hurtboxesFor(self, state.frame);
   const boxOverlap = oppBoxes.some((hb) => myHurt.some((h) => overlap(hb, h)));
   const phase = framePhase(self);
-  const currentMove = self.moveId ? MOVES[self.moveId] : null;
+  const currentMove = self.moveId ? moveFor(self, self.moveId) : null;
 
   return {
     matchId: state.matchId,
@@ -83,6 +113,7 @@ export function buildObservation(state, side, tick, deadlineMs, history, seed) {
     seed,
     self: selfView,
     opponent: oppView,
+    kit: kitObservation(self),
     derived: {
       distanceX: dx,
       frameAdvantage: (opp.hitstun + opp.blockstun) - selfView.recovery,

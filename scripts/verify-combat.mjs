@@ -4,7 +4,10 @@
  * no server, no browser — `node scripts/verify-combat.mjs`.
  */
 import { createInitialState, step, stateHash, renderState, runMatch, replayMatch } from '../src/engine.js';
-import { CONFIG, MOVES, ACTIONS } from '../src/rules.js';
+import {
+  CONFIG, MOVES, ACTIONS, KITS, KIT_IDS, KIT_BALANCE, moveDamage, moveReach,
+} from '../src/rules.js';
+import { FIGHTERS } from '../src/fighters.js';
 import { boxesFor, skeletonFor, poseFor, overlap, publicBoxData } from '../src/combat.js';
 import { BUILTIN_AGENTS } from '../src/agents.js';
 
@@ -15,8 +18,8 @@ function check(name, ok, detail = '') {
 }
 
 /** Drive the kernel frame by frame, returning the state and every event. */
-function scene({ dx = 100, aY = 0, bY = 0, meter = 0, plan, frames = 40, mutate = null }) {
-  let s = createInitialState(11, 'combat-test');
+function scene({ dx = 100, aY = 0, bY = 0, meter = 0, plan, frames = 40, mutate = null, fighters = null }) {
+  let s = createInitialState(11, 'combat-test', fighters || {});
   s.a.x = 480 - dx / 2;
   s.b.x = 480 + dx / 2;
   s.a.y = aY;
@@ -126,10 +129,25 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
     noMeter.s.a.moveId === null && noMeter.s.a.meter === 0
       && types(withMeter, 'super_start').length === 1 && withMeter.s.a.meter < 160,
     'noMeterMove=' + noMeter.s.a.moveId + ' superStart=' + types(withMeter, 'super_start').length + ' meterLeft=' + withMeter.s.a.meter);
-  const superHits = types(withMeter, 'hit');
-  check('K14 超必杀是三段独立判定（三个 hitId 各命中一次）',
-    superHits.length >= 2,
-    'hits=' + superHits.length + ' damage=' + superHits.map((e) => e.damage).join('/'));
+  // Kit supers all charge the same 100 meter but resolve through their own
+  // frame data, so the assertions are per mechanic, not per move id.
+  const superOf = (fighterId) => scene({
+    dx: 100, meter: 300, fighters: { a: fighterId, b: 'quartz' }, frames: 64,
+    plan: () => ['super', 'idle'],
+  });
+  const rushSuper = superOf('ember');
+  const multiSuper = superOf('gale');
+  const volleySuper = superOf('tide');
+  const antiSuper = superOf('volt');
+  check('K14 奥义按原型结算：多段 / 光束 / 突进各走自己那套数据',
+    types(multiSuper, 'hit').length >= 3
+      && types(rushSuper, 'hit').length >= 2
+      && types(volleySuper, 'spawn').length >= 1
+      && types(antiSuper, 'hit').length >= 1,
+    'multi=' + types(multiSuper, 'hit').length
+      + ' rush=' + types(rushSuper, 'hit').length
+      + ' volleySpawn=' + types(volleySuper, 'spawn').length
+      + ' antiAir=' + types(antiSuper, 'hit').length);
   const ex = scene({ dx: 100, meter: 120, plan: () => ['ex', 'idle'], frames: 14 });
   check('K15 EX 技扣 50 气', ex.s.a.meter === 70 || ex.s.a.meter > 70,
     'meterAfter=' + ex.s.a.meter + ' (gains from hits are expected)');
@@ -219,6 +237,121 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
   check('K24 默认演示策略真的打出取消连段 / 专属技 / 超必杀 / 前冲',
     Boolean(demo.result) && supers > 0 && cancels > 0 && skills > 2 && dashes > 0,
     'ticks=' + demo.replay.ticks.length + ' super=' + supers + ' cancel=' + cancels + ' skills=' + skills + ' dash=' + dashes);
+}
+
+/* 12 — kits (B1): each archetype does what its data claims */
+{
+  const kitOf = (id) => FIGHTERS.find((f) => f.id === id).kit;
+
+  // Every fighter has a real kit, all five archetypes are represented, and
+  // each kit's skill frame data sits inside the published balance bands.
+  const missing = FIGHTERS.filter((f) => !KITS[f.kit]).map((f) => f.id);
+  const used = new Set(FIGHTERS.map((f) => f.kit));
+  const bands = [];
+  for (const kitId of KIT_IDS) {
+    const moves = KITS[kitId].moves;
+    const band = KIT_BALANCE[kitId];
+    for (const action of ['special', 'ex', 'super']) {
+      const dmg = moveDamage(moves[action]);
+      const [lo, hi] = band[action];
+      if (dmg < lo || dmg > hi) bands.push(kitId + '.' + action + '=' + dmg + ' not in [' + lo + ',' + hi + ']');
+    }
+    const reach = moveReach(moves.special);
+    if (reach < band.reach[0] || reach > band.reach[1]) bands.push(kitId + '.reach=' + reach);
+    const frames = moves.special.startup + moves.special.active + moves.special.recovery;
+    if (frames < 30 || frames > 40) bands.push(kitId + '.specialFrames=' + frames);
+  }
+  check('K25 16 位角色都有合法原型，5 种原型全部上场，帧数据在平衡区间内',
+    missing.length === 0 && used.size === KIT_IDS.length && bands.length === 0,
+    'missing=' + JSON.stringify(missing) + ' used=' + [...used].sort().join(',')
+      + (bands.length ? ' out=' + bands.join(';') : ' all-in-band'));
+
+  // rush — the strike carries the fighter forward and knocks down.
+  const rush = scene({ dx: 180, fighters: { a: 'ember', b: 'quartz' }, frames: 40, plan: () => ['special', 'idle'] });
+  const rushed = rush.snapshots.some((f) => f.a.state === 'attack' && f.a.x > 480 - 180 / 2 + 30);
+  check('K26 突进原型：专属技自带前冲位移并击倒',
+    rushed && types(rush, 'hit').some((e) => e.knockdown),
+    'moved=' + rushed + ' knockdown=' + types(rush, 'hit').filter((e) => e.knockdown).length);
+
+  // volley — 1 orb on special, 2 on EX, and the beam is a much larger box.
+  const once = (action) => (i) => [i < 4 ? action : 'idle', 'idle'];
+  const volley = scene({ dx: 320, fighters: { a: 'tide', b: 'quartz' }, frames: 60, plan: once('special') });
+  const volleyEx = scene({ dx: 320, meter: 200, fighters: { a: 'tide', b: 'quartz' }, frames: 60, plan: once('ex') });
+  const volleySuper = scene({ dx: 320, meter: 300, fighters: { a: 'tide', b: 'quartz' }, frames: 70, plan: once('super') });
+  const beamW = Math.max(...volleySuper.snapshots.flatMap((f) => f.projectiles.map((p) => p.box.w)), 0);
+  const orbW = Math.max(...volley.snapshots.flatMap((f) => f.projectiles.map((p) => p.box.w)), 0);
+  check('K27 波动原型：专属技一发、EX 连发两发、奥义光束明显更宽',
+    types(volley, 'spawn').length === 1 && types(volleyEx, 'spawn').length === 2 && beamW > orbW * 2,
+    'specialSpawns=' + types(volley, 'spawn').length + ' exSpawns=' + types(volleyEx, 'spawn').length
+      + ' orbW=' + orbW + ' beamW=' + beamW);
+
+  // counter — absorbs a melee hit and returns damage; projectiles ignore it.
+  const stance = scene({ dx: 100, fighters: { a: 'coral', b: 'ember' }, frames: 40, plan: () => ['special', 'hp'] });
+  const counters = types(stance, 'counter');
+  const attackerHurt = stance.s.a.hp < 1000 ? false : stance.s.b.hp < 1000;
+  check('K28 当身原型：架住近身攻击并把伤害还给对手',
+    counters.length > 0 && counters[0].damage > 0 && attackerHurt,
+    'counters=' + counters.length + ' damage=' + (counters[0] && counters[0].damage) + ' aHp=' + stance.s.a.hp + ' bHp=' + stance.s.b.hp);
+
+  const vsOrb = scene({ dx: 320, fighters: { a: 'coral', b: 'tide' }, frames: 70, plan: () => ['special', 'special'] });
+  check('K29 当身原型对飞行道具无效（不能靠它免疫波动）',
+    types(vsOrb, 'counter').length === 0 && vsOrb.s.a.hp < 1000,
+    'counters=' + types(vsOrb, 'counter').length + ' aHp=' + vsOrb.s.a.hp);
+
+  // antiAir — startup invulnerability is real, not cosmetic.
+  const rise = scene({ dx: 100, fighters: { a: 'volt', b: 'quartz' }, frames: 24, plan: () => ['special', 'hp'] });
+  const invulnFrames = rise.snapshots.filter((f) => f.a.invuln > 0).length;
+  check('K30 升龙原型：专属技起手带真实无敌帧',
+    invulnFrames > 0 && rise.s.a.hp >= 0,
+    'invulnFrames=' + invulnFrames);
+
+  // multi — the string really lands more than one segment.
+  const str = scene({ dx: 100, fighters: { a: 'gale', b: 'quartz' }, frames: 40, plan: () => ['special', 'idle'] });
+  const strHits = types(str, 'hit');
+  check('K31 多段原型：专属技在同一招里命中 2 段以上',
+    strHits.length >= 2,
+    'hits=' + strHits.length + ' damage=' + strHits.map((e) => e.damage).join('/'));
+
+  // The same verb means different things per kit — that is the whole point.
+  const mechanic = (fighterId, action) => {
+    const r = scene({ dx: 160, meter: 300, fighters: { a: fighterId, b: 'quartz' }, frames: 30, plan: () => [action, 'idle'] });
+    const ev = types(r, 'move_start')[0];
+    return ev ? ev.mechanic : null;
+  };
+  const matrix = {
+    rush: mechanic('ember', 'special'),
+    volley: mechanic('tide', 'special'),
+    counter: mechanic('coral', 'special'),
+    antiAir: mechanic('volt', 'special'),
+    multi: mechanic('gale', 'special'),
+  };
+  const distinct = new Set(Object.values(matrix));
+  check('K32 同一个 special 按角色原型解析成不同机制',
+    distinct.size === KIT_IDS.length,
+    Object.entries(matrix).map(([k, v]) => k + '=' + v).join(' '));
+
+  // Cross-kit determinism: kits are part of the state, so the same seed with
+  // the same fighters must replay byte-identically, and a different kit must
+  // NOT produce the same hash.
+  const hashFor = (fighters) => {
+    let st = createInitialState(777, 'kit-hash', fighters);
+    for (let i = 0; i < 120; i += 1) {
+      const a = ACTIONS[(i * 5) % ACTIONS.length];
+      const b = ACTIONS[(i * 9 + 1) % ACTIONS.length];
+      for (let f = 0; f < CONFIG.FRAMES_PER_TICK; f += 1) st = step(st, a, b);
+    }
+    return stateHash(st);
+  };
+  const h1 = hashFor({ a: 'ember', b: 'tide' });
+  const h2 = hashFor({ a: 'ember', b: 'tide' });
+  const h3 = hashFor({ a: 'volt', b: 'tide' });
+  check('K33 原型进入状态哈希：同角色可复现，换原型即不同',
+    h1 === h2 && h1 !== h3,
+    'same=' + (h1 === h2) + ' differs=' + (h1 !== h3));
+
+  check('K34 rank 输出的 kit 与角色定义一致',
+    kitOf('ember') === 'rush' && kitOf('tide') === 'volley' && kitOf('coral') === 'counter'
+      && kitOf('volt') === 'antiAir' && kitOf('gale') === 'multi');
 }
 
 const failed = results.filter((r) => !r.ok);

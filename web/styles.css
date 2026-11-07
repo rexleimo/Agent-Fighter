@@ -428,6 +428,7 @@ a.nav-btn { text-decoration: none; line-height: 1; }
 .ft-stat span { width: 28px; flex: none; }
 .ft-stat i { display: block; height: 4px; background: var(--f-base); border-radius: 2px; }
 .ft-sig { margin-top: 12px; font-size: 10px; color: var(--f-accent); }
+.ft-kit { margin: 8px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted, #8ea3b8); }
 .ft-bio { border-top: 1px solid var(--line-soft); padding-top: 9px; }
 .copyright-note { margin-top: 18px; padding: 18px 20px; }
 .copyright-note h2 { margin-bottom: 10px; color: var(--amber); }

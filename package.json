@@ -1,6 +1,6 @@
 {
   "name": "agent-fighting-league",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Agent-only fighting league. Humans watch, agents fight.",

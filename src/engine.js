@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { CONFIG, MOVES, moveTotal, isAttack, canAfford, clamp } from './rules.js';
+import { CONFIG, MOVES, moveFor, totalFor, isAttack, canAfford, clamp } from './rules.js';
+import { getFighter } from './fighters.js';
 import {
   skeletonFor, boxesFor, hurtboxesFor, hitboxesFor, pushboxFor,
   projectileBox, overlap, firstOverlap, guardResult, framePhase,
@@ -7,26 +8,32 @@ import {
 import { buildObservation, validateAction } from './protocol.js';
 import { stableStringify, createReplay, appendTick, hashObject } from './replay.js';
 
-function makeFighter(id, x, facing) {
+function makeFighter(id, x, facing, fighterId = null) {
+  const def = getFighter(fighterId || undefined);
   return {
     id, hp: CONFIG.MAX_HP, meter: 0,
+    fighterId: def.id, kit: def.kit,
     x, y: 0, vx: 0, vy: 0, facing,
     state: 'idle', moveId: null, moveFrame: 0, hasHit: false,
     hitIds: [], armorLeft: 0, wakeup: 0, canceledFrom: null, lastMove: null,
     hitstun: 0, blockstun: 0, combo: 0, comboTimer: 0,
     invuln: 0, lastAction: 'idle',
+    // Kit mechanics: a 当身 stance opens a window that turns one melee hit
+    // around; an advancing strike keeps its own vx for the active frames.
+    counterWindow: 0, counterSpec: null, advanceVx: 0, spawned: false,
   };
 }
 
-export function createInitialState(seed = 1, matchId = 'local') {
+export function createInitialState(seed = 1, matchId = 'local', fighters = {}) {
   return {
     matchId,
     frame: 0,
     tick: 0,
     seed: seed >>> 0,
     rng: (seed >>> 0) || 1,
-    a: makeFighter('a', 300, 1),
-    b: makeFighter('b', 660, -1),
+    fighters: { a: fighters.a || null, b: fighters.b || null },
+    a: makeFighter('a', 300, 1, fighters.a),
+    b: makeFighter('b', 660, -1, fighters.b),
     projectiles: [],
     hitstop: 0,
     superFlash: 0,
@@ -38,7 +45,7 @@ export function createInitialState(seed = 1, matchId = 'local') {
 }
 
 function startMove(f, action, s, side) {
-  const m = MOVES[action];
+  const m = moveFor(f, action);
   if (!m) return false;
   if (m.meterCost && f.meter < m.meterCost) return false;
   f.meter -= m.meterCost || 0;
@@ -50,6 +57,10 @@ function startMove(f, action, s, side) {
   f.armorLeft = m.armor || 0;
   f.canceledFrom = null;
   f.vx = 0;
+  f.counterWindow = 0;
+  f.counterSpec = m.counter ? { ...m.counter } : null;
+  f.advanceVx = m.advance ? m.advance.vx : 0;
+  f.spawned = false;
   if (m.invuln) f.invuln = Math.max(f.invuln, m.invuln);
   if (m.kind === 'movement') {
     f.state = 'dash';
@@ -64,6 +75,8 @@ function startMove(f, action, s, side) {
   s.events.push({
     frame: s.frame, type: 'move_start', by: side, move: action, label: m.label,
     meterCost: m.meterCost || 0, pose: m.pose || null, vfx: m.vfx || null,
+    mechanic: m.projectile ? 'projectile' : m.counter ? 'counter'
+      : m.advance ? 'advance' : m.multiHit ? 'multi-hit' : (m.invuln ? 'invuln' : 'strike'),
   });
   return true;
 }
@@ -76,6 +89,10 @@ function endMove(f) {
   f.hitIds = [];
   f.armorLeft = 0;
   f.canceledFrom = null;
+  f.counterWindow = 0;
+  f.counterSpec = null;
+  f.advanceVx = 0;
+  f.spawned = false;
   f.vx = 0;
 }
 
@@ -98,25 +115,22 @@ function tickFighter(f, action, s, side) {
       }
     }
     f.moveFrame += 1;
-    const m = MOVES[f.moveId];
-    if (f.moveId === 'fireball' && f.moveFrame === m.startup && !f.hasHit) {
-      f.hasHit = true;
-      s.projectiles.push({
-        id: side + '-' + s.frame,
-        owner: side,
-        x: f.x + f.facing * 44,
-        y: -116,
-        vx: f.facing * 9,
-        damage: m.damage,
-        hitstun: m.hitstun,
-        blockstun: m.blockstun,
-        hitstop: m.hitstop || 4,
-        knockdown: false,
-        life: 110,
-      });
-      s.events.push({ frame: s.frame, type: 'spawn', by: side, move: 'fireball', x: f.x + f.facing * 44, y: -116 });
+    const m = moveFor(f, f.moveId);
+    const local = f.moveFrame - m.startup;
+    // Counter stance: the window is open on the active frames only, so a
+    // mistimed 当身 is just a 20-frame whiff.
+    if (m.counter) {
+      f.counterWindow = local >= 0 && local < m.active ? 1 : 0;
     }
-    if (f.moveFrame >= moveTotal(f.moveId)) endMove(f);
+    // Advancing strikes keep their own forward speed while the move runs.
+    if (f.advanceVx && local >= 0 && local <= m.active) f.vx = f.facing * f.advanceVx;
+    else if (f.advanceVx) f.vx = 0;
+    // Any move may declare a projectile; the shape comes from its data.
+    if (m.projectile && f.moveFrame === m.startup && !f.spawned) {
+      f.spawned = true;
+      spawnProjectiles(s, f, side, f.moveId, m.projectile);
+    }
+    if (f.moveFrame >= totalFor(f, f.moveId)) endMove(f);
     return;
   }
 
@@ -132,7 +146,7 @@ function tickFighter(f, action, s, side) {
   if (action === 'walk_b') { f.state = 'walk'; f.vx = -f.facing * CONFIG.WALK_B; return; }
   if (action === 'crouch') { f.state = 'crouch'; f.vx = 0; return; }
   if (action === 'jump') { f.state = 'jump'; f.vy = CONFIG.JUMP_VY; f.vx = f.facing * CONFIG.JUMP_VX; return; }
-  if (isAttack(action) || MOVES[action]?.kind === 'movement') {
+  if (isAttack(action) || moveFor(f, action)?.kind === 'movement') {
     // Meter-gated moves simply fail to start if the bar is empty; the same
     // action next tick is not consumed. canAfford is exposed in observation.
     startMove(f, action, s, side);
@@ -140,6 +154,38 @@ function tickFighter(f, action, s, side) {
   }
   f.state = 'idle';
   f.vx = 0;
+}
+
+/**
+ * Spawn one or more projectiles from a move's `projectile` block. `stagger`
+ * delays the follow-up shots so an EX volley reads as two beats, not a wall.
+ */
+function spawnProjectiles(s, f, side, moveId, spec) {
+  const count = spec.count || 1;
+  for (let i = 0; i < count; i += 1) {
+    const p = {
+      id: side + '-' + s.frame + '-' + i,
+      owner: side,
+      move: moveId,
+      x: f.x + f.facing * 44,
+      y: spec.y,
+      vx: f.facing * spec.speed,
+      w: spec.w,
+      h: spec.h,
+      damage: spec.damage,
+      hitstun: spec.hitstun,
+      blockstun: spec.blockstun,
+      hitstop: spec.hitstop || 4,
+      knockdown: Boolean(spec.knockdown),
+      life: spec.life || 110,
+      delay: i * (spec.stagger || 0),
+    };
+    s.projectiles.push(p);
+    s.events.push({
+      frame: s.frame, type: 'spawn', by: side, move: moveId,
+      x: Math.round(p.x), y: p.y, shape: spec.w > 60 ? 'beam' : 'orb',
+    });
+  }
 }
 
 function physics(f) {
@@ -152,7 +198,7 @@ function physics(f) {
     if (f.state === 'jump') f.state = 'idle';
   }
   f.x = clamp(f.x, CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
-  if (f.state !== 'walk' && f.state !== 'jump' && f.state !== 'dash') f.vx = 0;
+  if (f.state !== 'walk' && f.state !== 'jump' && f.state !== 'dash' && !f.advanceVx) f.vx = 0;
 }
 
 function resolvePush(a, b) {
@@ -222,12 +268,50 @@ function applyDamage(s, atk, def, hb, atkSide, defSide) {
     def.vy = hb.launch ? -7 : 0;
   }
   s.hitstop = Math.max(s.hitstop, hb.hitstop);
-  const advantage = hb.hitstun - (moveTotal(hb.move) - (atk.moveFrame || 0));
+  const advantage = hb.hitstun - ((hb.moveTotal || totalFor(atk, hb.move)) - (atk.moveFrame || 0));
   s.events.push({
     ...base, type: 'hit', damage: hb.damage, combo: atk.combo,
     frameAdvantage: advantage, knockdown: Boolean(hb.knockdown),
     part: hb.hurtPart || 'body',
   });
+}
+
+/**
+ * 当身 (counter stance). A melee hit that lands inside the window is absorbed
+ * and answered with the stance's own fixed damage. Throws and projectiles are
+ * NOT counterable — that is the risk that pays for the reward.
+ */
+function resolveCounter(s, atk, def, hb, atkSide, defSide) {
+  if (def.counterWindow <= 0 || !def.counterSpec) return false;
+  if (hb.unblockable || hb.height === 'throw' || hb.move === 'fireball') return false;
+  const spec = def.counterSpec;
+  def.counterWindow = 0;
+  def.invuln = Math.max(def.invuln, 6);
+  atk.hasHit = true;
+  atk.hp = Math.max(0, atk.hp - spec.damage);
+  atk.hitstun = spec.hitstun;
+  atk.state = 'hitstun';
+  atk.moveId = null;
+  atk.moveFrame = 0;
+  atk.hitIds = [];
+  atk.armorLeft = 0;
+  atk.advanceVx = 0;
+  atk.counterWindow = 0;
+  atk.spawned = false;
+  atk.vx = 0;
+  atk.x = clamp(atk.x + def.facing * 12, CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
+  if (spec.knockdown) {
+    atk.state = 'knockdown';
+    atk.wakeup = CONFIG.WAKEUP_FRAMES;
+    atk.vy = -7;
+  }
+  def.meter = Math.min(CONFIG.MAX_METER, def.meter + 30);
+  s.hitstop = Math.max(s.hitstop, 8);
+  s.events.push({
+    frame: s.frame, type: 'counter', by: defSide, on: atkSide, move: def.moveId,
+    absorbed: hb.move, damage: spec.damage, x: Math.round(def.x), y: -120,
+  });
+  return true;
 }
 
 function resolveAttack(s, atkSide, defSide) {
@@ -239,7 +323,8 @@ function resolveAttack(s, atkSide, defSide) {
   const pair = firstOverlap(hitboxes, hurt);
   if (!pair) return;
   const hb = { ...pair.hit, hurtPart: pair.hurt.part };
-  if (MOVES[atk.moveId].multiHit) atk.hitIds.push(hb.hitId);
+  if (resolveCounter(s, atk, def, hb, atkSide, defSide)) return;
+  if (moveFor(atk, atk.moveId).multiHit) atk.hitIds.push(hb.hitId);
   else atk.hasHit = true;
   applyDamage(s, atk, def, hb, atkSide, defSide);
 }
@@ -247,6 +332,7 @@ function resolveAttack(s, atkSide, defSide) {
 function updateProjectiles(s) {
   const alive = [];
   for (const p of s.projectiles) {
+    if (p.delay > 0) { p.delay -= 1; alive.push(p); continue; }
     p.x += p.vx;
     p.life -= 1;
     const defSide = p.owner === 'a' ? 'b' : 'a';
@@ -266,10 +352,16 @@ function updateProjectiles(s) {
         def.state = 'hitstun';
         def.moveId = null;
         def.moveFrame = 0;
+        def.advanceVx = 0;
+        def.counterWindow = 0;
         def.x = clamp(def.x + Math.sign(p.vx) * 9, CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
+        if (box.knockdown) {
+          def.state = 'knockdown';
+          def.wakeup = CONFIG.WAKEUP_FRAMES;
+        }
         atk.meter = Math.min(CONFIG.MAX_METER, atk.meter + 12);
         s.hitstop = Math.max(s.hitstop, box.hitstop);
-        s.events.push({ frame: s.frame, type: 'hit', by: p.owner, on: defSide, move: 'fireball', damage: box.damage, combo: 1, frameAdvantage: 6, x: Math.round(p.x), y: box.y + box.h / 2 });
+        s.events.push({ frame: s.frame, type: 'hit', by: p.owner, on: defSide, move: p.move || 'fireball', damage: box.damage, combo: 1, frameAdvantage: 6, knockdown: Boolean(box.knockdown), x: Math.round(p.x), y: box.y + box.h / 2 });
       }
       continue;
     }
@@ -349,14 +441,18 @@ export function step(state, rawA, rawB) {
 
 function hashCore(state) {
   const pick = (f) => ({
+    fighterId: f.fighterId, kit: f.kit,
     hp: f.hp, meter: f.meter, x: f.x, y: f.y, vx: f.vx, vy: f.vy, facing: f.facing,
     state: f.state, moveId: f.moveId, moveFrame: f.moveFrame, hasHit: f.hasHit,
     hitIds: f.hitIds, armorLeft: f.armorLeft, wakeup: f.wakeup,
     canceledFrom: f.canceledFrom, lastMove: f.lastMove,
     hitstun: f.hitstun, blockstun: f.blockstun, combo: f.combo, comboTimer: f.comboTimer,
     invuln: f.invuln, lastAction: f.lastAction,
+    counterWindow: f.counterWindow, counterSpec: f.counterSpec,
+    advanceVx: f.advanceVx, spawned: f.spawned,
   });
   return stableStringify({
+    fighters: state.fighters,
     frame: state.frame, tick: state.tick, seed: state.seed,
     a: pick(state.a), b: pick(state.b), projectiles: state.projectiles,
     hitstop: state.hitstop, superFlash: state.superFlash,
@@ -371,11 +467,12 @@ export function stateHash(state) {
 /** Read-only broadcast snapshot: skeleton + boxes are computed HERE, once. */
 export function renderState(state) {
   const view = (f) => ({
+    fighterId: f.fighterId, kit: f.kit, counterWindow: f.counterWindow,
     hp: f.hp, meter: f.meter, x: f.x, y: f.y, facing: f.facing,
     state: f.state, moveId: f.moveId, moveFrame: f.moveFrame,
     combo: f.combo, hitstun: f.hitstun, blockstun: f.blockstun,
     invuln: f.invuln, wakeup: f.wakeup, armorLeft: f.armorLeft,
-    canceledFrom: f.canceledFrom, meterCost: f.moveId ? (MOVES[f.moveId].meterCost || 0) : 0,
+    canceledFrom: f.canceledFrom, meterCost: f.moveId ? (moveFor(f, f.moveId).meterCost || 0) : 0,
     skeleton: skeletonFor(f, state.frame),
     boxes: boxesFor(f, state.frame),
     phase: framePhase(f),
@@ -389,7 +486,8 @@ export function renderState(state) {
     a: view(state.a),
     b: view(state.b),
     projectiles: state.projectiles.map((p) => ({
-      x: p.x, y: p.y, owner: p.owner, move: 'fireball', box: projectileBox(p),
+      x: p.x, y: p.y, owner: p.owner, move: p.move || 'fireball',
+      delay: p.delay || 0, box: projectileBox(p),
     })),
     events: state.events.map((e) => ({ ...e })),
     over: state.over,
@@ -397,13 +495,16 @@ export function renderState(state) {
   };
 }
 
-export function createMatch({ seed = 1, matchId = 'local', agents = [], ticks = CONFIG.MATCH_TICKS, rulesVersion = CONFIG.RULES_VERSION } = {}) {
-  let state = createInitialState(seed, matchId);
+export function createMatch({ seed = 1, matchId = 'local', agents = [], fighters = {}, ticks = CONFIG.MATCH_TICKS, rulesVersion = CONFIG.RULES_VERSION } = {}) {
+  let state = createInitialState(seed, matchId, fighters);
   let tick = 0;
   let lastObsHash = { a: '', b: '' };
   const history = { a: [], b: [] };
   const replay = createReplay(matchId, seed, agents);
   replay.rulesVersion = rulesVersion;
+  // Kits change frame data, so a replay is only reproducible with the same
+  // two fighters recorded alongside it.
+  replay.fighters = { a: state.fighters.a, b: state.fighters.b };
 
   return {
     get state() { return state; },
@@ -469,7 +570,7 @@ export function runMatch({ seed = 1, matchId = 'local', policyA, policyB, defaul
 }
 
 export function renderReplay(replay) {
-  let state = createInitialState(replay.seed, replay.matchId);
+  let state = createInitialState(replay.seed, replay.matchId, replay.fighters || {});
   const ticks = [];
   for (const rec of replay.ticks) {
     state.tick = rec.tick;
@@ -487,7 +588,7 @@ export function renderReplay(replay) {
 }
 
 export function replayMatch(replay) {
-  let state = createInitialState(replay.seed, replay.matchId);
+  let state = createInitialState(replay.seed, replay.matchId, replay.fighters || {});
   const mismatches = [];
   for (const rec of replay.ticks) {
     if (stateHash(state) !== rec.stateHashBefore) {

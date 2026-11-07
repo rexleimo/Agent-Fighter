@@ -483,6 +483,19 @@ function drawSpriteBody(c, img, o) {
   }
   c.restore();
 
+  if (f.counterWindow > 0) {
+    // 当身 stance: a live window the opponent can read, and the only pose in
+    // the game that punishes a blocked-hit guess.
+    c.save();
+    c.globalAlpha = 0.85;
+    c.strokeStyle = pal.accent;
+    c.lineWidth = 2.5;
+    c.beginPath(); c.arc(gx + 10 * dir, gy - 108, 52, -1.5, 1.5); c.stroke();
+    c.globalAlpha = 0.35;
+    c.fillStyle = pal.light;
+    c.beginPath(); c.arc(gx + 10 * dir, gy - 108, 52, -1.5, 1.5); c.fill();
+    c.restore();
+  }
   if (state === 'guard' || f.blockstun > 0) {
     c.save();
     c.strokeStyle = 'rgba(150,205,255,.55)';
@@ -864,7 +877,7 @@ function syncEffects(frame) {
     if (FX_KEYS.has(key)) continue;
     FX_KEYS.add(key);
     if (FX_KEYS.size > 260) FX_KEYS.clear();
-    if (['hit', 'block', 'cancel', 'armor', 'wakeup', 'super_start', 'ko', 'move_start'].includes(e.type)) {
+    if (['hit', 'block', 'cancel', 'armor', 'counter', 'wakeup', 'super_start', 'ko', 'move_start'].includes(e.type)) {
       S.fx.push({ ...e, born: frame.frame });
     }
   }
@@ -1144,17 +1157,46 @@ function draw(c, frame, match, canvas) {
 
   for (const p of frame.projectiles || []) {
     const pal = fighterDef(p.owner, match).palette;
+    // The projectile is drawn AT THE SIZE OF ITS OWN HITBOX, so the picture
+    // cannot promise reach the kernel does not have: an orb is 34x44, a super
+    // beam is 96x92 and reads as a beam.
+    const box = p.box || { w: 30, h: 40 };
+    const bw = box.w;
+    const bh = box.h;
+    const beam = bw > 60;
     c.save();
     c.translate(p.x, GROUND + p.y);
-    c.globalAlpha = 0.22;
-    c.fillStyle = pal.light;
-    c.beginPath(); c.arc(0, 0, 20, 0, Math.PI * 2); c.fill();
-    c.rotate(Math.PI / 4);
-    c.globalAlpha = 0.92;
-    c.fillStyle = pal.base;
-    c.fillRect(-9, -9, 18, 18);
-    c.fillStyle = pal.accent;
-    c.fillRect(-4, -4, 8, 8);
+    if ((p.delay || 0) > 0) { c.restore(); continue; }
+    if (beam) {
+      const grad = c.createLinearGradient(-bw / 2, 0, bw / 2, 0);
+      grad.addColorStop(0, 'rgba(255,255,255,0)');
+      grad.addColorStop(0.25, pal.light);
+      grad.addColorStop(0.6, pal.base);
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      c.globalAlpha = 0.55;
+      c.fillStyle = grad;
+      c.fillRect(-bw / 2, -bh / 2, bw, bh);
+      c.globalAlpha = 0.9;
+      c.fillStyle = pal.accent;
+      c.fillRect(-bw / 2, -bh * 0.16, bw, bh * 0.32);
+      c.globalAlpha = 0.35;
+      c.fillStyle = pal.light;
+      c.fillRect(-bw / 2, -bh / 2, bw, 3);
+      c.fillRect(-bw / 2, bh / 2 - 3, bw, 3);
+    } else {
+      const glow = c.createRadialGradient(0, 0, 2, 0, 0, Math.max(bw, bh) * 0.9);
+      glow.addColorStop(0, pal.accent);
+      glow.addColorStop(0.45, pal.light);
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      c.globalAlpha = 0.85;
+      c.fillStyle = glow;
+      c.beginPath(); c.ellipse(0, 0, bw * 0.9, bh * 0.9, 0, 0, Math.PI * 2); c.fill();
+      c.globalAlpha = 0.95;
+      c.fillStyle = pal.base;
+      c.beginPath(); c.ellipse(0, 0, bw / 2, bh / 2, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = pal.accent;
+      c.beginPath(); c.ellipse(0, 0, bw / 6, bh / 6, 0, 0, Math.PI * 2); c.fill();
+    }
     c.restore();
   }
 
@@ -1305,12 +1347,15 @@ function renderFighters() {
       + '<div class="ft-style">' + esc(f.style) + '</div>'
       + '<p>' + esc(f.tagline) + '</p>'
       + '<div class="ft-stats">' + bars + '</div>'
-      + '<div class="ft-sig mono">' + esc(f.signature.name) + ' · ' + esc(f.signature.shape) + '</div>'
+      + '<div class="ft-sig mono">' + esc(f.kit ? f.kit.label : f.signature.name) + ' · '
+      + esc((f.kit && f.kit.tags ? f.kit.tags : [f.signature.shape]).join(' / ')) + '</div>'
       + '<div class="ft-skills">' + (f.skills || []).map((s) =>
         '<div class="ft-skill"><span>' + esc(s.name) + '</span>'
         + '<span class="mono">' + s.startup + '/' + s.active + '/' + s.recovery + 'F · '
-        + (s.cost ? s.cost + ' 气' : '免费') + (s.multiHit ? ' · 3 段' : '') + '</span></div>').join('')
+        + (s.cost ? s.cost + ' 气' : '免费') + ' · ' + esc(s.mechanic || 'strike')
+        + ' · ' + (s.potentialDamage || s.damage) + ' 伤害</span></div>').join('')
       + '</div>'
+      + (f.kit && f.kit.blurb ? '<p class="ft-kit">' + esc(f.kit.blurb) + '</p>' : '')
       + '<p class="ft-bio">' + esc(f.bio) + '</p></div></article>';
   };
   // Group by team in server roster order: a KOF-style select grid without a
