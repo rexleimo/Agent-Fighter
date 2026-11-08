@@ -15,7 +15,8 @@
     "verify:mcp": "node scripts/mcp-real-client.mjs",
     "rig:bake": "node scripts/rig-bake.mjs",
     "verify:anim": "node scripts/verify-anim.mjs",
-    "lab:rig": "node scripts/capture-rig.mjs"
+    "lab:rig": "node scripts/capture-rig.mjs",
+    "demo:kit": "node scripts/kit-demo.mjs"
   },
   "engines": {
     "node": ">=22"
