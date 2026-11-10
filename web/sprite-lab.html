@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Sprite lab · AFL</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b121a; color: #cfe0ee; font: 12px/1.4 ui-monospace, monospace; }
+  h1 { font: 600 14px/1.2 ui-monospace, monospace; padding: 12px 16px; margin: 0; color: #8fe6ff; }
+  .row { display: flex; gap: 4px; padding: 4px 8px; border-bottom: 1px solid #17212c; }
+  .cell { position: relative; width: 150px; height: 230px; background: linear-gradient(#101a24, #0b121a); border-radius: 4px; }
+  .cell canvas { display: block; }
+  .cell b { position: absolute; left: 4px; top: 3px; font-weight: 400; font-size: 9px; color: #6f8aa3; }
+  .who { width: 78px; display: flex; align-items: center; color: #9fd0ff; font-size: 11px; }
+</style>
+</head>
+<body>
+<h1>SPRITE LAB — 逐帧烘焙动画（每格一个服务端姿态，脚底锚定）</h1>
+<div id="grid"></div>
+<script type="module">
+import { framePhase } from '/src/combat.js';
+import { getFighter } from '/src/fighters.js';
+import { loadSpriteIndex, ensureSprites, spritesReady, drawSprite } from './sprite.js';
+
+const params = new URLSearchParams(location.search);
+const ids = (params.get('ids') || 'ember').split(',').filter(Boolean);
+const CW = 150, CH = 230, H = 200, GROUND = 205;
+
+// moveFrame chosen inside the active window so the limb is extended.
+const POSES = [
+  ['idle', { state: 'idle' }],
+  ['walk', { state: 'walk', vx: 2 }],
+  ['crouch', { state: 'crouch' }],
+  ['guard', { state: 'guard' }],
+  ['lp', { state: 'attack', moveId: 'lp', active: true }],
+  ['hp', { state: 'attack', moveId: 'hp', active: true }],
+  ['hk', { state: 'attack', moveId: 'hk', active: true }],
+  ['dp', { state: 'attack', moveId: 'dp', active: true }],
+  ['special', { state: 'special', moveId: 'special', active: true }],
+  ['super', { state: 'attack', moveId: 'super', active: true }],
+  ['hitstun', { state: 'hitstun', hitstun: 8 }],
+  ['knockdown', { state: 'knockdown', wakeup: 20 }],
+];
+// Grounded poses must share one feet baseline; airborne/lying poses are exempt.
+const GROUNDED = new Set(['idle', 'walk', 'crouch', 'guard', 'lp', 'hp', 'hk', 'dp', 'special', 'super']);
+
+const grid = document.getElementById('grid');
+const rows = [];
+for (const id of ids) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const who = document.createElement('div');
+  who.className = 'who';
+  who.textContent = id;
+  row.append(who);
+  const cells = [];
+  for (const [label] of POSES) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.innerHTML = '<b>' + label + '</b>';
+    const c = document.createElement('canvas');
+    c.width = CW; c.height = CH;
+    cell.append(c);
+    row.append(cell);
+    cells.push(c);
+  }
+  grid.append(row);
+  rows.push({ id, cells });
+}
+
+await loadSpriteIndex();
+for (const { id } of rows) ensureSprites(id);
+// Wait until every requested fighter's atlases are decoded.
+for (let i = 0; i < 200 && !rows.every((r) => spritesReady(r.id)); i += 1) {
+  await new Promise((r) => setTimeout(r, 50));
+}
+
+function fighterFor(id, spec) {
+  const def = getFighter(id);
+  const f = {
+    fighterId: id, kit: def.kit, x: 480, y: 0, vx: 0, vy: 0, facing: 1,
+    state: 'idle', moveId: null, moveFrame: 0, hitstun: 0, blockstun: 0,
+    wakeup: 0, hasHit: false, hitIds: [], ...spec,
+  };
+  if (spec.active && f.moveId) {
+    const ph = framePhase({ ...f, moveFrame: 0 });
+    f.moveFrame = ph.startup + Math.max(1, Math.floor(ph.active / 2));
+  }
+  f.phase = framePhase(f);
+  return f;
+}
+
+for (const { id, cells } of rows) {
+  if (!spritesReady(id)) continue;
+  POSES.forEach(([label, spec], i) => {
+    const f = fighterFor(id, spec);
+    const ctx = cells[i].getContext('2d');
+    drawSprite(ctx, f, { gx: CW / 2, gy: GROUND, globalFrame: 0, track: {}, height: H });
+  });
+}
+
+// Geometry report: the verifier reads this instead of eyeballing pixels.
+function metrics(canvas) {
+  const d = canvas.getContext('2d').getImageData(0, 0, CW, CH).data;
+  let nonEmpty = 0, bottom = -1, top = CH;
+  for (let y = 0; y < CH; y += 1) {
+    for (let x = 0; x < CW; x += 1) {
+      if (d[(y * CW + x) * 4 + 3] > 8) {
+        nonEmpty += 1;
+        if (y > bottom) bottom = y;
+        if (y < top) top = y;
+      }
+    }
+  }
+  return { nonEmpty, bottom, top, data: d };
+}
+const diff = (a, b) => {
+  let n = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    if (Math.abs(a[i] - b[i]) > 12 || Math.abs(a[i + 1] - b[i + 1]) > 12 || Math.abs(a[i + 2] - b[i + 2]) > 12) n += 1;
+  }
+  return n;
+};
+
+const report = rows.map(({ id, cells }) => {
+  const m = cells.map(metrics);
+  const groundedBottoms = POSES.map(([label], i) => (GROUNDED.has(label) ? m[i].bottom : null)).filter((v) => v !== null);
+  const feetSpread = groundedBottoms.length ? Math.max(...groundedBottoms) - Math.min(...groundedBottoms) : -1;
+  // Mirror check: idle facing -1 must render and differ from facing +1.
+  const mc = document.createElement('canvas'); mc.width = CW; mc.height = CH;
+  const mf = fighterFor(id, { state: 'idle' }); mf.facing = -1;
+  drawSprite(mc.getContext('2d'), mf, { gx: CW / 2, gy: GROUND, globalFrame: 0, track: {}, height: H });
+  const mm = metrics(mc);
+  return {
+    id,
+    ready: spritesReady(id),
+    nonEmpty: m.map((x) => x.nonEmpty),
+    feetSpread,
+    groundedBottoms,
+    idleVsHp: diff(m[0].data, m[5].data),
+    idleVsWalk: diff(m[0].data, m[1].data),
+    idleVsCrouch: diff(m[0].data, m[2].data),
+    idleVsSpecial: diff(m[0].data, m[8].data),
+    mirrorDiff: diff(m[0].data, mm.data),
+    mirrorNonEmpty: mm.nonEmpty,
+  };
+});
+window.__spriteReport = report;
+document.title = 'sprite-lab-ready';
+</script>
+</body>
+</html>

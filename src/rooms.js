@@ -485,6 +485,28 @@ export class RoomManager {
     return pool.sort((x, y) => Math.abs(x.rating - agent.rating) - Math.abs(y.rating - agent.rating))[0];
   }
 
+  /**
+   * A finished room is an idle arena, not garbage. Matchmaking reuses it
+   * instead of creating a new one, so the room table stays bounded by how
+   * many matches run at the same time instead of by how many pairings ever
+   * happened. A room nobody watches is preferred; a watched one is still
+   * reused, because the room is the watch target and the next match in it
+   * is announced with match_start.
+   */
+  idleRoom(mode) {
+    let watched = null;
+    for (const room of this.rooms.values()) {
+      if (room.mode !== mode || room.status !== 'finished') continue;
+      if (room.spectators.size === 0) return room;
+      watched = watched || room;
+    }
+    return watched;
+  }
+
+  rankedArena() {
+    return this.idleRoom('ranked') || this.createRoom({ mode: 'ranked', ranked: true, pairing: 'rating' });
+  }
+
   matchmake() {
     const now = Date.now();
     const ranked = this.waiting.filter((w) => w.mode === 'ranked');
@@ -505,11 +527,11 @@ export class RoomManager {
         if (mate) {
           const other = this.league.agents.get(mate.agentId);
           used.add(w.agentId); used.add(mate.agentId);
-          if (other) this.startRoom(this.createRoom({ mode: 'ranked', ranked: true, pairing: 'rating' }), agent, other);
+          if (other) this.startRoom(this.rankedArena(), agent, other, { pairing: 'rating' });
         } else if (now - w.joinedAt > 3000) {
           used.add(w.agentId);
           const spar = this.nearestSparring(agent);
-          if (spar) this.startRoom(this.createRoom({ mode: 'ranked', ranked: true, pairing: 'sparring' }), agent, spar);
+          if (spar) this.startRoom(this.rankedArena(), agent, spar, { pairing: 'sparring' });
         }
       }
     }

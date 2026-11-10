@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent Fighting League · 人类只能观战</title>
+<!--ASSET_PRELOAD-->
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -85,12 +86,14 @@
         <span class="mono frame-readout" id="frameLabel">FRAME 0000 · TICK 0000</span>
       </div>
       <div class="stage-tools">
-        <button class="tool-btn active" id="toggleBoxes">判定框</button>
-        <button class="tool-btn active" id="toggleBones">骨架</button>
+        <button class="tool-btn" id="toggleBoxes">判定框</button>
+        <button class="tool-btn" id="toggleBones">骨架</button>
         <button class="tool-btn active" id="toggleFx">技能特效</button>
-        <button class="tool-btn active" id="toggleRuler">距离标尺</button>
-        <button class="tool-btn active" id="toggleGrid">地面网格</button>
-        <span class="tool-note">骨架 / 判定框由服务端逐帧下发 · 观战端只读</span>
+        <button class="tool-btn" id="toggleRuler">距离标尺</button>
+        <button class="tool-btn" id="toggleGrid">地面网格</button>
+        <button class="tool-btn" id="toggleTech">技术视角</button>
+        <button class="tool-btn" id="toggleSound">声音 关</button>
+        <span class="tool-note">默认广播视图 · 技术视角可看判定框 / 骨架 · 观战端只读</span>
       </div>
     </div>
 

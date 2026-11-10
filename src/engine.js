@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { CONFIG, MOVES, moveFor, totalFor, isAttack, canAfford, clamp } from './rules.js';
+import { CONFIG, MOVES, moveFor, totalFor, isAttack, canAfford, clamp, mechanicsOf } from './rules.js';
+import { comboScale, cancelWindowOf, isCancelTarget } from './combo.js';
 import { getFighter } from './fighters.js';
 import {
   skeletonFor, boxesFor, hurtboxesFor, hitboxesFor, pushboxFor,
@@ -17,7 +18,12 @@ function makeFighter(id, x, facing, fighterId = null) {
     state: 'idle', moveId: null, moveFrame: 0, hasHit: false,
     hitIds: [], armorLeft: 0, wakeup: 0, canceledFrom: null, lastMove: null,
     hitstun: 0, blockstun: 0, combo: 0, comboTimer: 0,
+    comboDamage: 0, comboChain: [], comboBest: 0, comboBestDamage: 0,
     invuln: 0, lastAction: 'idle',
+    // Combo state: `hitFrame` is the move frame the current move connected on
+    // (it anchors the cancel window), `buffer` holds a cancel input that was
+    // issued before its window opened.
+    hitFrame: null, buffer: null,
     // Kit mechanics: a 当身 stance opens a window that turns one melee hit
     // around; an advancing strike keeps its own vx for the active frames.
     counterWindow: 0, counterSpec: null, advanceVx: 0, spawned: false,
@@ -54,6 +60,8 @@ function startMove(f, action, s, side) {
   f.moveFrame = 0;
   f.hasHit = false;
   f.hitIds = [];
+  f.hitFrame = null;
+  f.buffer = null;
   f.armorLeft = m.armor || 0;
   f.canceledFrom = null;
   f.vx = 0;
@@ -75,8 +83,7 @@ function startMove(f, action, s, side) {
   s.events.push({
     frame: s.frame, type: 'move_start', by: side, move: action, label: m.label,
     meterCost: m.meterCost || 0, pose: m.pose || null, vfx: m.vfx || null,
-    mechanic: m.projectile ? 'projectile' : m.counter ? 'counter'
-      : m.advance ? 'advance' : m.multiHit ? 'multi-hit' : (m.invuln ? 'invuln' : 'strike'),
+    mechanic: mechanicsOf(m)[0], mechanics: mechanicsOf(m),
   });
   return true;
 }
@@ -87,6 +94,8 @@ function endMove(f) {
   f.moveFrame = 0;
   f.hasHit = false;
   f.hitIds = [];
+  f.hitFrame = null;
+  f.buffer = null;
   f.armorLeft = 0;
   f.canceledFrom = null;
   f.counterWindow = 0;
@@ -102,20 +111,40 @@ function tickFighter(f, action, s, side) {
 
   const busy = (f.state === 'attack' || f.state === 'projectile' || f.state === 'dash') && f.moveId;
   if (busy) {
-    // CANCEL WINDOW: a landed normal can be canceled into a special / EX /
-    // super, and a dash can be canceled into any normal. This is the combo
-    // system, driven entirely by frame data in rules.js.
-    const ph = framePhase(f);
-    if (ph.cancelable && ph.cancelInto.includes(action) && isAttack(action) && canAfford(f, action)) {
+    const m = moveFor(f, f.moveId);
+    const hitLanded = f.hasHit || (f.hitIds && f.hitIds.length > 0);
+    // CANCEL: a landed normal can be canceled into the next link of the
+    // ladder, and any move can be canceled into the meter moves. The window
+    // opens on the connection frame, so a chain confirms the instant the hit
+    // lands.
+    //
+    // The input is HELD, not dropped: agents decide once per tick (100 ms)
+    // while a window is only a few frames wide, so throwing the input away
+    // is what used to make chains impossible.
+    const wants = isAttack(action) && action !== f.moveId && canAfford(f, action);
+    const legal = wants && isCancelTarget(m, action, hitLanded);
+    if (legal) {
+      f.buffer = { action, age: 0 };
+    } else if (f.buffer && (!isCancelTarget(m, f.buffer.action, hitLanded) || !canAfford(f, f.buffer.action))) {
+      f.buffer = null;
+    }
+    const win = cancelWindowOf(m, f.hitFrame);
+    const windowOpen = win.length > 0 && f.moveFrame >= win.openAt && f.moveFrame < win.until;
+    const target = windowOpen ? (f.buffer ? f.buffer.action : (legal ? action : null)) : null;
+    if (target && target !== f.moveId) {
       const from = f.moveId;
-      if (startMove(f, action, s, side)) {
+      const buffered = Boolean(f.buffer);
+      if (startMove(f, target, s, side)) {
         f.canceledFrom = from;
-        s.events.push({ frame: s.frame, type: 'cancel', by: side, from, into: action });
+        s.events.push({ frame: s.frame, type: 'cancel', by: side, from, into: target, buffered });
         return;
       }
     }
+    if (f.buffer) {
+      f.buffer.age += 1;
+      if (f.buffer.age > CONFIG.CANCEL_BUFFER_FRAMES) f.buffer = null;
+    }
     f.moveFrame += 1;
-    const m = moveFor(f, f.moveId);
     const local = f.moveFrame - m.startup;
     // Counter stance: the window is open on the active frames only, so a
     // mistimed 当身 is just a 20-frame whiff.
@@ -130,7 +159,18 @@ function tickFighter(f, action, s, side) {
       f.spawned = true;
       spawnProjectiles(s, f, side, f.moveId, m.projectile);
     }
-    if (f.moveFrame >= totalFor(f, f.moveId)) endMove(f);
+    if (f.moveFrame >= totalFor(f, f.moveId)) {
+      // A held input that never found a window still fires when the move
+      // ends: the fighter becomes actionable and the queued action runs.
+      const from = f.moveId;
+      const queued = f.buffer ? f.buffer.action : null;
+      endMove(f);
+      if (queued && queued !== from) {
+        startMove(f, queued, s, side);
+        f.canceledFrom = from;
+        s.events.push({ frame: s.frame, type: 'cancel', by: side, from, into: queued, buffered: true });
+      }
+    }
     return;
   }
 
@@ -202,17 +242,27 @@ function physics(f) {
 }
 
 function resolvePush(a, b) {
+  // Jumping over the opponent must stay possible: a high airborne fighter
+  // does not collide with the grounded body it is crossing up. A downed body
+  // is not an obstacle either — the opponent walks over it, genre-standard.
+  if (a.y < -60 || b.y < -60) return;
+  if (a.state === 'knockdown' || b.state === 'knockdown') return;
   const pa = pushboxFor(a);
   const pb = pushboxFor(b);
   if (!overlap(pa, pb)) return;
-  const dx = b.x - a.x;
-  const minGap = (pa.w + pb.w) / 2;
-  if (Math.abs(dx) < minGap) {
-    const push = Math.ceil((minGap - Math.abs(dx)) / 2);
-    const dir = dx >= 0 ? 1 : -1;
-    a.x = clamp(a.x - dir * push, CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
-    b.x = clamp(b.x + dir * push, CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
-  }
+  const left = pa.x <= pb.x ? a : b;
+  const right = left === a ? b : a;
+  const pl = left === a ? pa : pb;
+  const pr = left === a ? pb : pa;
+  const depth = pl.x + pl.w - pr.x;
+  if (depth <= 0) return;
+  // Split the separation, then hand whatever a clamped (cornered) fighter
+  // could not absorb to the free one. Halving without the transfer left a
+  // permanent half-overlap whenever the pair was pushed into a wall.
+  const leftFirst = clamp(left.x - Math.ceil(depth / 2), CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
+  const rightNew = clamp(right.x + depth - (left.x - leftFirst), CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
+  left.x = clamp(left.x - (depth - (rightNew - right.x)), CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
+  right.x = rightNew;
 }
 
 function applyDamage(s, atk, def, hb, atkSide, defSide) {
@@ -248,17 +298,42 @@ function applyDamage(s, atk, def, hb, atkSide, defSide) {
     return;
   }
 
-  def.hp = Math.max(0, def.hp - hb.damage);
   def.hitstun = hb.hitstun;
   def.state = 'hitstun';
   def.moveId = null;
   def.moveFrame = 0;
   def.hasHit = false;
   def.hitIds = [];
+  def.hitFrame = null;
+  def.buffer = null;
   def.armorLeft = 0;
   def.vx = 0;
+  // COMBO: a chain is the run of hits that land inside one combo window.
+  // The count feeds the HUD, the chain feeds the "what did I actually do"
+  // readout, and the damage of every hit past the fourth is scaled down so
+  // a long chain stays worth landing without being a one-button kill.
+  if (atk.comboTimer <= 0) {
+    atk.combo = 0;
+    atk.comboChain = [];
+    atk.comboDamage = 0;
+  }
+  const scale = comboScale(atk.combo);
+  const damage = Math.max(1, Math.round(hb.damage * scale));
+  def.hp = Math.max(0, def.hp - damage);
   atk.combo += 1;
-  atk.comboTimer = 90;
+  atk.comboTimer = CONFIG.COMBO_FRAMES;
+  atk.comboDamage += damage;
+  atk.comboChain.push(hb.move);
+  if (atk.combo > atk.comboBest) {
+    atk.comboBest = atk.combo;
+    atk.comboBestDamage = atk.comboDamage;
+  }
+  if (atk.combo === 2) {
+    s.events.push({
+      frame: s.frame, type: 'combo_start', by: atkSide, on: defSide,
+      count: atk.combo, chain: atk.comboChain.slice(),
+    });
+  }
   atk.meter = Math.min(CONFIG.MAX_METER, atk.meter + hb.meterGain);
   def.meter = Math.min(CONFIG.MAX_METER, def.meter + Math.floor(hb.meterGain / 2));
   def.x = clamp(def.x + atk.facing * hb.pushback, CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
@@ -270,7 +345,8 @@ function applyDamage(s, atk, def, hb, atkSide, defSide) {
   s.hitstop = Math.max(s.hitstop, hb.hitstop);
   const advantage = hb.hitstun - ((hb.moveTotal || totalFor(atk, hb.move)) - (atk.moveFrame || 0));
   s.events.push({
-    ...base, type: 'hit', damage: hb.damage, combo: atk.combo,
+    ...base, type: 'hit', damage, combo: atk.combo, scale,
+    comboDamage: atk.comboDamage, chain: atk.comboChain.slice(),
     frameAdvantage: advantage, knockdown: Boolean(hb.knockdown),
     part: hb.hurtPart || 'body',
   });
@@ -288,12 +364,15 @@ function resolveCounter(s, atk, def, hb, atkSide, defSide) {
   def.counterWindow = 0;
   def.invuln = Math.max(def.invuln, 6);
   atk.hasHit = true;
+  atk.hitFrame = atk.moveFrame;
   atk.hp = Math.max(0, atk.hp - spec.damage);
   atk.hitstun = spec.hitstun;
   atk.state = 'hitstun';
   atk.moveId = null;
   atk.moveFrame = 0;
   atk.hitIds = [];
+  atk.hitFrame = null;
+  atk.buffer = null;
   atk.armorLeft = 0;
   atk.advanceVx = 0;
   atk.counterWindow = 0;
@@ -303,13 +382,14 @@ function resolveCounter(s, atk, def, hb, atkSide, defSide) {
   if (spec.knockdown) {
     atk.state = 'knockdown';
     atk.wakeup = CONFIG.WAKEUP_FRAMES;
-    atk.vy = -7;
+    atk.vy = spec.launch ? -7 : 0;
   }
   def.meter = Math.min(CONFIG.MAX_METER, def.meter + 30);
   s.hitstop = Math.max(s.hitstop, 8);
   s.events.push({
     frame: s.frame, type: 'counter', by: defSide, on: atkSide, move: def.moveId,
     absorbed: hb.move, damage: spec.damage, x: Math.round(def.x), y: -120,
+    knockdown: Boolean(spec.knockdown), launch: Boolean(spec.launch),
   });
   return true;
 }
@@ -326,6 +406,9 @@ function resolveAttack(s, atkSide, defSide) {
   if (resolveCounter(s, atk, def, hb, atkSide, defSide)) return;
   if (moveFor(atk, atk.moveId).multiHit) atk.hitIds.push(hb.hitId);
   else atk.hasHit = true;
+  // The connection frame anchors the cancel window: from here on the move
+  // can be canceled into the next link of the ladder.
+  if (atk.hitFrame === null) atk.hitFrame = atk.moveFrame;
   applyDamage(s, atk, def, hb, atkSide, defSide);
 }
 
@@ -347,11 +430,20 @@ function updateProjectiles(s) {
         def.state = 'guard';
         s.events.push({ frame: s.frame, type: 'block', by: p.owner, on: defSide, move: 'fireball', damage: 6, x: Math.round(p.x), y: box.y + box.h / 2 });
       } else {
-        def.hp = Math.max(0, def.hp - box.damage);
+        if (atk.comboTimer <= 0) {
+          atk.combo = 0;
+          atk.comboChain = [];
+          atk.comboDamage = 0;
+        }
+        const scale = comboScale(atk.combo);
+        const damage = Math.max(1, Math.round(box.damage * scale));
+        def.hp = Math.max(0, def.hp - damage);
         def.hitstun = box.hitstun;
         def.state = 'hitstun';
         def.moveId = null;
         def.moveFrame = 0;
+        def.hitFrame = null;
+        def.buffer = null;
         def.advanceVx = 0;
         def.counterWindow = 0;
         def.x = clamp(def.x + Math.sign(p.vx) * 9, CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
@@ -359,15 +451,52 @@ function updateProjectiles(s) {
           def.state = 'knockdown';
           def.wakeup = CONFIG.WAKEUP_FRAMES;
         }
+        atk.combo += 1;
+        atk.comboTimer = CONFIG.COMBO_FRAMES;
+        atk.comboDamage += damage;
+        atk.comboChain.push(p.move || 'fireball');
+        if (atk.combo > atk.comboBest) {
+          atk.comboBest = atk.combo;
+          atk.comboBestDamage = atk.comboDamage;
+        }
+        if (atk.combo === 2) {
+          s.events.push({ frame: s.frame, type: 'combo_start', by: p.owner, on: defSide, count: atk.combo, chain: atk.comboChain.slice() });
+        }
         atk.meter = Math.min(CONFIG.MAX_METER, atk.meter + 12);
         s.hitstop = Math.max(s.hitstop, box.hitstop);
-        s.events.push({ frame: s.frame, type: 'hit', by: p.owner, on: defSide, move: p.move || 'fireball', damage: box.damage, combo: 1, frameAdvantage: 6, knockdown: Boolean(box.knockdown), x: Math.round(p.x), y: box.y + box.h / 2 });
+        s.events.push({
+          frame: s.frame, type: 'hit', by: p.owner, on: defSide, move: p.move || 'fireball',
+          damage, combo: atk.combo, scale, comboDamage: atk.comboDamage,
+          chain: atk.comboChain.slice(), frameAdvantage: 6,
+          knockdown: Boolean(box.knockdown), x: Math.round(p.x), y: box.y + box.h / 2,
+        });
       }
       continue;
     }
     if (p.life > 0 && p.x > CONFIG.STAGE_LEFT && p.x < CONFIG.STAGE_RIGHT) alive.push(p);
   }
   s.projectiles = alive;
+}
+
+/**
+ * Facing may only change on a frame where the fighter is free to turn.
+ *
+ * Recomputing facing from relative position every frame — the obvious
+ * implementation — makes a fighter spin around the instant it is crossed up,
+ * which happens on every throw slam, every advancing strike and every knockdown
+ * that carries it past the opponent. The animation keeps playing in the old
+ * direction, so the sprite ends up attacking with its back to its target.
+ *
+ * Airborne, committed, stunned and knocked-down fighters therefore keep the
+ * facing they took off with; they turn on the next neutral grounded frame.
+ */
+const TURNING_STATES = new Set(['idle', 'walk', 'crouch', 'guard']);
+
+function reface(f, other) {
+  if (!TURNING_STATES.has(f.state)) return;
+  if (f.y !== 0 || f.vy !== 0) return;
+  if (f.hitstun > 0 || f.blockstun > 0 || f.wakeup > 0) return;
+  f.facing = other.x >= f.x ? 1 : -1;
 }
 
 export function step(state, rawA, rawB) {
@@ -386,8 +515,8 @@ export function step(state, rawA, rawB) {
   const actionA = validateAction(rawA) ? rawA : 'idle';
   const actionB = validateAction(rawB) ? rawB : 'idle';
 
-  s.a.facing = s.b.x >= s.a.x ? 1 : -1;
-  s.b.facing = -s.a.facing;
+  reface(s.a, s.b);
+  reface(s.b, s.a);
 
   tickFighter(s.a, actionA, s, 'a');
   tickFighter(s.b, actionB, s, 'b');
@@ -399,6 +528,7 @@ export function step(state, rawA, rawB) {
   resolveAttack(s, 'a', 'b');
   resolveAttack(s, 'b', 'a');
 
+  let woke = false;
   for (const [side, f] of [['a', s.a], ['b', s.b]]) {
     if (f.hitstun > 0) {
       f.hitstun -= 1;
@@ -410,7 +540,17 @@ export function step(state, rawA, rawB) {
     }
     if (f.comboTimer > 0) {
       f.comboTimer -= 1;
-      if (f.comboTimer === 0) f.combo = 0;
+      if (f.comboTimer === 0) {
+        if (f.combo > 1) {
+          s.events.push({
+            frame: s.frame, type: 'combo_end', by: side,
+            count: f.combo, damage: f.comboDamage, chain: f.comboChain.slice(),
+          });
+        }
+        f.combo = 0;
+        f.comboDamage = 0;
+        f.comboChain = [];
+      }
     }
     if (f.invuln > 0) f.invuln -= 1;
     if (f.wakeup > 0) {
@@ -420,10 +560,15 @@ export function step(state, rawA, rawB) {
         f.vy = 0;
         f.y = 0;
         f.invuln = Math.max(f.invuln, CONFIG.WAKEUP_INVULN);
+        woke = true;
         s.events.push({ frame: s.frame, type: 'wakeup', by: side });
       }
     }
   }
+  // Wakeup flips knockdown -> idle AFTER the main push pass, which skips
+  // downed bodies. Without this second pass a fighter standing on the body
+  // interpenetrates for the one frame between getting up and the next push.
+  if (woke) resolvePush(s.a, s.b);
 
   if (s.a.hp <= 0 || s.b.hp <= 0) {
     s.over = true;
@@ -447,7 +592,10 @@ function hashCore(state) {
     hitIds: f.hitIds, armorLeft: f.armorLeft, wakeup: f.wakeup,
     canceledFrom: f.canceledFrom, lastMove: f.lastMove,
     hitstun: f.hitstun, blockstun: f.blockstun, combo: f.combo, comboTimer: f.comboTimer,
+    comboDamage: f.comboDamage, comboChain: f.comboChain,
+    comboBest: f.comboBest, comboBestDamage: f.comboBestDamage,
     invuln: f.invuln, lastAction: f.lastAction,
+    hitFrame: f.hitFrame, buffer: f.buffer,
     counterWindow: f.counterWindow, counterSpec: f.counterSpec,
     advanceVx: f.advanceVx, spawned: f.spawned,
   });
@@ -468,9 +616,11 @@ export function stateHash(state) {
 export function renderState(state) {
   const view = (f) => ({
     fighterId: f.fighterId, kit: f.kit, counterWindow: f.counterWindow,
-    hp: f.hp, meter: f.meter, x: f.x, y: f.y, facing: f.facing,
+    hp: f.hp, meter: f.meter, x: f.x, y: f.y, vx: f.vx, vy: f.vy, facing: f.facing,
     state: f.state, moveId: f.moveId, moveFrame: f.moveFrame,
-    combo: f.combo, hitstun: f.hitstun, blockstun: f.blockstun,
+    combo: f.combo, comboDamage: f.comboDamage, comboChain: f.comboChain.slice(),
+    comboBest: f.comboBest, comboBestDamage: f.comboBestDamage,
+    hitstun: f.hitstun, blockstun: f.blockstun,
     invuln: f.invuln, wakeup: f.wakeup, armorLeft: f.armorLeft,
     canceledFrom: f.canceledFrom, meterCost: f.moveId ? (moveFor(f, f.moveId).meterCost || 0) : 0,
     skeleton: skeletonFor(f, state.frame),

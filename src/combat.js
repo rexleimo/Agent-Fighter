@@ -13,7 +13,10 @@
  * World conversion applies `facing` and the fighter's (x, y) position.
  * The browser adds GROUND to every world y it receives.
  */
-import { MOVES, KITS, moveFor, totalFor } from './rules.js';
+import { MOVES, moveFor, totalFor } from './rules.js';
+import { ARCHETYPES, FIGHTER_KITS } from './kits/index.js';
+import { PUSH_WIDTH } from './fighters.js';
+import { cancelWindowOf, legalCancelTargets } from './combo.js';
 
 /** Bone graph. Front limbs are the ones on the opponent's side. */
 export const BONES = Object.freeze([
@@ -61,21 +64,27 @@ export function framePhase(f) {
     return {
       moveId: f.moveId || null, phase: 'none', frame: 0, total: 0,
       startup: 0, active: 0, recovery: 0, cancelable: false, cancelInto: [],
+      cancelIn: -1, hitLanded: false,
     };
   }
   const total = totalFor(f, f.moveId);
   const n = f.moveFrame;
   const phase = n < m.startup ? 'startup' : n < m.startup + m.active ? 'active' : 'recovery';
   const hitLanded = f.hasHit || (f.hitIds && f.hitIds.length > 0);
-  const win = m.cancelWindow || 0;
-  // Movement (dash) can be canceled without having landed a hit.
-  const needsHit = m.kind !== 'movement';
-  const cancelable = Boolean((!needsHit || hitLanded) && win > 0 && n >= m.startup + m.active
-    && n < m.startup + m.active + win);
+  // The window opens ON THE CONNECTION FRAME, so a chain can be confirmed the
+  // moment the hit lands instead of after the active frames are over.
+  const win = cancelWindowOf(m, f.hitFrame);
+  const inWindow = win.length > 0 && n >= win.openAt && n < win.until;
+  const targets = legalCancelTargets(m, hitLanded);
   return {
     moveId: f.moveId, phase, frame: n, total,
     startup: m.startup, active: m.active, recovery: m.recovery,
-    cancelable, cancelInto: cancelable ? (m.cancelInto || []).slice() : [],
+    cancelable: inWindow && targets.length > 0,
+    // The ladder is reported even before the window opens: an agent can
+    // pre-charge the cancel and the kernel will hold the input for it.
+    cancelInto: targets.slice(),
+    cancelIn: inWindow ? 0 : Math.max(0, win.openAt - n),
+    hitLanded,
     label: m.label || f.moveId,
   };
 }
@@ -330,7 +339,10 @@ export function hurtboxesFor(f, frame = 0) {
 
 /** Pushbox stops fighters from occupying the same ground space. */
 export function pushboxFor(f) {
-  return { ...toRect(f, -19, -176, 38, 176), kind: 'push' };
+  const w = PUSH_WIDTH[f.fighterId] || 112;
+  // A downed fighter's box hugs the lying body instead of standing upright.
+  const h = f.state === 'knockdown' ? 40 : 176;
+  return { ...toRect(f, -w / 2, -h, w, h), kind: 'push' };
 }
 
 /** World-space active hitboxes, anchored to skeleton joints. */
@@ -348,8 +360,13 @@ export function hitboxesFor(f, frame = 0) {
       continue;
     }
     const a = p[hb.anchor] || p.handF;
+    // A grounded box reaches the fighter's feet. The cinematic supers use it:
+    // their hitbox covers the whole body height, so a super that is cancelled
+    // in still connects with an opponent who is lying on the floor.
+    const top = a[1] + hb.y;
+    const h = m.grounded ? Math.max(hb.h, p.root[1] - top) : hb.h;
     out.push({
-      ...toRect(f, a[0] + hb.x, a[1] + hb.y, hb.w, hb.h),
+      ...toRect(f, a[0] + hb.x, top, hb.w, h),
       kind: 'hit', move: f.moveId, hitId: hb.hitId || 0,
       height: hb.height || m.height || 'mid',
       damage: Math.round((hb.damageScale || 1) * m.damage),
@@ -360,7 +377,10 @@ export function hitboxesFor(f, frame = 0) {
       // otherwise the first hit would floor the opponent and the remaining
       // active windows would whiff.
       knockdown: Boolean(hb.knockdown || (m.knockdown && !m.multiHit)),
-      launch: Boolean(m.launch || hb.launch), hitstop: hb.hitstop || m.hitstop || 4,
+      // The same goes for the launch: a rising multi-hit carries the opponent
+      // up with its LAST segment, not with its first one.
+      launch: Boolean(hb.launch || (m.launch && !m.multiHit)),
+      hitstop: hb.hitstop || m.hitstop || 4,
       meterGain: m.meterGain, unblockable: Boolean(m.unblockable || hb.unblockable),
       armored: false,
     });
@@ -437,8 +457,11 @@ export function publicBoxData() {
     };
   }
   const kits = {};
-  for (const [id, k] of Object.entries(KITS)) {
-    kits[id] = {
+  for (const [fighterId, k] of Object.entries(FIGHTER_KITS)) {
+    const arch = ARCHETYPES[k.archetype];
+    kits[fighterId] = {
+      archetype: k.archetype,
+      archetypeLabel: arch ? arch.label : k.archetype,
       label: k.label, blurb: k.blurb, tags: [...k.tags],
       moves: Object.fromEntries(Object.entries(k.moves).map(([action, m]) => [action, {
         label: m.label, kind: m.kind, pose: m.pose || null,
@@ -464,6 +487,6 @@ export function publicBoxData() {
     moves,
     // Per-fighter skill kits: the three meter actions resolve through these.
     kits,
-    kitNote: 'A fighter fights with KITS[fighter.kit].moves[action] when that action is special/ex/super, otherwise with moves[action].',
+    kitNote: 'A fighter fights with kits[fighterId].moves[action] when that action is special/ex/super, otherwise with moves[action]. Every fighter owns a different table.',
   };
 }

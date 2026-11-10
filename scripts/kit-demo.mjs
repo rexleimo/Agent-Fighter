@@ -1,19 +1,22 @@
 /**
- * Kit demo: watch each skill archetype resolve in the kernel, in text.
+ * Kit demo: watch every fighter's OWN skill table resolve in the kernel, in text.
  *
- * This is the fastest way to sanity-check B1 without a browser: it runs one
- * scripted scene per archetype against the neutral fighter and prints what
+ * The fastest way to sanity-check the kit system without a browser: it runs one
+ * scripted scene per fighter against the neutral fighter and prints what
  * actually happened (advance distance, projectile shape, counter window,
  * invuln frames, multi-hit segments) plus a PASS/FAIL verdict per mechanic.
+ * Each fighter is checked against the mechanic its own data declares, so all
+ * sixteen kits are verified on their own terms.
  *
  * Usage:
- *   node scripts/kit-demo.mjs            # all five archetypes
- *   node scripts/kit-demo.mjs counter    # one kit
- *   node scripts/kit-demo.mjs volt       # or a fighter id
+ *   node scripts/kit-demo.mjs            # all sixteen fighters
+ *   node scripts/kit-demo.mjs basalt     # one fighter
+ *   node scripts/kit-demo.mjs counter    # one archetype (all its fighters)
  */
 import { createInitialState, step } from '../src/engine.js';
 import { FIGHTERS, getFighter } from '../src/fighters.js';
-import { KITS, KIT_IDS, moveFor, moveDamage } from '../src/rules.js';
+import { moveDamage } from '../src/rules.js';
+import { ARCHETYPES, FIGHTER_KITS, FIGHTER_KIT_IDS } from '../src/kits/index.js';
 
 const TICK_FRAMES = 6;
 
@@ -28,11 +31,11 @@ function scene({ a, b = 'quartz', dx = 140, plan, ticks = 14 }) {
   for (let t = 0; t < ticks; t += 1) {
     const action = plan.action(t);
     for (let f = 0; f < TICK_FRAMES; f += 1) {
-      s = step(s, action, 'idle');
+      s = step(s, action, plan.bAction ? plan.bAction(t) : 'idle');
       // step() resets state.events every frame, so they must be collected here.
       events.push(...s.events.map((e) => ({ ...e, t })));
       frames.push({
-        t, x: s.a.x, invuln: s.a.invuln, counterWindow: s.a.counterWindow,
+        t, x: s.a.x, y: s.a.y, invuln: s.a.invuln, counterWindow: s.a.counterWindow,
         state: s.a.state, moveId: s.a.moveId, moveFrame: s.a.moveFrame,
         projectiles: s.projectiles.map((p) => ({ w: p.w, h: p.h, owner: p.owner, move: p.move })),
         hpA: s.a.hp, hpB: s.b.hp,
@@ -42,145 +45,152 @@ function scene({ a, b = 'quartz', dx = 140, plan, ticks = 14 }) {
   return { s, events, frames };
 }
 
-const count = (r, type) => r.events.filter((e) => e.type === type).length;
+/** Distance the fighter covered during the scene. */
+function advanceOf(r) {
+  return Math.max(...r.frames.map((f) => f.x)) - r.frames[0].x;
+}
 
-const REPORTERS = {
-  rush() {
-    const r = scene({ a: 'ember', dx: 180, plan: { action: (t) => (t < 4 ? 'special' : 'idle') } });
-    const startX = r.frames[0].x;
-    const moved = Math.max(...r.frames.map((f) => f.x)) - startX;
-    const hits = r.events.filter((e) => e.type === 'hit');
-    return {
-      ok: moved > 20 && hits.some((e) => e.knockdown),
-      lines: [
-        'advance distance  ' + moved + ' px',
-        'hits              ' + hits.length + (hits[0] ? ' (' + hits.map((e) => e.damage).join('/') + ')' : ''),
-        'knockdown         ' + (hits.some((e) => e.knockdown) ? 'yes' : 'no'),
-      ],
-    };
-  },
+/**
+ * Run one fighter's `special` and check it against its own declared
+ * mechanics. Returns the verdict plus the lines that explain it.
+ */
+function checkSpecial(fighterId) {
+  const kit = FIGHTER_KITS[fighterId];
+  const m = kit.moves.special;
+  const problems = [];
+  const lines = [];
 
-  volley() {
-    const mk = (action, meter) => scene({ a: 'tide', dx: 340, plan: { meter, action: (t) => (t < 4 ? action : 'idle') } });
-    const special = mk('special', 0);
-    const ex = mk('ex', 200);
-    const sup = mk('super', 300);
-    const widest = (r) => Math.max(0, ...r.frames.flatMap((f) => f.projectiles.filter((p) => p.owner === 'a').map((p) => p.w)));
-    return {
-      ok: count(special, 'spawn') === 1 && count(ex, 'spawn') === 2 && widest(sup) > widest(special) * 2,
-      lines: [
-        'special spawns    ' + count(special, 'spawn') + '  (orb ' + widest(special) + 'px wide)',
-        'EX spawns         ' + count(ex, 'spawn') + '  (staggered pair)',
-        'super spawns      ' + count(sup, 'spawn') + '  (beam ' + widest(sup) + 'px wide)',
-        'damage special    ' + moveDamage(moveFor('volley', 'special'))
-          + ' / ex ' + moveDamage(moveFor('volley', 'ex'))
-          + ' / super ' + moveDamage(moveFor('volley', 'super')),
-      ],
-    };
-  },
-
-  counter() {
-    // B attacks with a heavy punch into A's stance.
-    let s = createInitialState(20261107, 'kit-demo', { a: 'coral', b: 'ember' });
-    s.a.x = 430; s.b.x = 530;
-    const events = [];
-    for (let t = 0; t < 14; t += 1) {
-      const a = 'special';
-      // The heavy punch must land INSIDE the stance's active frames
-      // (startup 4..16), otherwise the demo would just be a whiff.
-      const b = t <= 1 ? 'hp' : 'idle';
-      for (let f = 0; f < TICK_FRAMES; f += 1) {
-        s = step(s, a, b);
-        events.push(...s.events.map((e) => ({ ...e, t })));
-      }
+  if (m.counter) {
+    // A stance only proves itself against an incoming melee hit.
+    const r = scene({
+      a: fighterId, b: 'ember', dx: 100, ticks: 14,
+      plan: { action: () => 'special', bAction: (t) => (t <= 1 ? 'hp' : 'idle') },
+    });
+    const counters = r.events.filter((e) => e.type === 'counter');
+    if (counters.length === 0) problems.push('no counter absorbed');
+    if (counters.length && counters[0].damage !== m.counter.damage) {
+      problems.push('counter damage ' + counters[0].damage + ' != ' + m.counter.damage);
     }
-    const counters = events.filter((e) => e.type === 'counter');
-    // Projectiles must NOT be counterable: same stance, but the attack is an orb.
-    let p = createInitialState(20261107, 'kit-demo2', { a: 'coral', b: 'tide' });
-    p.a.x = 420; p.b.x = 700;
-    const pEvents = [];
-    for (let t = 0; t < 16; t += 1) {
-      const a = 'special';
-      const b = 'special';
-      for (let f = 0; f < TICK_FRAMES; f += 1) {
-        p = step(p, a, b);
-        pEvents.push(...p.events.map((e) => ({ ...e, t })));
-      }
-    }
-    const pCounters = pEvents.filter((e) => e.type === 'counter');
-    return {
-      ok: counters.length > 0 && pCounters.length === 0 && p.a.hp < 1000,
-      lines: [
-        'vs melee          ' + counters.length + ' counter(s)'
-          + (counters[0] ? ' for ' + counters[0].damage + ' damage' : ''),
-        'attacker hp       ' + s.b.hp + ' (started 1000)',
-        'vs projectile     ' + pCounters.length + ' counter(s), stance hp ' + p.a.hp + ' (it still loses to zoning)',
-      ],
-    };
-  },
+    lines.push('counter absorbed   ' + counters.length + (counters[0] ? ' for ' + counters[0].damage + ' damage' : ''));
+    lines.push('attacker hp       ' + r.s.b.hp + ' (started 1000)');
+    // Projectiles must never be counterable.
+    const p = scene({
+      a: fighterId, b: 'tide', dx: 320, ticks: 16,
+      plan: { action: () => 'special', bAction: () => 'special' },
+    });
+    if (p.events.filter((e) => e.type === 'counter').length) problems.push('countered a projectile');
+    lines.push('vs projectile     0 counters, stance hp ' + p.s.a.hp);
+    return { ok: problems.length === 0, lines, problems };
+  }
 
-  antiAir() {
-    const r = scene({ a: 'volt', dx: 120, plan: { action: (t) => (t < 3 ? 'special' : 'idle') } });
+  const dx = m.projectile ? 340 : 120;
+  const r = scene({ a: fighterId, dx, ticks: 14, plan: { action: (t) => (t < 4 ? 'special' : 'idle') } });
+  const hits = r.events.filter((e) => e.type === 'hit');
+  const spawns = r.events.filter((e) => e.type === 'spawn');
+
+  if (m.projectile) {
+    const want = m.projectile.count || 1;
+    if (spawns.length !== want) problems.push('spawned ' + spawns.length + ' want ' + want);
+    lines.push('projectiles       ' + spawns.length + ' (' + (m.projectile.w > 60 ? 'beam' : 'orb')
+      + ' ' + m.projectile.w + 'x' + m.projectile.h + ' speed ' + m.projectile.speed + ')');
+  } else {
+    if (hits.length === 0) problems.push('special never connected');
+    lines.push('hits              ' + hits.length
+      + (hits[0] ? ' (' + hits.map((e) => e.damage).join('/') + ')' : ''));
+    lines.push('hit heights       ' + JSON.stringify(hits.map((e) => e.height)));
+  }
+
+  if (m.multiHit && hits.length < 2) problems.push('multi-hit landed ' + hits.length + ' segments');
+
+  if (m.advance) {
+    const moved = advanceOf(r);
+    if (moved <= 5) problems.push('advance did not move');
+    lines.push('advance distance  ' + moved + ' px');
+  }
+
+  if (m.invuln) {
     const invuln = r.frames.filter((f) => f.invuln > 0).length;
-    return {
-      ok: invuln > 0 && count(r, 'hit') > 0,
-      lines: [
-        'invuln frames     ' + invuln,
-        'hits              ' + count(r, 'hit'),
-        'hit heights       ' + JSON.stringify(r.events.filter((e) => e.type === 'hit').map((e) => e.height)),
-      ],
-    };
-  },
+    if (invuln === 0) problems.push('no invuln frames');
+    lines.push('invuln frames     ' + invuln);
+  }
 
-  multi() {
-    const r = scene({ a: 'gale', dx: 120, plan: { action: (t) => (t < 3 ? 'special' : 'idle') } });
+  lines.push('total damage      ' + moveDamage(m));
+  return { ok: problems.length === 0, lines, problems };
+}
+
+/** EX and super are gated by meter, so they get their own meter-full scene. */
+function checkMeterMoves(fighterId) {
+  const kit = FIGHTER_KITS[fighterId];
+  const problems = [];
+  const lines = [];
+  for (const action of ['ex', 'super']) {
+    const m = kit.moves[action];
+    const dx = m.projectile ? 340 : 120;
+    // A counter stance only answers an incoming melee hit, so the opponent
+    // has to actually swing for the check to mean anything.
+    const bAction = m.counter ? (t) => (t <= 1 ? 'hp' : 'idle') : null;
+    const r = scene({
+      a: fighterId, dx, ticks: 16,
+      plan: { meter: 300, action: (t) => (t < 4 ? action : 'idle'), bAction },
+    });
     const hits = r.events.filter((e) => e.type === 'hit');
-    const rSuper = scene({ a: 'gale', dx: 120, ticks: 14, plan: { meter: 300, action: (t) => (t < 4 ? 'super' : 'idle') } });
-    const superHits = rSuper.events.filter((e) => e.type === 'hit').length;
-    return {
-      ok: hits.length >= 2 && superHits >= 3,
-      lines: [
-        'special segments  ' + hits.length + ' (' + hits.map((e) => e.damage).join('/') + ')',
-        'super segments    ' + superHits,
-        'total special dmg ' + moveDamage(moveFor('multi', 'special')),
-      ],
-    };
-  },
-};
+    const spawns = r.events.filter((e) => e.type === 'spawn');
+    const counters = r.events.filter((e) => e.type === 'counter');
+    const started = r.events.some((e) => e.type === 'move_start' && e.move === action);
+    if (!started) problems.push(action + ' never started');
+    if (m.projectile) {
+      const want = m.projectile.count || 1;
+      if (spawns.length !== want) problems.push(action + ' spawned ' + spawns.length + ' want ' + want);
+    } else if (m.counter) {
+      if (!counters.length) problems.push(action + ' never countered');
+    } else if (hits.length === 0) {
+      problems.push(action + ' never connected');
+    }
+    lines.push(action.padEnd(17) + ' dmg ' + moveDamage(m) + ', started ' + started
+      + ', hits ' + hits.length + ', spawns ' + spawns.length + ', counters ' + counters.length);
+  }
+  return { ok: problems.length === 0, lines, problems };
+}
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const only = args[0];
-let kitIds = KIT_IDS.slice();
-let fighterId = null;
+let fighterIds = FIGHTER_KIT_IDS.slice();
 if (only) {
-  if (KIT_IDS.includes(only)) kitIds = [only];
-  else {
-    const f = FIGHTERS.find((x) => x.id === only);
-    if (!f) {
-      console.error('unknown kit or fighter: ' + only + '\n  kits: ' + KIT_IDS.join(', ')
-        + '\n  fighters: ' + FIGHTERS.map((x) => x.id).join(', '));
-      process.exit(1);
-    }
-    fighterId = f.id;
-    kitIds = [f.kit];
+  if (FIGHTER_KIT_IDS.includes(only)) {
+    fighterIds = [only];
+  } else if (ARCHETYPES[only]) {
+    fighterIds = FIGHTER_KIT_IDS.filter((id) => FIGHTER_KITS[id].archetype === only);
+  } else if (FIGHTERS.some((f) => f.id === only)) {
+    fighterIds = [only];
+  } else {
+    console.error('unknown fighter or archetype: ' + only
+      + '\n  fighters: ' + FIGHTER_KIT_IDS.join(', ')
+      + '\n  archetypes: ' + Object.keys(ARCHETYPES).join(', '));
+    process.exit(1);
   }
 }
-
-if (fighterId) {
-  const f = getFighter(fighterId);
-  const kit = KITS[f.kit];
-  console.log(f.name + ' (' + f.id + ') → kit ' + kit.id + ' · ' + kit.label);
+if (fighterIds.length === 1) {
+  const f = getFighter(fighterIds[0]);
+  const kit = FIGHTER_KITS[fighterIds[0]];
+  console.log(f.name + ' (' + f.id + ') → ' + kit.label + ' [' + kit.archetype + ']');
   console.log('  ' + kit.blurb + '\n');
+} else {
+  console.log((only ? 'archetype ' + only : 'all fighters') + ' — ' + fighterIds.length + ' kits\n');
 }
 
 let allOk = true;
-for (const kitId of kitIds) {
-  const kit = KITS[kitId];
-  const roster = FIGHTERS.filter((f) => f.kit === kitId).map((f) => f.id);
-  const out = REPORTERS[kitId]();
-  allOk = allOk && out.ok;
-  console.log((out.ok ? 'PASS  ' : 'FAIL  ') + kitId + ' · ' + kit.label + '  [' + roster.join(' ') + ']');
-  for (const line of out.lines) console.log('        ' + line);
+for (const fighterId of fighterIds) {
+  const kit = FIGHTER_KITS[fighterId];
+  const special = checkSpecial(fighterId);
+  const meter = checkMeterMoves(fighterId);
+  const ok = special.ok && meter.ok;
+  allOk = allOk && ok;
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + fighterId.padEnd(8) + ' · ' + kit.label
+    + '  [' + kit.archetype + ']');
+  for (const line of special.lines) console.log('        ' + line);
+  for (const line of meter.lines) console.log('        ' + line);
+  const problems = [...special.problems, ...meter.problems];
+  if (problems.length) console.log('        !! ' + problems.join('; '));
   console.log('');
 }
 console.log(allOk ? 'all kit mechanics behave as declared' : 'some kit mechanic did not behave as declared');

@@ -19,6 +19,7 @@
 <div id="grid"></div>
 <script type="module">
 import { skeletonFor } from '/src/combat.js';
+import { loadManifest } from './asset-store.js';
 import { loadRig, drawRig } from './rig.js';
 
 const params = new URLSearchParams(location.search);
@@ -67,6 +68,8 @@ for (const id of ids) {
   grid.append(row);
   rows.push({ id, cells });
 }
+
+await loadManifest();
 
 for (const { id, cells } of rows) {
   let rig;
@@ -119,6 +122,7 @@ const report = rows.map(({ id, cells }) => {
     id,
     nonEmpty,
     idleVsHp: diff(data[0], data[5]),
+    idleVsWalk: diff(data[0], data[1]),
     idleVsIdle: diff(data[0], data[0]),
     idleVsCrouch: diff(data[0], data[2]),
   };

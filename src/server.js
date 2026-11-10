@@ -1,7 +1,12 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import {
+  assetsRoot, assetsState, criticalPreloadTags, getManifest, isHashedAssetPath, legacyAssetPath,
+} from './assets.js';
 import { CONFIG } from './rules.js';
 import { League } from './league.js';
 import { RoomManager } from './rooms.js';
@@ -65,20 +70,126 @@ const ROOT_DIRS = {
   '/skills/': path.join(ROOT, 'skills'),
 };
 
-function serveStatic(req, res, pathname) {
-  const prefix = Object.keys(ROOT_DIRS).find((p) => pathname.startsWith(p));
-  const baseDir = prefix ? ROOT_DIRS[prefix] : WEB_DIR;
-  const rel = prefix
-    ? pathname.slice(prefix.length)
-    : (pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, ''));
-  const file = path.resolve(baseDir, rel);
-  if (!file.startsWith(baseDir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('404');
+const GZIP_CACHE = new Map();
+const TEXT_EXT = new Set(['.html', '.css', '.js', '.mjs', '.json', '.md', '.svg']);
+const IMMUTABLE = 'public, max-age=31536000, immutable';
+const REVALIDATE = 'public, max-age=3600, must-revalidate';
+
+function notFound(res) {
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end('404');
+}
+
+function canGzip(req, type) {
+  return /^(text\/|application\/json|image\/svg)/i.test(type)
+    && String(req.headers['accept-encoding'] || '').includes('gzip');
+}
+
+function sendBuffer(req, res, buf, { type, cache, etag }) {
+  const headers = {
+    'Content-Type': type,
+    'Cache-Control': cache,
+    'ETag': etag,
+    'X-Content-Type-Options': 'nosniff',
+  };
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers);
+    res.end();
     return;
   }
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+  let body = buf;
+  if (canGzip(req, type) && buf.length > 512) {
+    const key = etag + ':' + buf.length;
+    body = GZIP_CACHE.get(key);
+    if (!body) {
+      body = zlib.gzipSync(buf, { level: 9 });
+      if (GZIP_CACHE.size > 200) GZIP_CACHE.clear();
+      GZIP_CACHE.set(key, body);
+    }
+    headers['Content-Encoding'] = 'gzip';
+    headers['Vary'] = 'Accept-Encoding';
+  }
+  headers['Content-Length'] = body.length;
+  res.writeHead(200, headers);
+  if (req.method === 'HEAD') res.end(); else res.end(body);
+}
+
+function serveFile(req, res, file, { cache = 'no-cache' } = {}) {
+  let stat;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    notFound(res);
+    return;
+  }
+  if (!stat.isFile()) { notFound(res); return; }
+  const type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
+  const etag = '"' + stat.size.toString(16) + '-' + Math.floor(stat.mtimeMs).toString(16) + '"';
+  if (TEXT_EXT.has(path.extname(file).toLowerCase())) {
+    sendBuffer(req, res, fs.readFileSync(file), { type, cache, etag });
+    return;
+  }
+  const headers = {
+    'Content-Type': type,
+    'Cache-Control': cache,
+    'Content-Length': stat.size,
+    'ETag': etag,
+    'X-Content-Type-Options': 'nosniff',
+  };
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(200, headers);
+  if (req.method === 'HEAD') { res.end(); return; }
   fs.createReadStream(file).pipe(res);
+}
+
+function serveIndex(req, res) {
+  const file = path.join(WEB_DIR, 'index.html');
+  if (!fs.existsSync(file)) { notFound(res); return; }
+  const html = fs.readFileSync(file, 'utf8').replace('<!--ASSET_PRELOAD-->', criticalPreloadTags());
+  const buf = Buffer.from(html);
+  const etag = '"' + crypto.createHash('sha1').update(buf).digest('hex') + '"';
+  sendBuffer(req, res, buf, { type: 'text/html; charset=utf-8', cache: 'no-cache', etag });
+}
+
+function serveStatic(req, res, pathname) {
+  if (pathname === '/assets/manifest.json') {
+    serveFile(req, res, path.join(assetsRoot(), 'manifest.json'), { cache: 'no-cache' });
+    return;
+  }
+  if (pathname === '/assets/sprites.json') {
+    serveFile(req, res, path.join(assetsRoot(), 'sprites.json'), { cache: 'no-cache' });
+    return;
+  }
+  if (pathname.startsWith('/assets/v/')) {
+    if (!isHashedAssetPath(pathname)) { notFound(res); return; }
+    const file = path.resolve(assetsRoot(), pathname.slice('/assets/'.length));
+    if (!file.startsWith(assetsRoot() + path.sep)) { notFound(res); return; }
+    serveFile(req, res, file, { cache: IMMUTABLE });
+    return;
+  }
+  if (pathname.startsWith('/assets/')) {
+    const legacy = legacyAssetPath(pathname);
+    if (legacy) { serveFile(req, res, legacy, { cache: REVALIDATE }); return; }
+    notFound(res);
+    return;
+  }
+  if (pathname === '/' || pathname === '/index.html') {
+    serveIndex(req, res);
+    return;
+  }
+  const prefix = Object.keys(ROOT_DIRS).find((p) => pathname.startsWith(p));
+  const baseDir = prefix ? ROOT_DIRS[prefix] : WEB_DIR;
+  const rel = prefix ? pathname.slice(prefix.length) : pathname.replace(/^\/+/, '');
+  const file = path.resolve(baseDir, rel);
+  if (!file.startsWith(baseDir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    notFound(res);
+    return;
+  }
+  serveFile(req, res, file, { cache: 'no-cache' });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -106,6 +217,7 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/state') {
     json(res, 200, {
       server: { name: 'Agent Fighting League', season: league.season, tickMs: CONFIG.TICK_MS, framesPerTick: CONFIG.FRAMES_PER_TICK, matchTicks: CONFIG.MATCH_TICKS, version: '0.2.0' },
+      assets: assetsState(),
       match: manager.meta(),
       rooms: manager.listRooms(),
       lobby: manager.state(),
@@ -118,6 +230,12 @@ const server = http.createServer(async (req, res) => {
       spectators: manager.state().spectators,
       onlineAgents: manager.agentConns.size,
     });
+    return;
+  }
+  if (p === '/api/assets') {
+    const manifest = getManifest();
+    if (!manifest) { json(res, 503, { error: 'asset manifest unavailable' }); return; }
+    json(res, 200, manifest);
     return;
   }
   if (p === '/api/rooms') {

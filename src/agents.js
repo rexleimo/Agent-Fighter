@@ -1,24 +1,59 @@
 import { ACTIONS } from './rules.js';
 import { hashObject } from './replay.js';
 
+/**
+ * The KOF-style ladder: every normal can be canceled into the next link,
+ * and the skills close the string.
+ */
+const CHAIN_NEXT = Object.freeze({
+  lp: 'mp', mp: 'hp', lk: 'mk', mk: 'hk', hk: 'dp', hp: 'special',
+  special: 'super', ex: 'super',
+});
+
+/**
+ * The next link of the string, or null when the chain cannot continue.
+ *
+ * A link is only legal when the move in flight has CONNECTED and the ladder
+ * of that move really contains the target — the kernel holds the input for a
+ * few frames, so a link that is issued slightly early still lands.
+ */
+function chainLink(o) {
+  const fd = o.frameData || {};
+  const s = o.self;
+  if (!fd.moveId || !fd.hitLanded) return null;
+  let next = CHAIN_NEXT[fd.moveId];
+  if (!next) return null;
+  if (next === 'super' && !s.canSuper) next = s.canEx ? 'ex' : null;
+  if (!next) return null;
+  return (s.cancelInto || []).includes(next) ? next : null;
+}
+
 function brawler(o) {
   const s = o.self;
   const d = o.derived;
   if (s.hitstun > 0 || s.blockstun > 0) return 'block';
-  // Combo route: a landed normal is canceled into the signature move and,
-  // with a full bar, straight into the three-hit super.
-  if (s.canCancel && s.canSuper) return 'super';
-  if (s.canCancel && d.inRange.special) return 'special';
+  // The string comes first: a landed normal is canceled into the next link,
+  // so the pressure arrives as one combo instead of one hit at a time.
+  const link = chainLink(o);
+  if (link) return link;
+  // The skills close the string. A skill is the end of it, so a skill is
+  // never canceled into itself.
+  const fd = o.frameData || {};
+  const inSkill = fd.moveId === 'special' || fd.moveId === 'ex' || fd.moveId === 'super';
+  if (!inSkill && s.canCancel && s.canSuper && d.distanceX < 260) return 'super';
+  if (!inSkill && s.canCancel && d.inRange.special) return 'special';
   if (s.canSuper && d.distanceX < 220) return 'super';
   if (d.boxOverlap && s.canEx) return 'ex';
   if (d.threat === 'jump_in' && d.inRange.dp) return 'dp';
-  if (d.opponentBlocking && d.distanceX < 52 && d.inRange.throw) return 'throw';
+  if (d.opponentBlocking && d.distanceX < 132 && d.inRange.throw) return 'throw';
   if (d.projectileIncoming && d.distanceX < 200) return 'jump';
   if (d.distanceX > 196 && s.actionable) return 'dash';
   if (d.distanceX > 92) return 'walk_f';
-  if (d.inRange.hp && d.frameAdvantage >= -3) return 'hp';
-  if (d.inRange.mp) return 'mp';
+  // Open with the shortest normal: every link of the ladder can be canceled
+  // out of it, so the string can start from the fastest button.
   if (d.inRange.lp) return 'lp';
+  if (d.inRange.mp) return 'mp';
+  if (d.inRange.hp) return 'hp';
   return 'walk_f';
 }
 
@@ -29,7 +64,7 @@ function zoner(o) {
   if (s.canCancel && s.canSuper) return 'super';
   if (s.canSuper && d.distanceX < 260) return 'super';
   if (d.threat === 'jump_in' && d.inRange.dp) return 'dp';
-  if (d.opponentBlocking && d.distanceX < 52 && d.inRange.throw) return 'throw';
+  if (d.opponentBlocking && d.distanceX < 132 && d.inRange.throw) return 'throw';
   if (d.distanceX < 100) return s.inCorner ? 'mk' : 'walk_b';
   if (d.projectileIncoming && d.distanceX < 150) return 'block';
   if (d.distanceX >= 130 && s.actionable) return 'fireball';
@@ -49,7 +84,7 @@ function turtle(o) {
   if (d.opponentAttacking && d.distanceX < 130) return 'block';
   if (d.distanceX > 190) return 'dash';
   if (d.inRange.lp && d.frameAdvantage >= 0) return 'lp';
-  if (d.distanceX < 52 && d.inRange.throw) return 'throw';
+  if (d.distanceX < 132 && d.inRange.throw) return 'throw';
   return 'block';
 }
 

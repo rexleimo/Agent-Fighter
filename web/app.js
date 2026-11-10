@@ -1,4 +1,11 @@
 import { loadRig, drawRig } from './rig.js';
+import { drawSprite, ensureSprites, spritesReady, loadSpriteIndex } from './sprite.js';
+import { createFx } from './fx.js';
+import { createImpactFx } from './impact-fx.js';
+import {
+  assetFor, legacyArtUrl, loadFighterArt, loadManifest, loadStageArt, manifestReady, preloadFighters, variantFor,
+} from './asset-store.js';
+import { isEnabled as soundEnabled, play as playSound, setEnabled as setSoundEnabled } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const GROUND = 330;
@@ -18,22 +25,24 @@ const S = {
   actions: [],
   frameQueue: [],
   current: null,
-  showBoxes: true,
-  showBones: true,
+  lastResult: null,
+  showBoxes: false,
+  showBones: false,
   showFx: true,
-  showRuler: true,
-  showGrid: true,
+  showRuler: false,
+  showGrid: false,
   rules: null,
-  fx: [],
-  fxSeen: 0,
+  spriteTrack: { a: {}, b: {} },
   tickMs: 100,
   ws: null,
   roomId: null,
   rooms: [],
   presence: null,
   fighters: [],
+  fightersSig: '',
+  galleryIO: null,
   configs: null,
-  replay: { matchId: null, ticks: [], index: 0, timer: null },
+  replay: { matchId: null, match: null, ticks: [], index: 0, timer: null },
   tools: ['register_agent', 'update_strategy', 'submit_strategy', 'get_strategy_template', 'validate_strategy', 'simulate_strategy', 'get_rules', 'get_observation_schema', 'join_queue', 'create_room', 'join_room', 'list_rooms', 'list_fighters', 'get_my_matches', 'get_match_result', 'get_leaderboard', 'get_replay', 'get_agent_stats'],
 };
 
@@ -49,6 +58,20 @@ const EVENT_LABEL = {
 };
 const PHASE_LABEL = { startup: '起手', active: '判定', recovery: '收招', none: '可行动' };
 const label = (a) => ACTION_LABEL[a] || (S.moves[a] && S.moves[a].label) || a;
+
+// Combo presentation: the stage canvas and the replay canvas each own one
+// instance, because they show different matches.
+const fxLabel = (side, moveId, match) => (
+  ['special', 'ex', 'super'].includes(moveId) ? skillName(side, moveId, match) : label(moveId)
+);
+const stageFx = createFx({ colors: { a: COLOR_A, b: COLOR_B }, labelFor: fxLabel });
+const replayFx = createFx({ colors: { a: COLOR_A, b: COLOR_B }, labelFor: fxLabel });
+// Impact effects follow the same rule: one instance per canvas, because the
+// two canvases show different matches and their frame counters are unrelated.
+const impactFx = {
+  stage: createImpactFx({ labelFor: fxLabel, plainLabel: label, onSound: playSound, enabled: () => S.showFx, ground: GROUND }),
+  replay: createImpactFx({ labelFor: fxLabel, plainLabel: label, onSound: null, enabled: () => S.showFx, ground: GROUND }),
+};
 const short = (v, n = 8) => String(v || '').slice(0, n);
 const pct = (v, max) => Math.max(0, Math.min(100, (v / max) * 100)) + '%';
 
@@ -102,6 +125,7 @@ function handleMessage(msg) {
       S.fighters = msg.fighters || S.fighters;
       if (msg.server && msg.server.tickMs) S.tickMs = msg.server.tickMs;
       if (msg.match && msg.match.lastFrame) S.current = msg.match.lastFrame;
+      ensureMatchFighters(msg.match);
       $('seasonChip').textContent = 'SEASON ' + (msg.server.season || 'S1');
       $('footSeason').textContent = msg.server.season || 'S1';
       renderRoomBar();
@@ -123,9 +147,17 @@ function handleMessage(msg) {
       break;
     case 'match_start':
       S.match = msg.match;
+      S.lastResult = null;
+      $('stageBadge').innerHTML = '<i></i>MATCH LIVE';
+      ensureMatchFighters(msg.match);
       S.frameQueue.length = 0;
-      S.fx.length = 0;
-      FX_KEYS.clear();
+      // The FX layers dedupe events by frame index, and frame indices restart
+      // with every match. Without a reset the second match would look like a
+      // replay of the first and its combo banner would be swallowed.
+      stageFx.reset();
+      replayFx.reset();
+      impactFx.stage.reset();
+      impactFx.replay.reset();
       S.current = msg.match.lastFrame;
       $('decisionList').innerHTML = '<div class="empty">新一局开始…</div>';
       $('combatList').innerHTML = '<div class="empty">等待交火…</div>';
@@ -137,13 +169,24 @@ function handleMessage(msg) {
     case 'tick':
       if (!S.match || msg.matchId !== S.match.matchId) break;
       for (const f of msg.frames) S.frameQueue.push(f);
-      if (S.frameQueue.length > 40) S.frameQueue.splice(0, S.frameQueue.length - 12);
+      // A hidden tab starves rAF, so the queue can pile up. Drop the stale
+      // head instead of replaying it at speed when the tab wakes up.
+      if (S.frameQueue.length > 40) S.frameQueue.splice(0, S.frameQueue.length - 24);
+      // Tick-level events carry every hit of the tick. The frame snapshots
+      // carry their own events too, but only for the frame that was drawn;
+      // forwarding the tick keeps combo_end and impact cues from being lost
+      // with a skipped frame.
+      stageFx.ingest(msg.events);
+      impactFx.stage.ingest(msg.events);
       appendDecisions(msg);
       appendCombat(msg.events);
       renderBudget(msg.budget);
       updateTickLabel(msg.tick, msg.hud);
       break;
     case 'match_end':
+      S.lastResult = { ...msg.result, matchId: msg.matchId };
+      playSound(msg.result.reason === 'ko' ? 'ko' : 'wakeup');
+      $('stageBadge').innerHTML = '<i></i>MATCH ENDED';
       if (msg.leaderboard) { S.board = msg.leaderboard; renderBoard(); }
       if (msg.recentMatches) { S.recent = msg.recentMatches; renderReplayList(); }
       appendSystemEvent('对局结束 · ' + (msg.result.winnerName || msg.result.winner) + ' 胜出 · ' + (msg.result.reason === 'ko' ? 'KO' : '时间到'), 'ev-ko');
@@ -357,7 +400,7 @@ const ART = {
   rigPending: new Set(),
   stage: null,
   failed: new Set(),
-  requested: false,
+  wanted: new Set(),
 };
 
 function artImage(id) {
@@ -369,19 +412,35 @@ function repaintArt() {
   if (S.current) draw(ctx, S.current, S.match, stageCanvas);
 }
 
-function loadArt(ids) {
-  if (ART.requested) return;
-  ART.requested = true;
-  const plate = new Image();
-  plate.onload = () => { ART.stage = plate; repaintArt(); };
-  plate.onerror = () => ART.failed.add('stage');
-  plate.src = '/assets/art/stage_main.png';
-  for (const id of ids) {
-    const img = new Image();
-    img.onload = () => { ART.images[id] = img; repaintArt(); };
-    img.onerror = () => ART.failed.add(id);
-    img.src = '/assets/art/' + encodeURIComponent(id) + '.png';
-  }
+function loadStageArtwork() {
+  if (ART.stage) return;
+  loadStageArt().then((img) => {
+    ART.stage = img;
+    repaintArt();
+  }).catch(() => ART.failed.add('stage'));
+}
+
+function loadFighter(id) {
+  if (!id || ART.wanted.has(id)) return;
+  ART.wanted.add(id);
+  loadFighterArt(id, 'play').then((img) => {
+    ART.images[id] = img;
+    repaintArt();
+  }).catch(() => ART.failed.add(id));
+}
+
+function matchFighterIds(match) {
+  return [match && match.a, match && match.b]
+    .map((side) => side && side.fighter && side.fighter.id)
+    .filter(Boolean);
+}
+
+/** Preload only the matchup we are about to watch. */
+function ensureMatchFighters(match) {
+  const ids = matchFighterIds(match);
+  if (!ids.length) return;
+  preloadFighters(ids);
+  for (const id of ids) loadFighter(id);
 }
 
 /** Painted stadium plate; returns false so the procedural set takes over. */
@@ -401,6 +460,14 @@ function drawStageArt(c, w, h) {
   veil.addColorStop(0.42, 'rgba(6,11,18,.08)');
   veil.addColorStop(1, 'rgba(6,11,18,.48)');
   c.fillStyle = veil;
+  c.fillRect(0, 0, w, h);
+  // Keep the crowd and neon from competing with the fighters: a soft vignette
+  // around the play plane, strongest at the edges and absent at the floor.
+  const grade = c.createRadialGradient(w / 2, GROUND - 40, 90, w / 2, GROUND - 40, w * 0.72);
+  grade.addColorStop(0, 'rgba(5,10,16,0)');
+  grade.addColorStop(0.55, 'rgba(4,8,14,.08)');
+  grade.addColorStop(1, 'rgba(2,6,11,.48)');
+  c.fillStyle = grade;
   c.fillRect(0, 0, w, h);
   return true;
 }
@@ -431,21 +498,32 @@ function ensureRig(id) {
   loadRig(id).then((rig) => {
     ART.rigs[id] = rig;
     repaintArt();
-  }).catch(() => { ART.failed.add('rig:' + id); });
+  }).catch(() => {
+    ART.rigPending.delete(id);
+    ART.failed.add('rig:' + id);
+  });
 }
 
 function drawSpriteBody(c, img, o) {
   const { f, def, pal, dir, gx, gy } = o;
+  const rig = ART.rigs[def.id];
   const H = 204;
-  const W = H * (img.naturalWidth / img.naturalHeight);
+  const W = img
+    ? H * (img.naturalWidth / img.naturalHeight)
+    : rig
+      ? H * (rig.box.w / rig.box.h)
+      : H * 0.55;
   const state = f.state || 'idle';
   const acting = state === 'attack' || state === 'projectile' || state === 'special';
   const m = S.moves[f.moveId];
   const active = Boolean(m && acting && f.moveFrame >= m.startup && f.moveFrame < m.startup + m.active);
-  let sx = 1, sy = 1, lean = 0, bob = 0, flash = 1;
+  let sx = 1, sy = 1, lean = 0, bob = 0, flashing = false;
   if (state === 'walk' || state === 'dash') bob = Math.sin(((S.current && S.current.frame) || 0) * 0.24) * 2.2;
   if (f.y < -2) bob = -2;
-  if (state === 'hitstun') flash = 1.6;
+  // Two lit frames out of every seven, not a steady blowout: a constant
+  // brightness lift turned the whole body white for the entire stun, which is
+  // what made pale fighters read as empty shapes in the middle of a combo.
+  if (state === 'hitstun' && f.hitstun > 0 && f.hitstun % 7 < 2) flashing = true;
   if (state === 'knockdown') { lean = -1.12 * dir; bob = 10; }
 
   c.save();
@@ -456,7 +534,24 @@ function drawSpriteBody(c, img, o) {
   c.beginPath(); c.ellipse(gx, gy - 82, W * 0.7, H * 0.58, 0, 0, Math.PI * 2); c.fill();
   c.restore();
 
-  const rig = ART.rigs[def.id];
+  const globalFrame = (S.current && S.current.frame) || 0;
+  // A dark rim keeps the silhouette readable against bright baked effects and
+  // the stage lights; without it a white-palette fighter merges into the glow.
+  const rim = 'drop-shadow(0 0 1.5px rgba(6,10,18,.8))';
+  if (spritesReady(def.id)) {
+    // Frame-by-frame sprite animation: the server state selects the drawing.
+    const track = (S.spriteTrack[o.side] = S.spriteTrack[o.side] || {});
+    const filters = [rim];
+    if (flashing) filters.push('saturate(1.45)', 'brightness(1.12)', 'contrast(1.06)');
+    if (o.side === 'b') filters.push('hue-rotate(-14deg)', 'saturate(1.06)', 'brightness(0.97)');
+    const tint = filters.join(' ');
+    if (active) {
+      // Motion ghost: dark and saturated. A brightened ghost is a white smear
+      // that erases the pose it is supposed to repeat.
+      drawSprite(c, f, { gx: gx - 14 * dir, gy, globalFrame, track: {}, height: H, alpha: 0.18, tint: 'saturate(1.7) brightness(0.72)' });
+    }
+    drawSprite(c, f, { gx, gy, globalFrame, track, height: H, tint });
+  } else {
   const sk = f.skeleton;
   const rigid = RIG_STATES[state] || !sk;
   const local = sk && !rigid ? rigLocalJoints(f, sk) : {};
@@ -464,17 +559,17 @@ function drawSpriteBody(c, img, o) {
 
   if (active && rig) {
     c.save();
-    c.globalAlpha = 0.22;
-    c.filter = 'brightness(1.7) saturate(1.2)';
+    c.globalAlpha = 0.18;
+    c.filter = 'saturate(1.7) brightness(0.72)';
     drawRig(c, rig, { H, x: gx - 18 * dir, y: gy, dir, squashX: sx, squashY: sy, lean, bob, localJoints: local, delta });
     c.restore();
   }
 
   c.save();
-  const filters = [];
-  if (flash > 1) filters.push('brightness(' + flash + ')', 'saturate(1.2)');
+  const filters = [rim];
+  if (flashing) filters.push('saturate(1.45)', 'brightness(1.12)', 'contrast(1.06)');
   if (o.side === 'b') filters.push('hue-rotate(-14deg)', 'saturate(1.06)', 'brightness(0.97)', 'drop-shadow(0 0 5px rgba(91,140,255,.7))');
-  if (filters.length) c.filter = filters.join(' ');
+  c.filter = filters.join(' ');
   if (rig) {
     drawRig(c, rig, { H, x: gx, y: gy, dir, squashX: sx, squashY: sy, lean, bob, localJoints: local, delta });
   } else {
@@ -482,6 +577,7 @@ function drawSpriteBody(c, img, o) {
     blitFighter(c, img, gx, gy, W, H, dir, sx, sy, lean, bob);
   }
   c.restore();
+  }
 
   if (f.counterWindow > 0) {
     // 当身 stance: a live window the opponent can read, and the only pose in
@@ -521,8 +617,12 @@ const FALLBACK_FIGHTER = {
 };
 
 function fighterDef(side, match) {
-  const brief = match && ((side === 'a' ? match.a : match.b) || {}).fighter;
-  const id = brief && brief.id;
+  const seat = (match && (side === 'a' ? match.a : match.b)) || {};
+  // Live rooms carry a full fighter brief; a recorded match only carries the
+  // fighter id, so both shapes have to resolve to the same roster entry.
+  const id = (seat.fighter && seat.fighter.id)
+    || seat.fighterId
+    || (match && match.fighters && match.fighters[side]);
   return (id && S.fighters.find((x) => x.id === id))
     || S.fighters.find((x) => x.id === 'quartz')
     || FALLBACK_FIGHTER;
@@ -668,7 +768,8 @@ function drawFighter(c, f, side, frame, match) {
   // would show as a coloured block behind the illustration, so use a thin
   // side-colour outline instead.
   const sprite = artImage(def.id);
-  if (sprite) ensureRig(def.id);
+  ensureRig(def.id);
+  ensureSprites(def.id);
   c.save();
   if (sprite) {
     const sh = c.createRadialGradient(gx, GROUND + 2, 2, gx, GROUND + 2, 54 * bulk);
@@ -683,7 +784,12 @@ function drawFighter(c, f, side, frame, match) {
   c.restore();
   c.save();
   if (sprite) {
-    c.globalAlpha = 0.22; c.strokeStyle = sideColor; c.lineWidth = 1.2;
+    const light = c.createRadialGradient(gx, gy - 80, 8, gx, gy - 80, 86 * bulk);
+    light.addColorStop(0, side === 'a' ? 'rgba(53,214,164,.12)' : 'rgba(91,140,255,.12)');
+    light.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = light;
+    c.beginPath(); c.ellipse(gx, gy - 80, 86 * bulk, 104, 0, 0, Math.PI * 2); c.fill();
+    c.globalAlpha = 0.14; c.strokeStyle = sideColor; c.lineWidth = 1.2;
     c.beginPath(); c.ellipse(gx, gy - 94, 45 * bulk, 96, 0, 0, Math.PI * 2); c.stroke();
   } else {
     c.fillStyle = pal.aura || 'rgba(140,180,220,.12)';
@@ -692,8 +798,8 @@ function drawFighter(c, f, side, frame, match) {
   }
   c.restore();
 
-  if (sprite) {
-    drawSpriteBody(c, sprite, { f, def, pal, dir, gx, gy, sideColor, handF, bulk });
+  if (sprite || ART.rigs[def.id] || spritesReady(def.id)) {
+    drawSpriteBody(c, sprite, { f, def, pal, dir, gx, gy, side, sideColor, handF, bulk });
   } else {
   // Procedural fallback: used only while art loads or for an unknown id.
   // Back gear
@@ -802,7 +908,9 @@ function drawFighter(c, f, side, frame, match) {
   c.strokeStyle = 'rgba(11,18,26,.92)';
   const tagY = gy - (sprite ? 206 : 134);
   const comboY = gy - (sprite ? 228 : 155);
-  const tag = (def.code || 'UNIT') + (f.moveId ? ' / ' + label(f.moveId) : '');
+  const sideMeta = match && match[side];
+  const agentName = sideMeta && sideMeta.name ? sideMeta.name : '';
+  const tag = (agentName ? agentName + ' · ' : '') + (def.code || 'UNIT') + (f.moveId ? ' / ' + label(f.moveId) : '');
   c.font = '600 10px ui-monospace, monospace';
   const tw = c.measureText(tag).width;
   c.fillStyle = 'rgba(8,14,22,.62)';
@@ -866,117 +974,6 @@ function skillName(side, moveId, match) {
   const def = fighterDef(side, match);
   const sk = def && def.skills && def.skills.find((s) => s.id === moveId);
   return sk ? sk.name : label(moveId);
-}
-
-/* ------------------------------------------------------------ combat effects */
-const FX_KEYS = new Set();
-function syncEffects(frame) {
-  if (!S.showFx || !frame || !frame.events) return;
-  for (const e of frame.events) {
-    const key = e.frame + '|' + e.type + '|' + (e.by || '') + '|' + (e.on || '') + '|' + (e.move || '');
-    if (FX_KEYS.has(key)) continue;
-    FX_KEYS.add(key);
-    if (FX_KEYS.size > 260) FX_KEYS.clear();
-    if (['hit', 'block', 'cancel', 'armor', 'counter', 'wakeup', 'super_start', 'ko', 'move_start'].includes(e.type)) {
-      S.fx.push({ ...e, born: frame.frame });
-    }
-  }
-}
-
-function drawEffects(c, frame, match, w, h) {
-  if (!S.showFx || !frame) return;
-  const now = frame.frame;
-  S.fx = S.fx.filter((p) => now - p.born < 46);
-  c.save();
-  for (const p of S.fx) {
-    const age = now - p.born;
-    const k = Math.max(0, 1 - age / 46);
-    const x = p.x !== undefined ? p.x : w / 2;
-    const y = p.y !== undefined ? GROUND + p.y : h * 0.45;
-    c.textAlign = 'center';
-    if (p.type === 'hit') {
-      const r = 8 + age * 2.6;
-      c.strokeStyle = 'rgba(255,196,110,' + (k * 0.9).toFixed(2) + ')';
-      c.lineWidth = 3 * k + 0.6;
-      c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke();
-      for (let i = 0; i < 8; i += 1) {
-        const a = (i / 8) * Math.PI * 2 + age * 0.05;
-        c.beginPath();
-        c.moveTo(x + Math.cos(a) * 6, y + Math.sin(a) * 6);
-        c.lineTo(x + Math.cos(a) * (16 + age), y + Math.sin(a) * (16 + age));
-        c.stroke();
-      }
-      c.font = '700 ' + (18 + Math.min(8, age * 0.4)) + 'px ui-monospace, monospace';
-      c.lineWidth = 3; c.strokeStyle = 'rgba(8,14,22,.9)';
-      const txt = '-' + p.damage + (p.combo > 1 ? '  ' + p.combo + ' HIT' : '');
-      c.strokeText(txt, x, y - 24 - age * 0.6);
-      c.fillStyle = p.knockdown ? '#ff8a6b' : '#ffd166';
-      c.fillText(txt, x, y - 24 - age * 0.6);
-    } else if (p.type === 'block') {
-      c.strokeStyle = 'rgba(130,205,255,' + k.toFixed(2) + ')';
-      c.lineWidth = 3;
-      c.beginPath(); c.arc(x, y, 22 + age * 0.8, -1.2, 1.2); c.stroke();
-      c.font = '600 11px ui-monospace, monospace';
-      c.fillStyle = 'rgba(170,220,255,' + k.toFixed(2) + ')';
-      c.fillText('GUARD', x, y - 28 - age * 0.4);
-    } else if (p.type === 'armor') {
-      c.strokeStyle = 'rgba(255,200,90,' + k.toFixed(2) + ')';
-      c.lineWidth = 3;
-      c.beginPath(); c.arc(x, y, 30 + age, 0, Math.PI * 2); c.stroke();
-      c.font = '600 11px ui-monospace, monospace';
-      c.fillStyle = '#ffd166';
-      c.fillText('ARMOR', x, y - 36);
-    } else if (p.type === 'cancel') {
-      c.font = '700 13px ui-monospace, monospace';
-      c.fillStyle = 'rgba(120,255,205,' + k.toFixed(2) + ')';
-      c.fillText('CANCEL → ' + label(p.into), w / 2, 118 - age * 0.5);
-    } else if (p.type === 'move_start' && ['special', 'ex', 'super'].includes(p.move)) {
-      const side = p.by;
-      c.font = '700 14px ui-monospace, monospace';
-      c.fillStyle = 'rgba(255,225,160,' + k.toFixed(2) + ')';
-      c.fillText(skillName(side, p.move, match), side === 'a' ? w * 0.27 : w * 0.73, 104 - age * 0.35);
-    } else if (p.type === 'wakeup') {
-      c.fillStyle = 'rgba(180,200,220,' + (k * 0.4).toFixed(2) + ')';
-      for (let i = 0; i < 5; i += 1) {
-        c.beginPath();
-        c.arc(x + (i - 2) * 14, GROUND - 2 - age * 0.4, 5 + age * 0.5, 0, Math.PI * 2);
-        c.fill();
-      }
-    }
-  }
-
-  if (frame.superFlash > 0) {
-    const k = Math.min(1, frame.superFlash / 30);
-    c.fillStyle = 'rgba(255,238,205,' + (0.16 * k).toFixed(3) + ')';
-    c.fillRect(0, 0, w, h);
-    c.save();
-    c.translate(w / 2, 190);
-    c.rotate(now * 0.012);
-    c.strokeStyle = 'rgba(255,214,130,' + (0.32 * k).toFixed(2) + ')';
-    c.lineWidth = 2;
-    for (let i = 0; i < 18; i += 1) {
-      const a = (i / 18) * Math.PI * 2;
-      c.beginPath();
-      c.moveTo(Math.cos(a) * 90, Math.sin(a) * 90);
-      c.lineTo(Math.cos(a) * 620, Math.sin(a) * 620);
-      c.stroke();
-    }
-    c.restore();
-    if (frame.superFlash > 8) {
-      const cast = frame.a.moveId === 'super' ? 'a' : frame.b.moveId === 'super' ? 'b' : null;
-      c.textAlign = 'center';
-      c.font = '800 44px ui-monospace, monospace';
-      c.lineWidth = 5; c.strokeStyle = 'rgba(9,15,24,.9)';
-      const title = cast ? skillName(cast, 'super', match) : '超必杀';
-      c.strokeText(title, w / 2, 196);
-      c.fillStyle = '#ffe3a6';
-      c.fillText(title, w / 2, 196);
-      c.font = '600 11px ui-monospace, monospace';
-      c.fillStyle = 'rgba(255,220,170,.75)';
-      c.fillText('SUPER · 3 HIT · 100 METER', w / 2, 216);
-    }
-  }
-  c.restore();
 }
 
 /** Startup / active / recovery + cancel window + 3 meter bars, per side. */
@@ -1052,10 +1049,19 @@ function drawBoxLegend(c, w) {
 function draw(c, frame, match, canvas) {
   const w = canvas.width;
   const h = canvas.height;
+  const fx = canvas === stageCanvas ? stageFx : replayFx;
+  fx.observe(frame);
   c.setTransform(1, 0, 0, 1, 0, 0);
   c.clearRect(0, 0, w, h);
-  if (canvas === stageCanvas && frame && frame.hitstop > 0) {
-    c.translate(frame.frame % 2 ? 2 : -2, frame.frame % 3 ? 1 : -1);
+  // Impact shake: a short zoom plus a jolt, so the frame edges never show
+  // a gap while the scene is displaced.
+  const sh = S.showFx && frame ? fx.shake(frame) : { x: 0, y: 0 };
+  if (sh.x || sh.y) {
+    const amp = Math.min(0.05, (Math.abs(sh.x) + Math.abs(sh.y)) * 0.004);
+    c.translate(w / 2, h / 2);
+    c.scale(1 + amp, 1 + amp);
+    c.translate(-w / 2, -h / 2);
+    c.translate(sh.x, sh.y);
   }
   const artStage = drawStageArt(c, w, h);
   if (!artStage) {
@@ -1122,13 +1128,16 @@ function draw(c, frame, match, canvas) {
   }
   const mode = (match && match.mode) || 'demo';
   const stage = mode === 'ranked' ? 'RANKED ARENA' : mode === 'scrim' ? 'PRIVATE SCRIM' : 'NEUTRAL GRID';
-  c.font = '10px ui-monospace, monospace';
-  c.fillStyle = 'rgba(138,156,176,.5)';
-  c.textAlign = 'left';
-  c.fillText('STAGE 01 / ' + stage, 52, 62);
-  c.textAlign = 'right';
-  c.fillText('SERVER-AUTHORITATIVE · 60 FPS', 908, 62);
-  c.textAlign = 'left';
+  const technical = S.showBoxes || S.showBones || S.showRuler || S.showGrid;
+  if (technical) {
+    c.font = '10px ui-monospace, monospace';
+    c.fillStyle = 'rgba(138,156,176,.45)';
+    c.textAlign = 'left';
+    c.fillText('STAGE 01 / ' + stage, 52, 62);
+    c.textAlign = 'right';
+    c.fillText('SERVER-AUTHORITATIVE · 60 FPS', 908, 62);
+    c.textAlign = 'left';
+  }
 
   if (!frame) {
     c.fillStyle = 'rgba(138,156,176,.5)';
@@ -1203,32 +1212,53 @@ function draw(c, frame, match, canvas) {
   drawFighter(c, frame.b, 'b', frame, match);
   drawFighter(c, frame.a, 'a', frame, match);
 
-  syncEffects(frame);
-  drawEffects(c, frame, match, w, h);
-  drawFrameBar(c, frame.a, 52, h - 34, 320, 'a', match);
-  drawFrameBar(c, frame.b, w - 52 - 320, h - 34, 320, 'b', match);
-  drawBoxLegend(c, w);
+  impactFx[canvas === stageCanvas ? 'stage' : 'replay'].draw(c, frame, match, w, h);
+  if (technical) {
+    drawFrameBar(c, frame.a, 52, h - 34, 320, 'a', match);
+    drawFrameBar(c, frame.b, w - 52 - 320, h - 34, 320, 'b', match);
+    drawBoxLegend(c, w);
+  }
+  // The counter is HUD, not scenery: it must not ride the impact shake.
   c.setTransform(1, 0, 0, 1, 0, 0);
+  if (S.showFx) fx.draw(c, frame, match, w);
+  if (S.lastResult && (!match || S.lastResult.matchId === match.matchId)) drawResult(c, w, h, match);
 }
 
-let lastTime = performance.now();
-let acc = 0;
-function loop(now) {
-  acc += Math.min(now - lastTime, 250);
-  lastTime = now;
-  const stepMs = 1000 / 60;
-  let consumed = 0;
-  while (acc >= stepMs && S.frameQueue.length && consumed < 12) {
+function drawResult(c, w, h, match) {
+  const result = S.lastResult;
+  if (!result) return;
+  const m = match || S.match;
+  const winner = result.winnerName
+    || (result.winner === 'a' ? m && m.a && m.a.name : result.winner === 'b' ? m && m.b && m.b.name : '')
+    || '—';
+  const ko = result.reason === 'ko';
+  c.save();
+  c.fillStyle = 'rgba(4,8,14,.60)';
+  c.fillRect(0, 0, w, h);
+  c.textAlign = 'center';
+  c.font = '800 52px ui-monospace, monospace';
+  c.lineWidth = 6;
+  c.strokeStyle = 'rgba(5,10,16,.92)';
+  const title = ko ? 'K.O.' : 'TIME UP';
+  c.strokeText(title, w / 2, h / 2 - 22);
+  c.fillStyle = ko ? '#ffd166' : '#9fd0ff';
+  c.fillText(title, w / 2, h / 2 - 22);
+  c.font = '600 18px ui-monospace, monospace';
+  c.fillStyle = '#e7eef6';
+  c.fillText(winner + ' 获胜', w / 2, h / 2 + 28);
+  c.font = '11px ui-monospace, monospace';
+  c.fillStyle = 'rgba(190,210,230,.62)';
+  c.fillText('下一局即将开始 · 可在大厅或回放中继续观看', w / 2, h / 2 + 54);
+  c.restore();
+}
+
+function loop() {
+  // The server streams one snapshot per simulation frame (60/s). Present one
+  // queued snapshot per animation frame: skipping frames is exactly what makes
+  // a fighter look like it teleports, and painting several snapshots in a
+  // single rAF would only ever show the last one anyway.
+  if (S.frameQueue.length) {
     S.current = S.frameQueue.shift();
-    acc -= stepMs;
-    consumed += 1;
-  }
-  if (S.frameQueue.length > 30) {
-    S.current = S.frameQueue[S.frameQueue.length - 1];
-    S.frameQueue.length = 0;
-    acc = 0;
-  }
-  if (consumed && S.current) {
     draw(ctx, S.current, S.match, stageCanvas);
     renderHud(S.current);
   }
@@ -1340,8 +1370,12 @@ function renderFighters() {
     const p = f.profile || {};
     const bars = [['射程', p.reach], ['速度', p.speed], ['力量', p.power], ['防御', p.guard]].map(([k, v]) =>
       '<div class="ft-stat"><span>' + k + '</span><i style="width:' + ((v || 0) * 20) + '%"></i></div>').join('');
+    const card = variantFor(f.id, 'card');
+    const cardSrc = card ? card.path : legacyArtUrl(f.id);
+    const cardW = card ? card.width : 240;
+    const cardH = card ? card.height : 320;
     return '<article class="fighter-tile" style="--f-base:' + f.palette.base + ';--f-light:' + f.palette.light + ';--f-accent:' + f.palette.accent + '">'
-      + '<div class="ft-art-wrap"><img class="ft-art" src="/assets/art/' + esc(f.id) + '.png" alt="' + esc(f.name) + '" data-fighter="' + esc(f.id) + '" loading="lazy"></div>'
+      + '<div class="ft-art-wrap"><img class="ft-art" data-src="' + esc(cardSrc) + '" data-fallback="' + esc(legacyArtUrl(f.id)) + '" alt="' + esc(f.name) + '" data-fighter="' + esc(f.id) + '" width="' + cardW + '" height="' + cardH + '" loading="lazy" decoding="async"></div>'
       + '<div class="ft-body"><div class="ft-code mono">' + esc(f.code) + '</div>'
       + '<h3>' + esc(f.name) + '<small>' + esc(f.title) + '</small></h3>'
       + '<div class="ft-style">' + esc(f.style) + '</div>'
@@ -1372,6 +1406,12 @@ function renderFighters() {
     }
     g.members.push(f);
   }
+  const sig = (manifestReady() ? 'manifest' : 'legacy') + ':' + S.fighters.map((f) => f.id).join(',');
+  if (S.fightersSig === sig && grid.children.length) {
+    if (document.getElementById('view-fighters').classList.contains('active')) activateGallery();
+    return;
+  }
+  S.fightersSig = sig;
   grid.innerHTML = groups.map((g) =>
     '<section class="fighter-team" style="--t-color:' + esc(g.color) + '">'
     + '<div class="ft-team-head"><div><div class="ft-team-code mono">' + esc(g.code || g.id) + '</div>'
@@ -1379,18 +1419,44 @@ function renderFighters() {
     + '<span class="ft-team-count mono">' + g.members.length + ' FIGHTERS</span></div>'
     + '<div class="fighter-team-grid">' + g.members.map(tile).join('') + '</div></section>'
   ).join('');
-  // Procedural bust is only a fallback when a generated portrait is missing.
-  grid.querySelectorAll('img.ft-art').forEach((im) => {
-    im.addEventListener('error', () => {
-      const f = S.fighters.find((x) => x.id === im.dataset.fighter);
-      if (!f) return;
-      const cv = document.createElement('canvas');
-      cv.width = 240; cv.height = 170; cv.className = 'ft-portrait';
-      drawPortrait(cv.getContext('2d'), f, cv.width, cv.height);
-      im.replaceWith(cv);
-    }, { once: true });
-  });
+  if (document.getElementById('view-fighters').classList.contains('active')) activateGallery();
   drawBoxDiagram();
+}
+
+function loadGalleryImage(im) {
+  if (!im || im.dataset.loaded) return;
+  im.dataset.loaded = '1';
+  im.addEventListener('error', () => {
+    if (im.dataset.fallback && im.src.indexOf(im.dataset.fallback) === -1) {
+      im.src = im.dataset.fallback;
+      return;
+    }
+    const f = S.fighters.find((x) => x.id === im.dataset.fighter);
+    if (!f) return;
+    const cv = document.createElement('canvas');
+    cv.width = 240; cv.height = 170; cv.className = 'ft-portrait';
+    drawPortrait(cv.getContext('2d'), f, cv.width, cv.height);
+    im.replaceWith(cv);
+  }, { once: true });
+  im.src = im.dataset.src;
+}
+
+function activateGallery() {
+  const imgs = [...document.querySelectorAll('img.ft-art[data-src]')];
+  if (!imgs.length) return;
+  if (!('IntersectionObserver' in window)) {
+    imgs.forEach(loadGalleryImage);
+    return;
+  }
+  if (S.galleryIO) S.galleryIO.disconnect();
+  S.galleryIO = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      loadGalleryImage(entry.target);
+      S.galleryIO.unobserve(entry.target);
+    }
+  }, { rootMargin: '240px 0px' });
+  imgs.forEach((im) => S.galleryIO.observe(im));
 }
 
 /** Static explainer diagram for the roster page (live boxes come from the kernel). */
@@ -1522,6 +1588,8 @@ async function selectReplay(matchId) {
   stopReplay();
   const data = await api('/api/replay/' + encodeURIComponent(matchId) + '?render=1');
   S.replay.matchId = matchId;
+  S.replay.match = data.match || null;
+  ensureMatchFighters(S.replay.match);
   S.replay.ticks = data.ticks || [];
   S.replay.index = 0;
   $('replayRange').max = String(Math.max(0, S.replay.ticks.length - 1));
@@ -1530,12 +1598,31 @@ async function selectReplay(matchId) {
   showReplayFrame(0);
 }
 
+/**
+ * The impacts that are still alive when the replay reaches this tick. The
+ * replay can be scrubbed to any moment, so the window is rebuilt from the
+ * ticks that lead to it instead of being accumulated while it plays.
+ */
+function replayImpactWindow(index) {
+  const window = [];
+  const from = Math.max(0, index - impactFx.replay.windowTicks);
+  for (let i = from; i <= index; i += 1) {
+    const tk = S.replay.ticks[i];
+    if (tk && tk.events) window.push(tk.events);
+  }
+  return window;
+}
+
 function showReplayFrame(index) {
   const t = S.replay.ticks[index];
   if (!t) return;
   S.replay.index = index;
   const f = t.frames[t.frames.length - 1] || t.frames[0];
-  draw(rctx, f, null, replayCanvas);
+  // A replay tick holds six frames but only the last one is drawn, so the
+  // tick's event list is what tells the fx layer what happened inside it.
+  replayFx.observe(f, t.events);
+  impactFx.replay.replace(replayImpactWindow(index));
+  draw(rctx, f, S.replay.match, replayCanvas);
   $('replayRange').value = String(index);
   $('replayTickLabel').textContent = String(index + 1).padStart(3, '0') + ' / ' + S.replay.ticks.length;
   $('replayFrameLabel').textContent = 'FRAME ' + String(f.frame).padStart(4, '0') + ' · TICK ' + String(index).padStart(4, '0');
@@ -1603,7 +1690,7 @@ function bindUI() {
     document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + btn.dataset.view));
     if (btn.dataset.view === 'lobby') api('/api/rooms').then((d) => { S.rooms = d.rooms; renderLobby(); }).catch(() => {});
-    if (btn.dataset.view === 'fighters') renderFighters();
+    if (btn.dataset.view === 'fighters') { renderFighters(); activateGallery(); }
     if (btn.dataset.view === 'live') renderRoomBar();
     if (btn.dataset.view === 'board') loadBoard(document.querySelector('#trackSwitch .active').dataset.track);
     if (btn.dataset.view === 'replay') {
@@ -1630,9 +1717,27 @@ function bindUI() {
     $(id).addEventListener('click', () => {
       S[key] = !S[key];
       $(id).classList.toggle('active', S[key]);
-      if (S.current) { draw(ctx, S.current, S.match, stageCanvas); draw(rctx, S.current, S.match, replayCanvas); }
+      // Each canvas redraws from its own state: the live canvas from the live
+      // frame, the replay canvas from the replay frame it is showing.
+      if (S.current) draw(ctx, S.current, S.match, stageCanvas);
+      if (S.replay.ticks.length) showReplayFrame(S.replay.index);
     });
   }
+  $('toggleTech').addEventListener('click', () => {
+    const on = !(S.showBoxes || S.showBones || S.showRuler || S.showGrid);
+    S.showBoxes = on; S.showBones = on; S.showRuler = on; S.showGrid = on;
+    for (const id of ['toggleBoxes', 'toggleBones', 'toggleRuler', 'toggleGrid']) $(id).classList.toggle('active', on);
+    $('toggleTech').classList.toggle('active', on);
+    if (S.current) draw(ctx, S.current, S.match, stageCanvas);
+    if (S.replay.ticks.length) showReplayFrame(S.replay.index);
+  });
+  $('toggleSound').addEventListener('click', () => {
+    const on = !soundEnabled();
+    setSoundEnabled(on);
+    $('toggleSound').classList.toggle('active', on);
+    $('toggleSound').textContent = on ? '声音 开' : '声音 关';
+    if (on) playSound('wakeup');
+  });
   $('replayPlay').addEventListener('click', toggleReplay);
   $('replayRange').addEventListener('input', (e) => { stopReplay(); showReplayFrame(Number(e.target.value)); });
   $('refreshMatches').addEventListener('click', () => api('/api/matches').then((d) => { S.recent = d.matches; renderReplayList(); }));
@@ -1656,10 +1761,12 @@ function bindUI() {
 
 async function init() {
   bindUI();
+  const assetsReady = loadManifest();
+  loadSpriteIndex();
   const params = new URLSearchParams(location.search);
   if (params.get('room')) S.roomId = params.get('room');
   try {
-    const st = await api('/api/state');
+    const [st] = await Promise.all([api('/api/state'), assetsReady]);
     S.match = st.match;
     S.board = st.leaderboard;
     S.recent = st.recentMatches || [];
@@ -1693,7 +1800,8 @@ async function init() {
   if (S.current) {
     $('frameLabel').textContent = 'FRAME ' + String(S.current.frame).padStart(4, '0') + ' · TICK ' + String(S.current.tick).padStart(4, '0');
   }
-  loadArt((S.fighters || []).map((f) => f.id));
+  loadStageArtwork();
+  ensureMatchFighters(S.match);
   draw(ctx, S.current, S.match, stageCanvas);
   draw(rctx, null, null, replayCanvas);
   requestAnimationFrame(loop);

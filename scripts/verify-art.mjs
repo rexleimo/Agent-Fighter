@@ -1,18 +1,20 @@
 /**
- * End-to-end check for the painted art layer.
- * Verifies the asset pipeline (HTTP + real alpha) AND what Chrome actually
- * renders (loaded images, canvas pixels, gallery DOM, zero JS exceptions).
+ * Painted-art layer acceptance (manifest-driven).
  *
- * Usage: node scripts/verify-art.mjs   (server must already be running)
+ * Verifies every manifest variant over HTTP + local decoding, then what Chrome
+ * actually renders: only the active plates on Live, all 16 cards in the
+ * gallery, real canvas pixels, and zero JS exceptions.
+ *
+ * Usage: node scripts/verify-art.mjs (server must already be running)
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { probeImage } from './lib/imageops.mjs';
 
 const BASE = process.env.AFL_BASE || 'http://127.0.0.1:8787';
 const ROOT = path.resolve(import.meta.dirname, '..');
-const ART = path.join(ROOT, 'web', 'assets', 'art');
 const PORT = 9231;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const failures = [];
@@ -28,29 +30,41 @@ for (let i = 0; i < 40; i += 1) {
 }
 if (!state) { console.error('服务未启动：' + BASE); process.exit(1); }
 
-const ids = state.fighters.map((f) => f.id);
-ok('角色数据带 art 路径', ids.length === 16 && state.fighters.every((f) => f.art === '/assets/art/' + f.id + '.png'), `${ids.length} 位`);
+const manifest = await (await fetch(BASE + '/assets/manifest.json')).json();
+ok('manifest has 17 assets', manifest.assets.length === 17, String(manifest.assets.length));
+ok('16 fighters in manifest', manifest.assets.filter((a) => a.kind === 'fighter-plate').length === 16);
+ok('fighters[].art still exposes the legacy field', state.fighters.every((f) => f.art === '/assets/art/' + f.id + '.png'));
 
-// --- HTTP + PNG alpha -----------------------------------------------------
-let alphaOk = 0;
-for (const p of ['/assets/art/stage_main.png', ...ids.map((id) => '/assets/art/' + id + '.png')]) {
-  const res = await fetch(BASE + p);
-  const buf = Buffer.from(await res.arrayBuffer());
-  const mime = res.headers.get('content-type') || '';
-  const isPng = buf.readUInt32BE(0) === 0x89504E47;
-  const hasAlpha = isPng && buf[25] === 6;
-  if (res.ok && mime.includes('image/png') && hasAlpha) alphaOk += 1;
-  else console.log('    坏资源 ' + p + ' -> ' + res.status + ' ' + mime + ' alpha=' + hasAlpha);
+// HTTP + local dimensions/alpha -------------------------------------------
+let checked = 0;
+for (const asset of manifest.assets) {
+  for (const variant of asset.variants) {
+    const res = await fetch(BASE + variant.path);
+    const type = res.headers.get('content-type') || '';
+    const local = path.join(ROOT, 'web', variant.path.replace(/^\//, ''));
+    const probe = fs.existsSync(local) ? probeImage(local) : null;
+    const good = res.ok && type.startsWith('image/')
+      && probe && probe.width === variant.width && probe.height === variant.height
+      && probe.alpha === variant.alpha;
+    if (good) checked += 1;
+    else console.log('    坏资源 ' + variant.path + ' -> ' + res.status + ' ' + type + ' ' + JSON.stringify(probe));
+  }
 }
-ok('17 张素材 HTTP 可达且带 alpha 通道', alphaOk === 17, `${alphaOk}/17`);
+ok('every manifest variant is reachable and matches dimensions/alpha', checked === 33, `${checked}/33`);
 
-// --- Chrome ---------------------------------------------------------------
-const exe = [
+// Chrome -------------------------------------------------------------------
+const CHROME_CANDIDATES = [
+  process.env.CHROME_PATH,
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-].find((p) => fs.existsSync(p));
-if (!exe) { console.error('未找到 Chrome / Edge'); process.exit(1); }
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+].filter(Boolean);
+const exe = CHROME_CANDIDATES.find((p) => fs.existsSync(p));
+if (!exe) {
+  console.error('未找到 Chrome / Edge；设置 CHROME_PATH');
+  process.exit(1);
+}
 
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'afl-art-'));
 const chrome = spawn(exe, [
@@ -104,40 +118,34 @@ try {
   await cdp.send('Runtime.enable');
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1400, deviceScaleFactor: 1, mobile: false });
 
-  // Live view ---------------------------------------------------------------
   await cdp.send('Page.navigate', { url: BASE + '/?view=live' });
-  await sleep(4500);
+  await sleep(5000);
   const live = JSON.parse((await cdp.send('Runtime.evaluate', {
     expression: `JSON.stringify((()=>{
-      const res=performance.getEntriesByType('resource').filter(e=>e.name.includes('/assets/art/'));
-      const stage=res.filter(e=>e.name.includes('stage_main.png'));
-      const sprites=res.filter(e=>/\\/assets\\/art\\/[a-z]+\\.png/.test(e.name)&&!e.name.includes('stage_main'));
+      const res=performance.getEntriesByType('resource').filter(e=>e.name.includes('/assets/'));
+      const names=res.map(e=>new URL(e.name).pathname);
+      const plays=[...new Set(names.filter(n=>/\\/assets\\/v\\/[a-z0-9-]+\\/play-512\\./.test(n)))];
+      const cards=names.filter(n=>/\\/assets\\/v\\/[a-z0-9-]+\\/card-480\\./.test(n));
       const cv=document.getElementById('stage');
       const d=cv.getContext('2d').getImageData(60,120,260,180).data;
       const colors=new Set();
       for(let i=0;i<d.length;i+=16) colors.add((d[i]>>4)+'-'+(d[i+1]>>4)+'-'+(d[i+2]>>4));
-      return {
-        stageLoaded: stage.length>0,
-        sprites: sprites.length,
-        assetRequests: res.length,
-        paletteColors: colors.size,
+      return { plays, cards, paletteColors:colors.size,
         tick: document.getElementById('tickLabel')?.textContent || '',
-        decisions: document.getElementById('decisionList')?.children.length || 0
-      };})())`,
+        decisions: document.getElementById('decisionList')?.children.length || 0 };})())`,
     returnByValue: true,
   })).result.value);
   console.log('[Live] ' + JSON.stringify(live));
-  ok('舞台背景板被浏览器实际请求', live.stageLoaded);
-  ok('16 张角色立绘被浏览器实际请求', live.sprites === 16, `${live.sprites}/16`);
-  ok('17 张素材全部发起请求并解码', live.assetRequests === 17, `${live.assetRequests}/17`);
-  ok('Canvas 已绘制图片而非纯色几何', live.paletteColors > 90, `取样色数 ${live.paletteColors}`);
+  ok('Live loads only the active fighters', live.plays.length >= 1 && live.plays.length <= 2, JSON.stringify(live.plays));
+  ok('Live does not preload gallery cards', live.cards.length === 0, JSON.stringify(live.cards));
+  ok('Canvas is painting the painted stage/art', live.paletteColors > 90, `取样色数 ${live.paletteColors}`);
   ok('实时推流仍在跑', live.decisions > 0, live.tick);
   let shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   fs.writeFileSync(path.join(ROOT, 'docs', 'preview-live.png'), Buffer.from(shot.data, 'base64'));
 
-  // Fighter gallery ---------------------------------------------------------
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 4000, deviceScaleFactor: 1, mobile: false });
   await cdp.send('Page.navigate', { url: BASE + '/?view=fighters' });
-  await sleep(3200);
+  await sleep(3000);
   const gallery = JSON.parse((await cdp.send('Runtime.evaluate', {
     expression: `JSON.stringify((()=>{
       const imgs=[...document.querySelectorAll('img.ft-art')];
@@ -152,7 +160,8 @@ try {
     returnByValue: true,
   })).result.value);
   console.log('[Fighters] ' + JSON.stringify(gallery));
-  ok('图鉴 4 队 / 16 张真实立绘', gallery.tiles === 16 && gallery.teams === 4 && gallery.loaded === 16, `${gallery.loaded}/${gallery.imgs} 张已加载`);
+  ok('图鉴 4 队 / 16 张 card 立绘', gallery.tiles === 16 && gallery.teams === 4 && gallery.loaded === 16,
+    `${gallery.loaded}/${gallery.imgs} 张已加载`);
   ok('未回退到几何头像', gallery.fallbackCanvases === 0);
   shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   fs.writeFileSync(path.join(ROOT, 'docs', 'preview-fighters.png'), Buffer.from(shot.data, 'base64'));

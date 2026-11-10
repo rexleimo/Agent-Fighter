@@ -414,8 +414,9 @@ a.nav-btn { text-decoration: none; line-height: 1; }
   position: relative; display: block; width: 100%; height: 208px;
   box-sizing: border-box; padding: 10px 12px 4px;
   object-fit: contain; object-position: center bottom;
-  transition: transform .35s ease;
+  transition: transform .35s ease, opacity .2s ease;
 }
+.ft-art:not([src]) { opacity: 0; }
 .fighter-tile:hover .ft-art { transform: scale(1.045); }
 .ft-body { padding: 14px 16px 17px; }
 .ft-code { font-size: 10px; letter-spacing: .14em; color: var(--f-light); }

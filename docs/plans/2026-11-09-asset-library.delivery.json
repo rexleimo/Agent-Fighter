@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "kind": "rex.delivery-ticket.v1",
+  "status": "ready",
+  "objective": "把 AFL 的素材交付层从“16 张全尺寸 PNG + 运行时全尺寸 mask 合成”重构为可校验、可缓存、按需加载的素材库，并修复最影响观赛的 rig 表达与默认调试层。",
+  "decisionTicketRef": "artifact:decision-ticket:afl-asset-library-refactor-2026-11-09",
+  "workItems": [
+    {
+      "id": "work-inventory",
+      "title": "Freeze the asset contract and inventory",
+      "outcome": "Source plates are separated from web-served derivatives; manifest schema, directory layout, byte budgets and the decision record are frozen.",
+      "completionCriteria": [
+        "assets/source/plates/fighters contains 16 plates and assets/source/plates/stage contains 1 stage plate",
+        "assets/compat/rig contains the frozen legacy rig.json and mask.png for all 16 fighters",
+        "docs/asset-library.md documents the manifest, paths, budgets, cache headers, rig schema 2 and fallback chain",
+        "docs/plans/2026-11-09-asset-library.decision.json records the A/B/C decision"
+      ],
+      "verification": [
+        "find assets/source/plates/fighters -name '*.png' | wc -l  # 16",
+        "find assets/compat/rig -name 'mask.png' | wc -l  # 16",
+        "test -f docs/asset-library.md && test -f docs/plans/2026-11-09-asset-library.decision.json"
+      ],
+      "evidenceRefs": [
+        "path:docs/asset-library.md",
+        "path:docs/plans/2026-11-09-asset-library.decision.json"
+      ],
+      "dependsOn": []
+    },
+    {
+      "id": "work-build",
+      "title": "Build content-addressed derivatives and the manifest",
+      "outcome": "npm run assets:build produces play/card/stage derivatives, a canonical manifest and a reproducible --check path; byte budgets pass with WebP alternates.",
+      "completionCriteria": [
+        "web/assets/manifest.json exists and contains 16 fighters plus the stage",
+        "web/assets total <= 8MB",
+        "totals.liveViewBytes <= 1.5MB with WebP alternates",
+        "totals.galleryViewBytes <= 2.5MB with WebP alternates",
+        "assets:build twice produces the same revision and hashes",
+        "assets:check writes no files and exits 0"
+      ],
+      "verification": [
+        "npm run assets:build",
+        "npm run assets:check",
+        "node scripts/validate-assets.mjs",
+        "du -sh web/assets"
+      ],
+      "evidenceRefs": [
+        "path:web/assets/manifest.json",
+        "path:web/assets/build-info.json",
+        "command:npm-run-assets-build",
+        "command:npm-run-assets-check"
+      ],
+      "dependsOn": ["work-inventory"]
+    },
+    {
+      "id": "work-rig",
+      "title": "Pre-bake rig atlases and improve articulation",
+      "outcome": "The browser loads a padded part atlas plus compact schema-2 JSON; runtime mask decoding is gone; attacks read clearly and the worst part-ownership errors are fixed.",
+      "completionCriteria": [
+        "web/assets/v/rig/<id>/atlas.* and rig.<hash>.json exist for all 16 fighters",
+        "No runtime request for mask.png on the new client",
+        "verify:anim passes",
+        "rig lab idleVsHp > 1500 and idleVsWalk > 800 for all 16 fighters",
+        "coral/tide/forge overlay screenshots show corrected ownership",
+        "Every part rotation stays inside its clamp and no pose is empty"
+      ],
+      "verification": [
+        "node scripts/assets/rig.mjs",
+        "node scripts/verify-anim.mjs",
+        "node scripts/capture-rig.mjs '/rig-lab.html?ids=ember,coral,tide,forge' .tmp-rig/lab-after.png"
+      ],
+      "evidenceRefs": [
+        "path:web/assets/v/rig/ember/rig.json",
+        "path:.tmp-rig/lab-after.png",
+        "command:npm-run-verify-anim"
+      ],
+      "dependsOn": ["work-inventory"]
+    },
+    {
+      "id": "work-server",
+      "title": "Serve manifest, immutable assets and legacy aliases",
+      "outcome": "The server validates the manifest, serves hashed assets as immutable, handles ETag/304/gzip, and keeps the old art/rig URLs working.",
+      "completionCriteria": [
+        "/assets/manifest.json returns 200 with no-cache and ETag",
+        "/assets/v/** returns immutable cache headers and Content-Length",
+        "A matching If-None-Match returns 304",
+        "Legacy /assets/art/<id>.png and /assets/rig/<id>/rig.json return 200",
+        "Text responses gzip when Accept-Encoding allows it",
+        "npm run verify still passes 22/22"
+      ],
+      "verification": [
+        "curl -sI /assets/manifest.json",
+        "curl -sI '/assets/v/ember/play-512.<hash>.png'",
+        "curl -sI /assets/art/ember.png",
+        "npm run verify"
+      ],
+      "evidenceRefs": [
+        "path:src/server.js",
+        "path:src/assets.js",
+        "command:npm-run-verify"
+      ],
+      "dependsOn": ["work-inventory"]
+    },
+    {
+      "id": "work-runtime",
+      "title": "Load only the active match and lazy-load the gallery",
+      "outcome": "Live view requests only the two active fighters plus stage and rig; the gallery loads cards on view activation; a missing rig falls back to the whole plate.",
+      "completionCriteria": [
+        "Live resource entries contain only two fighter plays, two rigs and the stage",
+        "Live first-view transfer <= 1.5MB with WebP",
+        "Gallery loads 16 card images after the fighters view is activated",
+        "Missing rig renders the whole sprite, never a blank body",
+        "npm run verify:art passes with the updated expectations"
+      ],
+      "verification": [
+        "node scripts/verify-art.mjs",
+        "node scripts/verify-assets.mjs",
+        "node scripts/capture.mjs"
+      ],
+      "evidenceRefs": [
+        "path:web/asset-store.js",
+        "path:web/app.js",
+        "path:docs/preview-live.png",
+        "command:npm-run-verify-art"
+      ],
+      "dependsOn": ["work-build", "work-rig", "work-server"]
+    },
+    {
+      "id": "work-feel",
+      "title": "Make the default view a broadcast, not a debug tool",
+      "outcome": "Debug overlays default off, the technical view is one click, the stage/character contrast is stronger, and hit/block/KO/super have an optional procedural sound track.",
+      "completionCriteria": [
+        "showBoxes/showBones/showRuler/showGrid default false",
+        "A technical-view button enables all debug overlays at once",
+        "Stage vignette and fighter spotlight are visible in screenshots",
+        "The sound toggle enables WebAudio without autoplay errors",
+        "Desktop 1440x1250 and mobile 390x844 screenshots have no overflow"
+      ],
+      "verification": [
+        "node scripts/capture.mjs",
+        "node scripts/capture-rig.mjs '/' .tmp-rig/mobile.png 390 844",
+        "grep -n 'showBoxes' web/app.js",
+        "browser console has zero errors"
+      ],
+      "evidenceRefs": [
+        "path:web/audio.js",
+        "path:docs/preview-live.png",
+        "path:.tmp-rig/mobile.png"
+      ],
+      "dependsOn": ["work-runtime"]
+    },
+    {
+      "id": "work-verify",
+      "title": "Run the full acceptance suite and archive evidence",
+      "outcome": "All existing and new checks pass; screenshots, byte reports and AIOS evidence point to real artifacts.",
+      "completionCriteria": [
+        "npm run verify = 22/22",
+        "npm run verify:combat = 34/34",
+        "npm run verify:art passes",
+        "npm run verify:anim passes",
+        "npm run verify:assets passes",
+        "npm run verify:mcp = 15/15",
+        "Desktop and mobile screenshots are archived"
+      ],
+      "verification": [
+        "npm run verify",
+        "npm run verify:combat",
+        "npm run verify:art",
+        "npm run verify:anim",
+        "npm run verify:assets",
+        "npm run verify:mcp"
+      ],
+      "evidenceRefs": [
+        "command:npm-run-verify",
+        "command:npm-run-verify-combat",
+        "command:npm-run-verify-art",
+        "command:npm-run-verify-anim",
+        "command:npm-run-verify-assets",
+        "command:npm-run-verify-mcp"
+      ],
+      "dependsOn": ["work-build", "work-rig", "work-server", "work-runtime", "work-feel"]
+    }
+  ],
+  "frontier": {
+    "ready": ["work-inventory"],
+    "blocked": [
+      { "workItemId": "work-build", "reason": "waiting for the frozen asset contract", "evidenceRefs": ["path:docs/asset-library.md"] },
+      { "workItemId": "work-rig", "reason": "waiting for the frozen rig schema", "evidenceRefs": ["path:docs/asset-library.md"] },
+      { "workItemId": "work-server", "reason": "waiting for the manifest path", "evidenceRefs": ["path:docs/asset-library.md"] },
+      { "workItemId": "work-runtime", "reason": "waiting for build, rig and server artifacts", "evidenceRefs": ["path:web/assets/manifest.json"] },
+      { "workItemId": "work-feel", "reason": "waiting for the runtime (shared web/app.js)", "evidenceRefs": ["path:web/app.js"] },
+      { "workItemId": "work-verify", "reason": "waiting for all delivery work items", "evidenceRefs": ["path:docs/plans/2026-11-09-asset-library.delivery.json"] }
+    ]
+  },
+  "parallelGroups": [
+    ["work-inventory"],
+    ["work-build", "work-rig", "work-server"],
+    ["work-runtime"],
+    ["work-feel"],
+    ["work-verify"]
+  ],
+  "convergenceGate": {
+    "requiredEvidenceRefs": [
+      "path:web/assets/manifest.json",
+      "path:docs/preview-live.png",
+      "path:docs/preview-fighters.png",
+      "path:.tmp-rig/lab-after.png",
+      "path:.tmp-rig/mobile.png",
+      "command:npm-run-assets-check",
+      "command:npm-run-verify",
+      "command:npm-run-verify-combat",
+      "command:npm-run-verify-art",
+      "command:npm-run-verify-anim",
+      "command:npm-run-verify-assets",
+      "command:npm-run-verify-mcp"
+    ],
+    "verification": "npm run assets:check && npm run verify && npm run verify:combat && npm run verify:art && npm run verify:anim && npm run verify:assets && npm run verify:mcp",
+    "joinCondition": "All seven work items are complete, every command exits 0, and the archived screenshots/manifest match the delivered revision."
+  },
+  "completionClaim": "soft"
+}

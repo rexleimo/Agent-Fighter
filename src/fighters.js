@@ -40,9 +40,11 @@
  *
  * Kits (B1) -----------------------------------------------------------------
  * The ACTION space is shared, so a strategy stays portable, but the three
- * meter skills resolve per fighter through `KITS[kit]` in rules.js (rush /
- * volley / counter / antiAir / multi). Ranked still mirrors one fighter on
- * both sides, so the ladder keeps measuring strategy, not tiers.
+ * meter skills resolve per fighter through the kit table in src/kits/ (one
+ * own move set per fighter: rush / volley / counter / antiAir / multi are the
+ * archetypes, the sixteen kits are the individual move sets). Ranked still
+ * mirrors one fighter on both sides, so the ladder keeps measuring strategy,
+ * not tiers.
  *
  * M2 scope ------------------------------------------------------------------
  * Fighter identity flows through registration -> matchmaking -> observation
@@ -53,9 +55,8 @@
  * tiers into the strategy ladder would invalidate ELO.
  */
 
-import {
-  KITS, KIT_IDS, SKILL_ACTIONS, kitMoves, moveDamage, moveFor, totalFor,
-} from './rules.js';
+import { moveDamage, moveFor, totalFor, mechanicsOf } from './rules.js';
+import { ARCHETYPES, FIGHTER_KITS, SKILL_ACTIONS } from './kits/index.js';
 
 export const TEAMS = Object.freeze([
   { id: 'pyre', name: '炎征队', code: 'PYRE TEAM', motif: '近身压进 / 火焰', color: '#e2584d' },
@@ -236,6 +237,21 @@ export const FIGHTERS = Object.freeze([
 
 export const DEFAULT_FIGHTER = 'quartz';
 
+/**
+ * Ground pushbox width in world units, per fighter. Measured from the baked
+ * idle silhouette (ink width in frame px x 1.02 render scale x 0.75), clamped
+ * to [96, 128]: wide enough that torsos and stance legs no longer interpenetrate
+ * at contact, narrow enough that the light punch (150u reach) still connects
+ * against the widest pair. The old 38u box let bodies overlap by half their
+ * width, which read as characters clipping through each other.
+ */
+export const PUSH_WIDTH = Object.freeze({
+  abyss: 120, basalt: 122, cinder: 102, coral: 98,
+  ember: 119, forge: 112, gale: 128, girder: 114,
+  mist: 128, noct: 128, prism: 119, pyre: 128,
+  quartz: 122, slag: 116, tide: 102, volt: 128,
+});
+
 const BY_ID = new Map(FIGHTERS.map((f) => [f.id, f]));
 const TEAM_BY_ID = new Map(TEAMS.map((t) => [t.id, t]));
 
@@ -252,18 +268,18 @@ export function getTeam(id) {
 }
 
 /**
- * Three meter-aware skills per fighter, resolved through the fighter's kit.
- * `special` / `ex` / `super` therefore mean different things per archetype
- * (see KITS in rules.js); the signature only supplies the name, VFX shape and
- * colour on top. The names are original, like every character here.
+ * Three meter-aware skills per fighter, resolved through the fighter's own
+ * kit (see src/kits/). `special` / `ex` / `super` therefore mean something
+ * different for every fighter in the roster; the signature only supplies the
+ * VFX shape and colour on top. The names are original, like every character
+ * here.
  */
 export function skillSet(f) {
   const sig = f.signature || { name: '技', shape: 'shard' };
-  const names = { special: sig.name, ex: 'EX · ' + sig.name, super: '奥义 · ' + sig.name };
   return SKILL_ACTIONS.map((id) => {
     const m = moveFor(f, id);
     return {
-      id, name: names[id], label: m.label, shape: sig.shape,
+      id, name: m.label, label: m.label, shape: sig.shape,
       vfx: m.vfx === 'signature' ? sig.shape : (m.vfx || sig.shape),
       cost: m.meterCost || 0,
       startup: m.startup, active: m.active, recovery: m.recovery,
@@ -274,12 +290,8 @@ export function skillSet(f) {
       invuln: m.invuln || 0, armor: m.armor || 0,
       cancelInto: m.cancelInto || [],
       // Kit mechanics an agent must know before spending meter on it.
-      mechanic: m.projectile ? 'projectile'
-        : m.counter ? 'counter'
-        : m.advance ? 'advance'
-        : m.multiHit ? 'multi-hit'
-        : m.invuln ? 'invuln'
-        : 'strike',
+      mechanic: mechanicsOf(m)[0],
+      mechanics: mechanicsOf(m),
       advance: m.advance ? m.advance.vx : 0,
       projectile: m.projectile ? { ...m.projectile } : null,
       counter: m.counter ? { ...m.counter } : null,
@@ -289,9 +301,13 @@ export function skillSet(f) {
 
 /** Kit summary for the fighter gallery / MCP resources. */
 export function kitBrief(f) {
-  const k = KITS[f.kit];
-  if (!k) return null;
-  return { id: k.id, label: k.label, blurb: k.blurb, tags: [...k.tags] };
+  const kit = FIGHTER_KITS[f.id];
+  const arch = kit ? ARCHETYPES[kit.archetype] : null;
+  if (!kit || !arch) return null;
+  return {
+    id: arch.id, archetype: arch.id, label: kit.label, archetypeLabel: arch.label,
+    blurb: kit.blurb, archetypeBlurb: arch.blurb, tags: [...kit.tags],
+  };
 }
 
 export function publicFighters() {

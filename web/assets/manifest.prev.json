@@ -1,0 +1,1043 @@
+{
+  "schemaVersion": 1,
+  "pipeline": "afl-assets-v1",
+  "minClient": 1,
+  "budgets": {
+    "liveViewBytes": 1500000,
+    "galleryViewBytes": 2500000,
+    "libraryBytes": 8000000
+  },
+  "sourceHash": "sha256:8e3f01f9255e8228ed8b0657f2416b3ce6f1fec293cf690be65d6e867ad0463d",
+  "assets": [
+    {
+      "id": "stage_main",
+      "kind": "stage-plate",
+      "order": 0,
+      "preload": "critical",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "stage-1280",
+          "role": "stage",
+          "path": "/assets/v/stage_main/stage-1280.883b91e501eb.webp",
+          "width": 1280,
+          "height": 853,
+          "bytes": 161430,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": false,
+          "sha256": "883b91e501eb18ace20188c92b6d68f079c80a9d7de3e36c654fbb7757559afc"
+        }
+      ]
+    },
+    {
+      "id": "ember",
+      "kind": "fighter-plate",
+      "fighterId": "ember",
+      "team": "pyre",
+      "order": 10,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/ember/play-512.7b100e82d616.webp",
+          "width": 403,
+          "height": 512,
+          "bytes": 37216,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "7b100e82d6164234a8f7f57982e336c35d52b3d444bf7f7cb7c71c89c4fa402c"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/ember/card-480.6d44007d3c3e.webp",
+          "width": 378,
+          "height": 480,
+          "bytes": 33620,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "6d44007d3c3e4c4b51553bea460c1fb09048277567726a46fa58830136ef4f79"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/ember/rig.39e00f8dcd67.json",
+        "dataBytes": 2006,
+        "dataSha256": "39e00f8dcd672bc8436cd67cd2636288accc01b805fc341eb276093f46e08d2a",
+        "atlas": "/assets/v/rig/ember/atlas.d3fb447960cf.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 481,
+        "bytes": 73882,
+        "atlasSha256": "d3fb447960cfc7f005b6e76d7dbd20e847bfbc84487c18d4aaf809d042c5f79a",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "cinder",
+      "kind": "fighter-plate",
+      "fighterId": "cinder",
+      "team": "pyre",
+      "order": 11,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/cinder/play-512.fd9d23c3439f.webp",
+          "width": 376,
+          "height": 512,
+          "bytes": 32468,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "fd9d23c3439f22b95542cca2f735ed2bee159958f9f3b77d79869f82a998b90b"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/cinder/card-480.4e43902ff8b0.webp",
+          "width": 353,
+          "height": 480,
+          "bytes": 28154,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "4e43902ff8b01e7a0881ea7c142a7aeb87872aea391812784ec22eb44a94df2a"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/cinder/rig.28af1e8588f1.json",
+        "dataBytes": 2009,
+        "dataSha256": "28af1e8588f10ae759461d5a2b97d619e6cc30d5091e79d3540400dac58cb3ce",
+        "atlas": "/assets/v/rig/cinder/atlas.9a4dd1d3622a.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 512,
+        "bytes": 65634,
+        "atlasSha256": "9a4dd1d3622afc76bcff1ad7261cb8852ba9595549bd206ff47e5bbe7211cd3c",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "pyre",
+      "kind": "fighter-plate",
+      "fighterId": "pyre",
+      "team": "pyre",
+      "order": 12,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/pyre/play-512.4b4cd0fc9dbc.webp",
+          "width": 462,
+          "height": 512,
+          "bytes": 40794,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "4b4cd0fc9dbcb0b7dc07d2162feee22049d2b8839572d2ec3091e2b0ed8b017c"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/pyre/card-480.e684a051d880.webp",
+          "width": 433,
+          "height": 480,
+          "bytes": 36482,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "e684a051d88069529efe7b154fef240c23c5c14c190225b42bb9a93130b8f62d"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/pyre/rig.a1fd10c08592.json",
+        "dataBytes": 2008,
+        "dataSha256": "a1fd10c085929bda21b4007011b302fd2dd3a686c47937da9eb94be4bed00cc7",
+        "atlas": "/assets/v/rig/pyre/atlas.23486ff27cfb.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 675,
+        "bytes": 84362,
+        "atlasSha256": "23486ff27cfb73d62af31c006cf16f707b59673bda0cbcdb09ea35780e5c4fa7",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "slag",
+      "kind": "fighter-plate",
+      "fighterId": "slag",
+      "team": "pyre",
+      "order": 13,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/slag/play-512.bb9c5fa7710c.webp",
+          "width": 384,
+          "height": 512,
+          "bytes": 37162,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "bb9c5fa7710cc9a37fbc2a26f050129b1120a04c4051fc7b7e6c3fca72388ba8"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/slag/card-480.efa5e1458995.webp",
+          "width": 360,
+          "height": 480,
+          "bytes": 33600,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "efa5e145899527c0255961074741741353d9c457a8004515d033a0fbe920f0b5"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/slag/rig.85fc937f4742.json",
+        "dataBytes": 2006,
+        "dataSha256": "85fc937f4742ef4eac19fe9b3edb02e78c3d871a0521249829593757d592b95e",
+        "atlas": "/assets/v/rig/slag/atlas.854d20c3181b.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 573,
+        "bytes": 71754,
+        "atlasSha256": "854d20c3181b85db0249dfd8725427662e4d771df9d96738fe3eafcbf83e22b6",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "tide",
+      "kind": "fighter-plate",
+      "fighterId": "tide",
+      "team": "tide",
+      "order": 14,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/tide/play-512.5b04c2b78958.webp",
+          "width": 319,
+          "height": 512,
+          "bytes": 29996,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "5b04c2b78958ff601702609b99936d3b8c959a56895126079042c55209f3ae06"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/tide/card-480.140ced843f47.webp",
+          "width": 300,
+          "height": 480,
+          "bytes": 27056,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "140ced843f479e91b5cfd1316053fadf58b065cfaac08ddd33c8a2c50ccc916f"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/tide/rig.e60aa750460b.json",
+        "dataBytes": 2452,
+        "dataSha256": "e60aa750460b326948b7226b7ba4f16f992b7a616ba8dd39311c4858ccd9363f",
+        "atlas": "/assets/v/rig/tide/atlas.f8467fd5dbf9.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 541,
+        "bytes": 69906,
+        "atlasSha256": "f8467fd5dbf9ea8236ea119608b06324f39daeef7ce492406619065a18334777",
+        "parts": [
+          "armB",
+          "hair",
+          "legB",
+          "coat",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "mist",
+      "kind": "fighter-plate",
+      "fighterId": "mist",
+      "team": "tide",
+      "order": 15,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/mist/play-512.e84b429ffdce.webp",
+          "width": 485,
+          "height": 512,
+          "bytes": 35430,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "e84b429ffdceaa0e69da010bda54f779860de06d5c4f3697b87508ca98f726ba"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/mist/card-480.ebf9094f65b5.webp",
+          "width": 454,
+          "height": 480,
+          "bytes": 32212,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "ebf9094f65b5bcc581234202ff40a99556325387cc9a1f5166a92a8df45b9ea2"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/mist/rig.390127583534.json",
+        "dataBytes": 2258,
+        "dataSha256": "390127583534e0002f05e5db4d5f21941e6b6c09954ab6075acffdbe2a9b610f",
+        "atlas": "/assets/v/rig/mist/atlas.6a7b85d89e68.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 556,
+        "bytes": 74352,
+        "atlasSha256": "6a7b85d89e68a3ea45c37ba7964e5dacd26fe6c1c5beb5adc04a46585c3f6fc8",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF",
+          "weapon"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "coral",
+      "kind": "fighter-plate",
+      "fighterId": "coral",
+      "team": "tide",
+      "order": 16,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/coral/play-512.50a2c2af77ea.webp",
+          "width": 306,
+          "height": 512,
+          "bytes": 26960,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "50a2c2af77ea6ec477ad1c2135d81f19d30c1316cd5f6135f0fe211543f8bfb3"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/coral/card-480.a0726c97488f.webp",
+          "width": 287,
+          "height": 480,
+          "bytes": 23970,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "a0726c97488ff1006e20731c4df5030e5b5083d5cb10cecbd5fb1749611b4fd9"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/coral/rig.00a46473af29.json",
+        "dataBytes": 2221,
+        "dataSha256": "00a46473af2995ee866c5549b26abe90785a387b40b4c8768863bd02623e5699",
+        "atlas": "/assets/v/rig/coral/atlas.203d88027025.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 454,
+        "bytes": 60588,
+        "atlasSha256": "203d88027025cd9d966d3917a075b485f26ed1c5dc3b61429fd2e6e3e2f794a0",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF",
+          "shield"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "abyss",
+      "kind": "fighter-plate",
+      "fighterId": "abyss",
+      "team": "tide",
+      "order": 17,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/abyss/play-512.542fe4392d36.webp",
+          "width": 416,
+          "height": 512,
+          "bytes": 36366,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "542fe4392d36fbda3bfd82c1471c3c3ef6a3f7ce43646725b19149df9732b4bf"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/abyss/card-480.bac4d8958650.webp",
+          "width": 390,
+          "height": 480,
+          "bytes": 32902,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "bac4d8958650c08d5d28ec72e8ec6229fa35251209df7e91c0e6555429639e36"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/abyss/rig.9f1df53ddcce.json",
+        "dataBytes": 2009,
+        "dataSha256": "9f1df53ddcce54ba7ea3148440fc0615a6d01ffafcabe12a97722d80b6bbe3f6",
+        "atlas": "/assets/v/rig/abyss/atlas.52c0a40db1f2.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 592,
+        "bytes": 73114,
+        "atlasSha256": "52c0a40db1f2c9e6525e8ff7ae122d4374e94f02daaed741df02541831c0f754",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "basalt",
+      "kind": "fighter-plate",
+      "fighterId": "basalt",
+      "team": "steel",
+      "order": 18,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/basalt/play-512.a67d4568b8b3.webp",
+          "width": 384,
+          "height": 512,
+          "bytes": 35584,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "a67d4568b8b3ec0ce8a61271ada277263044cdb9a99bc74712e7aa85da426a9a"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/basalt/card-480.497d88e92844.webp",
+          "width": 360,
+          "height": 480,
+          "bytes": 31284,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "497d88e92844ecec4a551563b4fd657b13723ede1e5726ebfcae5c0dc0850069"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/basalt/rig.b59a6fc0ff2b.json",
+        "dataBytes": 2011,
+        "dataSha256": "b59a6fc0ff2b3f1f9c83407ae7c4ca0d5dc472a368b4a41cf36e1c44008629fc",
+        "atlas": "/assets/v/rig/basalt/atlas.4ead8f9a63f9.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 517,
+        "bytes": 70322,
+        "atlasSha256": "4ead8f9a63f9b27a01ef7af5aeaad1f7e43ebc905c98cae8a73a765116f0bab5",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "quartz",
+      "kind": "fighter-plate",
+      "fighterId": "quartz",
+      "team": "steel",
+      "order": 19,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/quartz/play-512.9701c1c5a950.webp",
+          "width": 359,
+          "height": 512,
+          "bytes": 28590,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "9701c1c5a9509788289788670766b7202e3c3af0cf71f83b6f3612859da6c961"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/quartz/card-480.9ef5b38d0e7a.webp",
+          "width": 337,
+          "height": 480,
+          "bytes": 25648,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "9ef5b38d0e7af360bc4fc4ce4963da27f8727be9d49bb1e90ba17952d0398c80"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/quartz/rig.6bc336e61372.json",
+        "dataBytes": 2003,
+        "dataSha256": "6bc336e6137270cfebc9119aa8abd59a6869b1074573780be9d9f1cba58749ec",
+        "atlas": "/assets/v/rig/quartz/atlas.6eb30a8c450c.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 445,
+        "bytes": 60780,
+        "atlasSha256": "6eb30a8c450c44900b27589e9c5337e8966bfcebe666301a90e9ea213a097613",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "forge",
+      "kind": "fighter-plate",
+      "fighterId": "forge",
+      "team": "steel",
+      "order": 20,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/forge/play-512.0404f145a0db.webp",
+          "width": 348,
+          "height": 512,
+          "bytes": 31962,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "0404f145a0db959bda42d4ca33f8fef94b3af354e2f21cdccc680f6f3374fe6a"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/forge/card-480.9e11704ea3ba.webp",
+          "width": 327,
+          "height": 480,
+          "bytes": 29128,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "9e11704ea3bad2989bbdd52701c8d15ea0bbdd0f267f19c134b0db6d954c9272"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/forge/rig.6a9671e70d67.json",
+        "dataBytes": 2249,
+        "dataSha256": "6a9671e70d67160ad2fdfc89951a911931b67d027122011b7476186743423f55",
+        "atlas": "/assets/v/rig/forge/atlas.7d91d3777cbc.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 529,
+        "bytes": 65342,
+        "atlasSha256": "7d91d3777cbc80ae11e290e3e09bcb056ffb402154128bdcc03ee5451994e9f9",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF",
+          "weapon"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "girder",
+      "kind": "fighter-plate",
+      "fighterId": "girder",
+      "team": "steel",
+      "order": 21,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/girder/play-512.d97d0b6e831d.webp",
+          "width": 478,
+          "height": 512,
+          "bytes": 39726,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "d97d0b6e831d2a57aec8be2ae0686a691f55da9fdd2600f89456fb7e38156f94"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/girder/card-480.84f7b952d650.webp",
+          "width": 448,
+          "height": 480,
+          "bytes": 35464,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "84f7b952d650d32773c95f04c34f7aeb2e59d4bb42d8429b319e265724eed15b"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/girder/rig.9bfab8410037.json",
+        "dataBytes": 2013,
+        "dataSha256": "9bfab84100375c9eeb47485875b22fc77b3b88aabd260f9c29d2a4cad47954db",
+        "atlas": "/assets/v/rig/girder/atlas.533b85f19ee6.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 578,
+        "bytes": 80240,
+        "atlasSha256": "533b85f19ee6b750e6908ea9c8cba825a094834c3b7b6e024c9ac2c5895f422f",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "volt",
+      "kind": "fighter-plate",
+      "fighterId": "volt",
+      "team": "void",
+      "order": 22,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/volt/play-512.10c0bc6857aa.webp",
+          "width": 355,
+          "height": 512,
+          "bytes": 34032,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "10c0bc6857aa54b8dd9743a5f0e750606147a8d0ccdd3bfb5c340dc2a366d839"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/volt/card-480.d31eec55294f.webp",
+          "width": 333,
+          "height": 480,
+          "bytes": 30212,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "d31eec55294fd75e43f025f104396fa5aeda2af918c2c440f03fc8e5ed435e0a"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/volt/rig.10b48038c284.json",
+        "dataBytes": 2006,
+        "dataSha256": "10b48038c2846508497029b206e5292c5e09fdd67b5737011355160316a2ff07",
+        "atlas": "/assets/v/rig/volt/atlas.9cb01a56782c.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 563,
+        "bytes": 69918,
+        "atlasSha256": "9cb01a56782c3b7f69151871ff295147c172e39a96aae9da47dbfe96639eb30d",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "gale",
+      "kind": "fighter-plate",
+      "fighterId": "gale",
+      "team": "void",
+      "order": 23,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/gale/play-512.08c6ae5df891.webp",
+          "width": 426,
+          "height": 512,
+          "bytes": 29918,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "08c6ae5df89105c07175220bc7aec0f00bfec8f7333bc2e311681db0ac17270d"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/gale/card-480.320e8d4d20bb.webp",
+          "width": 400,
+          "height": 480,
+          "bytes": 26550,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "320e8d4d20bb1e9879edd00206be86f692e2b913ab23c08b8fd1451a93c183be"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/gale/rig.45a72da2744a.json",
+        "dataBytes": 2006,
+        "dataSha256": "45a72da2744a9c632fb16e06351b2aaa74e72f2beab4b29a4c08186e34a662a7",
+        "atlas": "/assets/v/rig/gale/atlas.cca2c6b6e985.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 513,
+        "bytes": 62304,
+        "atlasSha256": "cca2c6b6e985244e43baffef51c7f713e847a55d79ad9d26bfff566a6b495eee",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "noct",
+      "kind": "fighter-plate",
+      "fighterId": "noct",
+      "team": "void",
+      "order": 24,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/noct/play-512.5c07034712a9.webp",
+          "width": 382,
+          "height": 512,
+          "bytes": 33520,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "5c07034712a933927a9220d294badee9846463ea837f286dab512a7e3634cc98"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/noct/card-480.de7292857c1e.webp",
+          "width": 358,
+          "height": 480,
+          "bytes": 30216,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "de7292857c1e83d205bbe2e71e96e48b21f5bb7ad27fcbb268f3921094649b31"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/noct/rig.4251f6183f15.json",
+        "dataBytes": 2006,
+        "dataSha256": "4251f6183f15d821fcb49e943c2bc0a8dc75bce68e40e5ee08256252073b1156",
+        "atlas": "/assets/v/rig/noct/atlas.12e578b6e5b0.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 565,
+        "bytes": 71002,
+        "atlasSha256": "12e578b6e5b00abb2cafe5fc8d2bbb46608eed4f19fec90e66646177f1b7e50b",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    },
+    {
+      "id": "prism",
+      "kind": "fighter-plate",
+      "fighterId": "prism",
+      "team": "void",
+      "order": 25,
+      "preload": "active",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "variants": [
+        {
+          "id": "play-512",
+          "role": "play",
+          "path": "/assets/v/prism/play-512.ddeab06a613a.webp",
+          "width": 342,
+          "height": 512,
+          "bytes": 35676,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "ddeab06a613a47e289d52d62595e05bfd12485cbfd7c4d0f753b6c4c69b9600b"
+        },
+        {
+          "id": "card-480",
+          "role": "card",
+          "path": "/assets/v/prism/card-480.aa7d20e1c06c.webp",
+          "width": 321,
+          "height": 480,
+          "bytes": 33154,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": true,
+          "sha256": "aa7d20e1c06c1cc388d8fc5a69004cce1e24f8f77d976bdeaeaa983bf86cdbd2"
+        }
+      ],
+      "rig": {
+        "schemaVersion": 2,
+        "data": "/assets/v/rig/prism/rig.e71ec164dee3.json",
+        "dataBytes": 2005,
+        "dataSha256": "e71ec164dee3b9bb298ec9ad8037bafa10b5df969bdbf7ad6ae802dd54edeff6",
+        "atlas": "/assets/v/rig/prism/atlas.8c4b7ca7848e.webp",
+        "format": "webp",
+        "width": 1024,
+        "height": 564,
+        "bytes": 73690,
+        "atlasSha256": "8c4b7ca7848e1fbc8bd4065bcca047b4c1bff6e983485c95fb62829381e20bb8",
+        "parts": [
+          "armB",
+          "legB",
+          "torso",
+          "legF",
+          "head",
+          "armF"
+        ],
+        "figureHeight": 512
+      }
+    }
+  ],
+  "totals": {
+    "liveViewBytes": 410573,
+    "galleryViewBytes": 489652,
+    "webAssetsBytes": 2390355
+  },
+  "revision": "sha256:62ff8c265c6f19a0ba8df98228b095c2d24e499b93bf224549403edafc38e44e"
+}

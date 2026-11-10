@@ -1,0 +1,16 @@
+{
+  "kind": "behavior-preserving-hardening",
+  "decisionRef": "artifact:testability-decision:afl-asset-library-refactor-2026-11-09",
+  "baseline": {
+    "publicEntry": "scripts/verify-anim.mjs",
+    "setup": "Server running at http://127.0.0.1:8787; CHROME_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "command": {
+      "executable": "node",
+      "args": ["scripts/verify-anim.mjs"],
+      "cwd": "/Users/rex/codes/Agent-Fighter"
+    },
+    "expected": "all animation checks passed; exit code 0",
+    "observed": "all animation checks passed; exit code 0",
+    "receiptRef": "receipt:46c254f6-172a-4fbd-abf0-e224949bf5fa"
+  }
+}

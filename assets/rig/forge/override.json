@@ -1,0 +1,111 @@
+{
+  "joints": {
+    "root": [
+      0,
+      0.56
+    ],
+    "hip": [
+      0,
+      0.53
+    ],
+    "chest": [
+      0,
+      0.35
+    ],
+    "neck": [
+      0,
+      0.22
+    ],
+    "head": [
+      0,
+      0.14
+    ],
+    "shoulderF": [
+      0.12,
+      0.32
+    ],
+    "elbowF": [
+      0.28,
+      0.38
+    ],
+    "handF": [
+      0.36,
+      0.3
+    ],
+    "shoulderB": [
+      -0.15,
+      0.3
+    ],
+    "elbowB": [
+      -0.3,
+      0.42
+    ],
+    "handB": [
+      -0.37,
+      0.55
+    ],
+    "kneeF": [
+      0.12,
+      0.75
+    ],
+    "footF": [
+      0.15,
+      1
+    ],
+    "kneeB": [
+      -0.25,
+      0.75
+    ],
+    "footB": [
+      -0.28,
+      1
+    ],
+    "skirt": [
+      0,
+      0.66
+    ],
+    "weaponTip": [
+      -0.3,
+      0.08
+    ]
+  },
+  "parts": [
+    {
+      "id": "armB",
+      "radius": 0.07,
+      "weight": 0.9
+    },
+    {
+      "id": "torso",
+      "radius": 0.19,
+      "weight": 1
+    },
+    {
+      "id": "armF",
+      "radius": 0.07,
+      "weight": 0.95
+    },
+    {
+      "id": "weapon",
+      "bones": [
+        "handF",
+        "weaponTip"
+      ],
+      "pivot": "handF",
+      "z": 6,
+      "weight": 1.2,
+      "radius": 0.22,
+      "drive": [
+        "shoulderF",
+        "elbowF"
+      ],
+      "follow": [
+        "handF"
+      ],
+      "followK": 0.9,
+      "spin": 0.8,
+      "ball": 0.04,
+      "clamp": 0.8
+    }
+  ]
+}

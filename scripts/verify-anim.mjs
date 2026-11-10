@@ -22,11 +22,20 @@ import { BASE_POSE, skeletonFor } from '../src/combat.js';
 import { MOVES, moveTotal } from '../src/rules.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const RIG = path.join(ROOT, 'web', 'assets', 'rig');
-const ART = path.join(ROOT, 'web', 'assets', 'art');
+const WEB = path.join(ROOT, 'web');
+const MANIFEST = JSON.parse(fs.readFileSync(path.join(WEB, 'assets', 'manifest.json'), 'utf8'));
 const BASE = process.env.AFL_BASE || 'http://127.0.0.1:8787';
 const PORT = 9251;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function rigEntry(id) {
+  const asset = MANIFEST.assets.find((a) => a.fighterId === id);
+  return asset && asset.rig;
+}
+function rigFile(id) {
+  const entry = rigEntry(id);
+  return entry ? path.join(WEB, entry.data.replace(/^\//, '')) : null;
+}
 
 const failures = [];
 const ok = (label, cond, detail = '') => {
@@ -47,7 +56,7 @@ function poseRotations(id, spec) {
   const sk = skeletonFor(f, 30);
   const local = {};
   for (const [k, v] of Object.entries(sk.joints)) local[k] = [(v[0] - f.x) * f.facing, v[1] - f.y];
-  const rig = JSON.parse(fs.readFileSync(path.join(RIG, id, 'rig.json'), 'utf8'));
+  const rig = JSON.parse(fs.readFileSync(rigFile(id), 'utf8'));
   const out = {};
   for (const part of rig.parts) {
     const a = local[part.drive[0]];
@@ -58,35 +67,45 @@ function poseRotations(id, spec) {
 }
 
 for (const fighter of FIGHTERS) {
-  const dir = path.join(RIG, fighter.id);
-  if (!fs.existsSync(path.join(dir, 'rig.json'))) {
-    ok(fighter.id + ' rig baked', false, 'missing web/assets/rig/' + fighter.id);
+  const entry = rigEntry(fighter.id);
+  const file = rigFile(fighter.id);
+  if (!entry || !file || !fs.existsSync(file)) {
+    ok(fighter.id + ' rig baked', false, 'missing manifest rig for ' + fighter.id);
     continue;
   }
-  const rig = JSON.parse(fs.readFileSync(path.join(dir, 'rig.json'), 'utf8'));
-  const ids = rig.parts.map((p) => p.id).sort().join(',');
-  ok(fighter.id + ' rig parts', ids === 'armB,armF,head,legB,legF,torso', ids);
+  const rig = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const ids = rig.parts.map((p) => p.id);
+  const baseParts = ['armB', 'armF', 'head', 'legB', 'legF', 'torso'];
+  ok(fighter.id + ' rig base parts', baseParts.every((id) => ids.includes(id)), ids.join(','));
 
-  // A pivot may sit just outside its crop (the joint ball belongs to whichever
-  // part is in front), but a far-away pivot would swing the part like a
-  // catapult, so bound the distance instead.
+  // A pivot may sit just outside its own pixels (the joint ball belongs to
+  // whichever part is in front), but a far-away pivot would swing the part
+  // like a catapult, so bound the distance instead.
+  //
+  // The rig is baked into an atlas (schema v2): the joints live in figure
+  // space while the part pixels live in the atlas, so the two must never be
+  // compared directly. px/py are the pivot's offset inside the part's padded
+  // crop, and `seam` is the soft halo around the visible pixels, so the part's
+  // own pixels occupy the rect inset by the seam.
   const figH = rig.box.h;
   let pivotNear = true;
   let cropInside = true;
   let partsReal = true;
   for (const p of rig.parts) {
-    const pv = rig.joints[p.pivot];
-    const { x, y, w, h } = p.crop;
-    const dx = Math.max(x - pv[0], 0, pv[0] - (x + w));
-    const dy = Math.max(y - pv[1], 0, pv[1] - (y + h));
-    if (Math.hypot(dx, dy) > figH * 0.2) pivotNear = false;
-    if (x < 0 || y < 0 || x + w > rig.width || y + h > rig.height) cropInside = false;
+    const { x, y, w, h } = p.rect;
+    const seam = p.seam || 0;
+    const dx = Math.max(seam - p.px, p.px - (w - seam), 0);
+    const dy = Math.max(seam - p.py, p.py - (h - seam), 0);
+    // Dividing by the figure height keeps the ratio scale invariant: the
+    // crop and the joints are baked at the same scale.
+    if (Math.hypot(dx, dy) / figH > 0.2) pivotNear = false;
+    if (x < 0 || y < 0 || x + w > rig.atlas.width || y + h > rig.atlas.height) cropInside = false;
     if (w * h < figH * figH * 0.005) partsReal = false;
   }
   ok(fighter.id + ' pivots near their part', pivotNear);
-  ok(fighter.id + ' crops inside the plate', cropInside);
+  ok(fighter.id + ' crops inside the atlas', cropInside);
   ok(fighter.id + ' every part carries pixels', partsReal);
-  ok(fighter.id + ' plate scale sane', rig.plateScale > 2 && rig.plateScale < 8, String(rig.plateScale));
+  ok(fighter.id + ' plate scale sane', rig.plateScale > 1.2 && rig.plateScale < 4.5, String(rig.plateScale));
 
   // Pose coupling: a punch must turn the front arm, a kick the front leg.
   const idle = poseRotations(fighter.id, { state: 'idle' });
@@ -94,9 +113,9 @@ for (const fighter of FIGHTERS) {
   const kick = poseRotations(fighter.id, { state: 'attack', moveId: 'hk', moveFrame: MOVES.hk.startup + 1 });
   const crouch = poseRotations(fighter.id, { state: 'crouch' });
   ok(fighter.id + ' idle does not deform', Math.abs(idle.rotations.armF) < 0.02, idle.rotations.armF.toFixed(3));
-  ok(fighter.id + ' heavy punch turns the front arm', Math.abs(punch.rotations.armF) > 0.08, punch.rotations.armF.toFixed(3));
-  ok(fighter.id + ' heavy kick turns the front leg', Math.abs(kick.rotations.legF) > 0.05, kick.rotations.legF.toFixed(3));
-  ok(fighter.id + ' crouch turns the torso', Math.abs(crouch.rotations.torso) > 0.01 || Math.abs(crouch.rotations.legF) > 0.01);
+  ok(fighter.id + ' heavy punch turns the front arm', Math.abs(punch.rotations.armF) > 0.25, punch.rotations.armF.toFixed(3));
+  ok(fighter.id + ' heavy kick turns the front leg', Math.abs(kick.rotations.legF) > 0.2, kick.rotations.legF.toFixed(3));
+  ok(fighter.id + ' crouch turns the torso or legs', Math.abs(crouch.rotations.torso) > 0.05 || Math.abs(crouch.rotations.legF) > 0.05);
 
   // The renderer clamps, but if the server ever asks for a wilder angle than
   // the clamp allows the picture would silently stop following the hitboxes.
@@ -126,6 +145,7 @@ const CHROME_CANDIDATES = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 ].filter(Boolean);
 const chromePath = CHROME_CANDIDATES.find((p) => fs.existsSync(p));
 
@@ -196,7 +216,8 @@ if (!chromePath) {
     if (report) {
       for (const row of report) {
         ok(row.id + ' renders a body in every pose', row.nonEmpty.every((n) => n > 900), JSON.stringify(row.nonEmpty));
-        ok(row.id + ' punch frame differs from idle', row.idleVsHp > 300, 'diff=' + row.idleVsHp);
+        ok(row.id + ' punch frame differs from idle', row.idleVsHp > 1500, 'diff=' + row.idleVsHp);
+        ok(row.id + ' walk frame differs from idle', row.idleVsWalk > 800, 'diff=' + row.idleVsWalk);
         ok(row.id + ' crouch frame differs from idle', row.idleVsCrouch > 300, 'diff=' + row.idleVsCrouch);
       }
     }

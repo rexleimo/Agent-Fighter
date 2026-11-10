@@ -5,10 +5,11 @@
  */
 import { createInitialState, step, stateHash, renderState, runMatch, replayMatch } from '../src/engine.js';
 import {
-  CONFIG, MOVES, ACTIONS, KITS, KIT_IDS, KIT_BALANCE, moveDamage, moveReach,
+  CONFIG, MOVES, ACTIONS, moveDamage, moveReach,
 } from '../src/rules.js';
-import { FIGHTERS } from '../src/fighters.js';
-import { boxesFor, skeletonFor, poseFor, overlap, publicBoxData } from '../src/combat.js';
+import { ARCHETYPES, FIGHTER_KITS, FIGHTER_KIT_IDS, KIT_BALANCE } from '../src/kits/index.js';
+import { FIGHTERS, PUSH_WIDTH } from '../src/fighters.js';
+import { boxesFor, skeletonFor, poseFor, overlap, publicBoxData, pushboxFor } from '../src/combat.js';
 import { BUILTIN_AGENTS } from '../src/agents.js';
 
 const results = [];
@@ -52,7 +53,7 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
   const centered = Math.abs((headBox.x + headBox.w / 2) - head[0]) <= 2;
   check('K1 15 关节 / 14 骨骼 / 由骨架派生的 3 个 hurtbox + pushbox',
     Object.keys(sk.joints).length === 15 && sk.bones.length === 14
-      && b.hurt.length === 3 && b.push.w === 38 && centered,
+      && b.hurt.length === 3 && b.push.w === PUSH_WIDTH[s.a.fighterId] && centered,
     'joints=' + Object.keys(sk.joints).length + ' bones=' + sk.bones.length + ' hurt=' + b.hurt.length + ' headCentered=' + centered);
   check('K2 active 帧才出现攻击框，且攻击框锚定在手部关节',
     b.hit.length === 1 && b.hit[0].move === 'lp' && b.hit[0].height === 'mid',
@@ -239,32 +240,58 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
     'ticks=' + demo.replay.ticks.length + ' super=' + supers + ' cancel=' + cancels + ' skills=' + skills + ' dash=' + dashes);
 }
 
-/* 12 — kits (B1): each archetype does what its data claims */
+/* 12 — kits (B1): each fighter runs its own table inside the published bands */
 {
   const kitOf = (id) => FIGHTERS.find((f) => f.id === id).kit;
 
-  // Every fighter has a real kit, all five archetypes are represented, and
-  // each kit's skill frame data sits inside the published balance bands.
-  const missing = FIGHTERS.filter((f) => !KITS[f.kit]).map((f) => f.id);
+  // Every fighter owns a kit, all five archetypes are represented, and each
+  // fighter's own three skills sit inside its archetype's balance bands.
+  const missing = FIGHTERS.filter((f) => !FIGHTER_KITS[f.id]).map((f) => f.id);
   const used = new Set(FIGHTERS.map((f) => f.kit));
   const bands = [];
-  for (const kitId of KIT_IDS) {
-    const moves = KITS[kitId].moves;
-    const band = KIT_BALANCE[kitId];
+  for (const fighterId of FIGHTER_KIT_IDS) {
+    const kit = FIGHTER_KITS[fighterId];
+    const band = KIT_BALANCE[kit.archetype];
     for (const action of ['special', 'ex', 'super']) {
-      const dmg = moveDamage(moves[action]);
+      const m = kit.moves[action];
+      if (!m) { bands.push(fighterId + '.' + action + '=missing'); continue; }
+      const dmg = moveDamage(m);
       const [lo, hi] = band[action];
-      if (dmg < lo || dmg > hi) bands.push(kitId + '.' + action + '=' + dmg + ' not in [' + lo + ',' + hi + ']');
+      if (dmg < lo || dmg > hi) bands.push(fighterId + '.' + action + '=' + dmg + ' not in [' + lo + ',' + hi + ']');
     }
-    const reach = moveReach(moves.special);
-    if (reach < band.reach[0] || reach > band.reach[1]) bands.push(kitId + '.reach=' + reach);
-    const frames = moves.special.startup + moves.special.active + moves.special.recovery;
-    if (frames < 30 || frames > 40) bands.push(kitId + '.specialFrames=' + frames);
+    const reach = moveReach(kit.moves.special);
+    if (reach < band.reach[0] || reach > band.reach[1]) bands.push(fighterId + '.reach=' + reach);
+    const frames = kit.moves.special.startup + kit.moves.special.active + kit.moves.special.recovery;
+    if (frames < 30 || frames > 40) bands.push(fighterId + '.specialFrames=' + frames);
   }
-  check('K25 16 位角色都有合法原型，5 种原型全部上场，帧数据在平衡区间内',
-    missing.length === 0 && used.size === KIT_IDS.length && bands.length === 0,
-    'missing=' + JSON.stringify(missing) + ' used=' + [...used].sort().join(',')
+  check('K25 16 位角色各自拥有专属技能表，全部落在所属原型的平衡区间内',
+    missing.length === 0 && used.size === Object.keys(ARCHETYPES).length && bands.length === 0,
+    'missing=' + JSON.stringify(missing) + ' archetypes=' + [...used].sort().join(',')
       + (bands.length ? ' out=' + bands.join(';') : ' all-in-band'));
+
+  // No two fighters share a move table: the whole point of per-fighter kits.
+  const signature = (fighterId) => FIGHTER_KITS[fighterId].moves
+    ? ['special', 'ex', 'super'].map((a) => {
+      const m = FIGHTER_KITS[fighterId].moves[a];
+      return [a, m.label, m.startup, m.active, m.recovery, m.damage || 0, m.range || 0,
+        m.height || '', m.meterCost || 0, m.advance ? m.advance.vx : 0,
+        m.projectile ? JSON.stringify(m.projectile) : '',
+        m.counter ? JSON.stringify(m.counter) : ''].join('|');
+    }).join('#')
+    : '';
+  const sigs = new Map();
+  for (const fighterId of FIGHTER_KIT_IDS) {
+    const s = signature(fighterId);
+    if (!sigs.has(s)) sigs.set(s, []);
+    sigs.get(s).push(fighterId);
+  }
+  const dupes = [...sigs.values()].filter((g) => g.length > 1);
+  const labels = new Set(FIGHTER_KIT_IDS.map((id) => FIGHTER_KITS[id].moves.special.label));
+  check('K25b 16 套技能两两互不相同（招式表与专属技名字都不重复）',
+    dupes.length === 0 && labels.size === FIGHTER_KIT_IDS.length,
+    'kits=' + FIGHTER_KIT_IDS.length + ' distinctTables=' + sigs.size
+      + ' distinctSpecialNames=' + labels.size
+      + (dupes.length ? ' dupes=' + dupes.map((d) => d.join('=')).join(',') : ''));
 
   // rush — the strike carries the fighter forward and knocks down.
   const rush = scene({ dx: 180, fighters: { a: 'ember', b: 'quartz' }, frames: 40, plan: () => ['special', 'idle'] });
@@ -327,7 +354,7 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
   };
   const distinct = new Set(Object.values(matrix));
   check('K32 同一个 special 按角色原型解析成不同机制',
-    distinct.size === KIT_IDS.length,
+    distinct.size === Object.keys(ARCHETYPES).length,
     Object.entries(matrix).map(([k, v]) => k + '=' + v).join(' '));
 
   // Cross-kit determinism: kits are part of the state, so the same seed with
@@ -352,6 +379,131 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
   check('K34 rank 输出的 kit 与角色定义一致',
     kitOf('ember') === 'rush' && kitOf('tide') === 'volley' && kitOf('coral') === 'counter'
       && kitOf('volt') === 'antiAir' && kitOf('gale') === 'multi');
+}
+
+/* 35 — 朝向是「承诺」状态：出招/硬直/空中期间不许被穿身翻转 */
+{
+  // 旧实现每帧按双方相对位置重算朝向。投技把对手摔到身后、突进技穿身、
+  // 被打飞越过对手时，角色会当场转过去，而动画帧还在朝原方向播 ——
+  // 玩家看到的就是「角色反了」。
+  let s = createInitialState(11, 'facing-commit', { a: 'ember', b: 'tide' });
+  s.a.x = 430;
+  s.b.x = 530;
+  const track = [];
+  for (let i = 0; i < 40; i += 1) {
+    s = step(s, i === 0 ? 'hp' : 'idle', 'idle');
+    if (i === 4) s.b.x = s.a.x - 70;   // B 被送到 A 身后
+    track.push({ state: s.a.state, facing: s.a.facing });
+  }
+  const neutral = ['idle', 'walk', 'crouch', 'guard'];
+  const committed = track.slice(4).filter((f) => !neutral.includes(f.state));
+  check('K35 出招中被穿身不翻转朝向，回到中立帧后才转身',
+    committed.length > 0 && committed.every((f) => f.facing === 1) && track[track.length - 1].facing === -1,
+    'committedFrames=' + committed.length + ' lastFacing=' + track[track.length - 1].facing);
+
+  // 每一类「承诺状态」都必须锁住朝向：空中、受击、倒地、格挡硬直、超必杀。
+  // 逐个把对手传送到身后，看朝向是否保持不变。
+  const cases = [
+    ['airborne', (st) => { st.a.y = -60; st.a.vy = -6; st.a.state = 'jump'; }],
+    ['hitstun', (st) => { st.a.state = 'hitstun'; st.a.hitstun = 12; }],
+    ['knockdown', (st) => { st.a.state = 'knockdown'; st.a.wakeup = 20; }],
+    ['blockstun', (st) => { st.a.state = 'guard'; st.a.blockstun = 10; }],
+    ['super', (st) => { st.a.meter = 100; }],
+  ];
+  const held = [];
+  for (const [name, setup] of cases) {
+    let t = createInitialState(11, 'facing-' + name, { a: 'ember', b: 'tide' });
+    t.a.x = 430;
+    t.b.x = 530;
+    t.a.facing = 1;
+    setup(t);
+    const action = name === 'super' ? 'super' : 'idle';
+    let flipped = false;
+    for (let i = 0; i < 6; i += 1) {
+      t = step(t, action, 'idle');
+      if (i === 1) t.b.x = t.a.x - 70;
+      if (t.a.facing !== 1 && i <= 4) flipped = true;
+    }
+    held.push(name + (flipped ? '=FLIPPED' : '=held'));
+  }
+  check('K35b 空中/受击/倒地/格挡硬直/超必杀期间朝向不被穿身翻转',
+    held.every((h) => h.endsWith('=held')),
+    held.join(' '));
+
+  // 反过来也必须成立：承诺状态一结束，下一帧就得重新面向对手，
+  // 否则锁朝向会变成「永远背对」。
+  let r = createInitialState(11, 'facing-release', { a: 'ember', b: 'tide' });
+  r.a.x = 430;
+  r.b.x = r.a.x - 70;   // 对手一开始就在身后
+  for (let i = 0; i < 3; i += 1) r = step(r, 'idle', 'idle');
+  check('K35c 回到中立帧后立刻重新面向对手',
+    r.a.facing === -1 && r.b.facing === 1,
+    'a=' + r.a.facing + ' b=' + r.b.facing);
+}
+
+/* 6 — 身体不再穿模：推box 与可见身体同宽，墙角不残留半重叠 */
+{
+  const gapOf = (s) => {
+    const pa = pushboxFor(s.a);
+    const pb = pushboxFor(s.b);
+    return Math.max(pb.x - (pa.x + pa.w), pa.x - (pb.x + pb.w));
+  };
+  // 双方对冲 120 帧：最宽的一对（gale 镜像）停下时推box 必须刚好相切。
+  const mid = scene({ dx: 400, frames: 120, fighters: { a: 'gale', b: 'gale' }, plan: () => ['walk_f', 'walk_f'] });
+  check('K36 对冲后身体相切不互穿（最宽镜像对）', gapOf(mid.s) >= -1,
+    'gap=' + gapOf(mid.s) + ' dx=' + Math.abs(mid.s.a.x - mid.s.b.x));
+
+  // 墙角：被顶到墙的一方吸收不了位移时，余量必须全部交给自由的一方。
+  let c = createInitialState(11, 'push-corner', { a: 'gale', b: 'gale' });
+  c.b.x = CONFIG.STAGE_RIGHT;
+  c.a.x = CONFIG.STAGE_RIGHT - 60;
+  for (let i = 0; i < 60; i += 1) c = step(c, 'walk_f', 'idle');
+  check('K36b 墙角推挤不残留重叠，墙侧角色不被挤出舞台',
+    gapOf(c) >= -1 && c.b.x === CONFIG.STAGE_RIGHT && c.a.x <= CONFIG.STAGE_RIGHT,
+    'gap=' + gapOf(c) + ' a=' + c.a.x + ' b=' + c.b.x);
+
+  // 倒地身体不是障碍：前冲（承诺位移、锁朝向）可以直接越过去。
+  let d = createInitialState(11, 'push-downed', { a: 'gale', b: 'gale' });
+  d.b.state = 'knockdown';
+  d.b.wakeup = 40;
+  d.b.x = 600;
+  d.a.x = 560;
+  for (let i = 0; i < 30; i += 1) d = step(d, i === 0 ? 'dash' : 'idle', 'idle');
+  check('K36c 倒地推box 变低，前冲可越过身体', d.a.x > 600, 'a=' + d.a.x);
+
+  // 接触距离下轻拳与投技都必须够得着（推box 加宽不能把近战废掉）。
+  const contact = 128;
+  const jab = scene({ dx: contact, frames: 30, fighters: { a: 'gale', b: 'gale' }, plan: (i) => [i === 0 ? 'lp' : 'idle', 'idle'] });
+  check('K37 接触距离轻拳命中', types(jab, 'hit').some((e) => e.move === 'lp'),
+    'hits=' + types(jab, 'hit').length);
+  const grab = scene({ dx: contact, frames: 40, fighters: { a: 'gale', b: 'gale' }, plan: (i) => [i === 0 ? 'throw' : 'idle', 'idle'] });
+  check('K37b 接触距离投技命中（判定框跨过推box 间隙）', types(grab, 'hit').some((e) => e.move === 'throw'),
+    'hits=' + types(grab, 'hit').length);
+  const whiff = scene({ dx: 220, frames: 40, fighters: { a: 'gale', b: 'gale' }, plan: (i) => [i === 0 ? 'throw' : 'idle', 'idle'] });
+  check('K37c 超出投技距离仍然打空', types(whiff, 'hit').length === 0,
+    'reach=' + MOVES.throw.range);
+
+  // 跳逆：高处_airborne_ 不与地面身体推挤，否则永远跳不过去。
+  let j = createInitialState(11, 'push-crossup', { a: 'gale', b: 'gale' });
+  j.a.x = 500;
+  j.b.x = 510;
+  j.a.y = -90;
+  j.a.vy = -2;
+  j.a.state = 'jump';
+  const before = j.a.x;
+  j = step(j, 'idle', 'idle');
+  check('K38 跳跃越过对手时不被推box 挡住', j.a.x === before, 'a=' + j.a.x);
+
+  // 起身帧：wakeup 在主推挤之后才把 knockdown 翻成 idle，站在尸体上的一方
+  // 必须在同一帧被分开，否则快照里会留一帧穿模（实测 basalt 镜像 2/930 帧）。
+  let w = createInitialState(11, 'push-wakeup', { a: 'basalt', b: 'basalt' });
+  w.b.state = 'knockdown';
+  w.b.wakeup = 1;
+  w.b.x = 600;
+  w.a.x = 588;
+  w = step(w, 'idle', 'idle');
+  check('K38b 起身当帧即分离，不留一帧穿模', w.b.state === 'idle' && gapOf(w) >= -1,
+    'state=' + w.b.state + ' gap=' + gapOf(w));
 }
 
 const failed = results.filter((r) => !r.ok);

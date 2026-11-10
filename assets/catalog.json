@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "pipeline": "afl-assets-v1",
+  "license": {
+    "spdx": "LicenseRef-Original-AI",
+    "origin": "ai-generated-original",
+    "author": "Agent Fighting League",
+    "commercialUse": true,
+    "attributionRequired": false
+  },
+  "variants": {
+    "play": { "height": 512, "quality": 82 },
+    "card": { "height": 480, "quality": 82 },
+    "stage": { "width": 1280, "quality": 82 },
+    "rig": { "bakeHeight": 512, "quality": 86 }
+  },
+  "budgets": {
+    "liveViewBytes": 1500000,
+    "galleryViewBytes": 2500000,
+    "libraryBytes": 8000000
+  }
+}

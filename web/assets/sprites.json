@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "frame": 256,
+  "anchor": [
+    128,
+    248
+  ],
+  "generatedAt": "2026-11-10T00:25:19.098Z",
+  "fighters": [
+    {
+      "id": "abyss",
+      "anim": "/assets/v/sprites/abyss/anim.2f4afb1fdedc.json",
+      "atlasBytes": 685722,
+      "clipCount": 23
+    },
+    {
+      "id": "basalt",
+      "anim": "/assets/v/sprites/basalt/anim.071aed546f01.json",
+      "atlasBytes": 639752,
+      "clipCount": 23
+    },
+    {
+      "id": "cinder",
+      "anim": "/assets/v/sprites/cinder/anim.14130e9150b1.json",
+      "atlasBytes": 744538,
+      "clipCount": 23
+    },
+    {
+      "id": "coral",
+      "anim": "/assets/v/sprites/coral/anim.83fd4c1b5f42.json",
+      "atlasBytes": 652032,
+      "clipCount": 23
+    },
+    {
+      "id": "ember",
+      "anim": "/assets/v/sprites/ember/anim.284702fcc686.json",
+      "atlasBytes": 747784,
+      "clipCount": 23
+    },
+    {
+      "id": "forge",
+      "anim": "/assets/v/sprites/forge/anim.f1b5d40c3cc9.json",
+      "atlasBytes": 527944,
+      "clipCount": 23
+    },
+    {
+      "id": "gale",
+      "anim": "/assets/v/sprites/gale/anim.ec193cbbb7d7.json",
+      "atlasBytes": 604790,
+      "clipCount": 23
+    },
+    {
+      "id": "girder",
+      "anim": "/assets/v/sprites/girder/anim.5b53fe524de8.json",
+      "atlasBytes": 516874,
+      "clipCount": 23
+    },
+    {
+      "id": "mist",
+      "anim": "/assets/v/sprites/mist/anim.7c20f885d364.json",
+      "atlasBytes": 696248,
+      "clipCount": 23
+    },
+    {
+      "id": "noct",
+      "anim": "/assets/v/sprites/noct/anim.2a89958277b0.json",
+      "atlasBytes": 577994,
+      "clipCount": 23
+    },
+    {
+      "id": "prism",
+      "anim": "/assets/v/sprites/prism/anim.11661a2abe8d.json",
+      "atlasBytes": 622752,
+      "clipCount": 23
+    },
+    {
+      "id": "pyre",
+      "anim": "/assets/v/sprites/pyre/anim.e8be46b52c10.json",
+      "atlasBytes": 687386,
+      "clipCount": 23
+    },
+    {
+      "id": "quartz",
+      "anim": "/assets/v/sprites/quartz/anim.3883026d62b2.json",
+      "atlasBytes": 460848,
+      "clipCount": 23
+    },
+    {
+      "id": "slag",
+      "anim": "/assets/v/sprites/slag/anim.f9f843a700c4.json",
+      "atlasBytes": 796916,
+      "clipCount": 23
+    },
+    {
+      "id": "tide",
+      "anim": "/assets/v/sprites/tide/anim.aa07fcf9e414.json",
+      "atlasBytes": 753560,
+      "clipCount": 23
+    },
+    {
+      "id": "volt",
+      "anim": "/assets/v/sprites/volt/anim.74b1caadb08e.json",
+      "atlasBytes": 592974,
+      "clipCount": 23
+    }
+  ]
+}

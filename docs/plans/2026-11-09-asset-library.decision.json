@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "kind": "rex.decision-ticket.v1",
+  "ticketRef": "artifact:decision-ticket:afl-asset-library-refactor-2026-11-09",
+  "decisionId": "afl-asset-library-refactor-2026-11-09",
+  "objective": "重构 Agent Fighting League 的素材库与观赛表现，解决首屏 19.2MB、rig 表达不足、默认调试层和 asset 不可校验的问题。",
+  "options": [
+    {
+      "id": "A",
+      "summary": "只加 HTTP 缓存，不改素材与加载",
+      "pros": ["改动最小", "风险最低"],
+      "cons": ["首屏仍请求 16 张立绘", "rig 错误部件与表达不足未解", "无 manifest/校验，问题会复发"],
+      "rejectedBecause": "只解决重复下载，不解决首次 19.2MB 和 rig/体验问题。"
+    },
+    {
+      "id": "B",
+      "summary": "素材库契约 + 派生优化 + rig 预烘焙 + 按需加载 + 广播表现",
+      "pros": [
+        "复用现有 16 张原创立绘，版权风险不变",
+        "首屏预计从 19.2MB 降到 <1.5MB",
+        "rig 运行时不再解码全尺寸 mask",
+        "manifest + 校验 + 字节预算可防回归",
+        "保留零运行时依赖与旧 URL 兼容"
+      ],
+      "cons": [
+        "需要改构建、服务端、rig、前端和校验脚本",
+        "需要逐个 fighter 调整最明显的部件归属",
+        "构建期 WebP 依赖可选 cwebp"
+      ],
+      "chosen": true
+    },
+    {
+      "id": "C",
+      "summary": "重新生成 16 张中性 A-pose 立绘后再做 rig",
+      "pros": ["理论上 rig 最干净"],
+      "cons": [
+        "无法保证 16 位角色风格/设定一致",
+        "重画成本高，且现有角色资产作废",
+        "超出本次素材库重构范围"
+      ],
+      "rejectedBecause": "现有立绘质量足够；问题在交付层与拆件参数，不在角色设计。"
+    }
+  ],
+  "chosen": "B",
+  "rationale": "先用契约、派生、缓存和按需加载解决可量化的首屏问题；再用预烘焙 atlas 与 per-fighter override 提升 rig；最后用默认广播视图和程序化音效改善第一印象。所有改动不触碰确定性内核。",
+  "constraints": [
+    "不改 src/rules.js / src/combat.js / src/engine.js 的判定与帧数据",
+    "不引入运行时第三方依赖",
+    "不更换角色立绘与版权策略",
+    "旧 URL 必须继续可用",
+    "单角色 rig 失败必须回退到整张立绘，不能空白"
+  ],
+  "outOfScope": [
+    "逐帧动画 / 30–60 套 sprite sheet",
+    "匹配、Glicko-2、MCP 协议变更",
+    "新角色 / 新舞台生成",
+    "真实音频素材采购"
+  ],
+  "acceptance": [
+    "web/assets <= 8MB",
+    "Live 首屏传输 <= 1.5MB",
+    "16 位角色 rig lab idleVsHp > 1500、idleVsWalk > 800",
+    "默认 Live 不显示判定框/骨架/距离尺/网格",
+    "verify / verify:combat / verify:art / verify:anim / verify:assets / verify:mcp 全绿"
+  ],
+  "evidenceRefs": [
+    "docs/plans/2026-11-09-重构-agent-fighting-league-的素材库与游戏表现-素材清单-优化产物-rig-烘焙-缓存与加载-2.md",
+    "docs/asset-library.md",
+    "docs/preview-live.png",
+    ".tmp-rig/lab.png"
+  ]
+}

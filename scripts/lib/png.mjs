@@ -90,12 +90,69 @@ export function decodePNG(file) {
   return { width, height, bpp, pixels };
 }
 
-export function encodeRGBA(width, height, rgba) {
+function paeth(a, b, c) {
+  const p = a + b - c;
+  const pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+  return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+}
+
+/** Signed magnitude of one filtered byte, used by the adaptive filter picker. */
+function filterScore(byte) {
+  return byte > 127 ? 256 - byte : byte;
+}
+
+/**
+ * Pick the cheapest PNG row filter (0–4) for one row. This is the standard
+ * minimum-sum-of-absolute-differences heuristic; it keeps the encoder
+ * deterministic while cutting PNG size 10–25% versus always using filter 0.
+ */
+function chooseFilter(cur, prev, stride, bpp) {
+  const best = { type: 0, score: Infinity, data: null };
+  for (let type = 0; type < 5; type += 1) {
+    const out = Buffer.alloc(stride);
+    let score = 0;
+    for (let i = 0; i < stride; i += 1) {
+      const x = cur[i];
+      const a = i >= bpp ? cur[i - bpp] : 0;
+      const b = prev ? prev[i] : 0;
+      const c = prev && i >= bpp ? prev[i - bpp] : 0;
+      let v;
+      switch (type) {
+        case 0: v = x; break;
+        case 1: v = x - a; break;
+        case 2: v = x - b; break;
+        case 3: v = x - ((a + b) >> 1); break;
+        default: v = x - paeth(a, b, c); break;
+      }
+      const byte = v & 0xFF;
+      out[i] = byte;
+      score += filterScore(byte);
+      if (score >= best.score) break;
+    }
+    if (score < best.score) {
+      best.type = type;
+      best.score = score;
+      best.data = out;
+    }
+  }
+  return best;
+}
+
+export function encodeRGBA(width, height, rgba, { adaptiveFilter = true } = {}) {
   const stride = width * 4;
   const raw = Buffer.alloc((stride + 1) * height);
   for (let y = 0; y < height; y += 1) {
-    raw[y * (stride + 1)] = 0;
-    rgba.copy(raw, y * (stride + 1) + 1, y * stride, (y + 1) * stride);
+    const cur = rgba.subarray(y * stride, (y + 1) * stride);
+    const prev = y > 0 ? rgba.subarray((y - 1) * stride, y * stride) : null;
+    const at = y * (stride + 1);
+    if (!adaptiveFilter) {
+      raw[at] = 0;
+      cur.copy(raw, at + 1);
+      continue;
+    }
+    const picked = chooseFilter(cur, prev, stride, 4);
+    raw[at] = picked.type;
+    picked.data.copy(raw, at + 1);
   }
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);

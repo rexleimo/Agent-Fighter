@@ -1,4 +1,5 @@
-import { ACTIONS, CONFIG, KITS, MOVES, moveFor, moveDamage, totalFor } from './rules.js';
+import { ACTIONS, CONFIG, MOVES, moveFor, moveDamage, totalFor, mechanicsOf } from './rules.js';
+import { ARCHETYPES, FIGHTER_KITS } from './kits/index.js';
 import { framePhase, hitboxesFor, hurtboxesFor, overlap, publicBoxData } from './combat.js';
 
 export function validateAction(action) {
@@ -28,13 +29,21 @@ function fighterView(f) {
     hitstun: f.hitstun,
     blockstun: f.blockstun,
     combo: f.combo,
+    comboDamage: f.comboDamage,
+    comboChain: f.comboChain ? f.comboChain.slice() : [],
+    comboBest: f.comboBest,
     invuln: f.invuln,
     wakeup: f.wakeup,
     armorLeft: f.armorLeft,
     canceledFrom: f.canceledFrom,
     phase: phase.phase,
     canCancel: phase.cancelable,
+    // The ladder of legal cancel targets for the move in flight, and how many
+    // frames are left before the window opens (-1: no window).
     cancelInto: phase.cancelInto,
+    cancelIn: phase.cancelIn,
+    // A cancel input that was issued before its window opened is held here.
+    buffered: f.buffer ? f.buffer.action : null,
     meterCost: f.moveId ? (moveFor(f, f.moveId).meterCost || 0) : 0,
     canEx: f.meter >= CONFIG.EX_COST,
     canSuper: f.meter >= CONFIG.SUPER_COST,
@@ -51,15 +60,16 @@ export function moveDictionary() {
 
 /** The fighter's own kit: three skills, each with the mechanic it carries. */
 function kitObservation(f) {
-  const k = KITS[f.kit];
-  if (!k) return null;
+  const kit = FIGHTER_KITS[f.fighterId];
+  if (!kit) return null;
+  const arch = ARCHETYPES[kit.archetype];
   const skills = {};
   for (const action of ['special', 'ex', 'super']) {
     const m = moveFor(f, action);
     skills[action] = {
       name: m.label,
-      mechanic: m.projectile ? 'projectile' : m.counter ? 'counter'
-        : m.advance ? 'advance' : m.multiHit ? 'multi-hit' : (m.invuln ? 'invuln' : 'strike'),
+      mechanic: mechanicsOf(m)[0],
+      mechanics: mechanicsOf(m),
       startup: m.startup, active: m.active, recovery: m.recovery,
       potentialDamage: moveDamage(m),
       range: m.range || 0,
@@ -72,7 +82,11 @@ function kitObservation(f) {
       counter: m.counter ? { ...m.counter } : null,
     };
   }
-  return { id: k.id, label: k.label, blurb: k.blurb, tags: [...k.tags], skills };
+  return {
+    id: kit.archetype, archetype: kit.archetype, label: kit.label,
+    archetypeLabel: arch ? arch.label : kit.archetype,
+    blurb: kit.blurb, tags: [...kit.tags], skills,
+  };
 }
 
 export function buildObservation(state, side, tick, deadlineMs, history, seed) {
@@ -140,6 +154,8 @@ export function buildObservation(state, side, tick, deadlineMs, history, seed) {
       recovery: phase.recovery,
       cancelable: phase.cancelable,
       cancelInto: phase.cancelInto,
+      cancelIn: phase.cancelIn,
+      hitLanded: phase.hitLanded,
       height: currentMove ? currentMove.height || null : null,
       meterCost: currentMove ? currentMove.meterCost || 0 : 0,
       knockdown: currentMove ? Boolean(currentMove.knockdown) : false,
