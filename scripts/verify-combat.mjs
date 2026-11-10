@@ -381,11 +381,12 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
       && kitOf('volt') === 'antiAir' && kitOf('gale') === 'multi');
 }
 
-/* 35 — 朝向是「承诺」状态：出招/硬直/空中期间不许被穿身翻转 */
+/* 35 — 朝向规则：启动+活跃帧锁定判定框方向，收招/硬直/中立永远面向对手 */
 {
   // 旧实现每帧按双方相对位置重算朝向。投技把对手摔到身后、突进技穿身、
   // 被打飞越过对手时，角色会当场转过去，而动画帧还在朝原方向播 ——
-  // 玩家看到的就是「角色反了」。
+  // 玩家看到的就是「角色反了」。现在的规则：启动+活跃帧锁朝向（否则判定框
+  // 会甩到身后），收招一开始就转身（收招没有判定框），硬直中也面向对手。
   let s = createInitialState(11, 'facing-commit', { a: 'ember', b: 'tide' });
   s.a.x = 430;
   s.b.x = 530;
@@ -393,21 +394,23 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
   for (let i = 0; i < 40; i += 1) {
     s = step(s, i === 0 ? 'hp' : 'idle', 'idle');
     if (i === 4) s.b.x = s.a.x - 70;   // B 被送到 A 身后
-    track.push({ state: s.a.state, facing: s.a.facing });
+    track.push({ state: s.a.state, facing: s.a.facing, moveFrame: s.a.moveFrame });
   }
-  const neutral = ['idle', 'walk', 'crouch', 'guard'];
-  const committed = track.slice(4).filter((f) => !neutral.includes(f.state));
-  check('K35 出招中被穿身不翻转朝向，回到中立帧后才转身',
-    committed.length > 0 && committed.every((f) => f.facing === 1) && track[track.length - 1].facing === -1,
-    'committedFrames=' + committed.length + ' lastFacing=' + track[track.length - 1].facing);
+  const hpWindow = MOVES.hp.startup + MOVES.hp.active;
+  const committed = track.filter((f) => f.state === 'attack' && f.moveFrame <= hpWindow);
+  const recovery = track.filter((f) => f.state === 'attack' && f.moveFrame > hpWindow);
+  check('K35 启动+活跃帧不因穿身换向，收招期立即转向对手',
+    committed.length > 0 && committed.every((f) => f.facing === 1)
+      && recovery.length > 0 && recovery.every((f) => f.facing === -1)
+      && track[track.length - 1].facing === -1,
+    'committed=' + committed.length + ' recovery=' + recovery.length
+      + ' lastFacing=' + track[track.length - 1].facing);
 
-  // 每一类「承诺状态」都必须锁住朝向：空中、受击、倒地、格挡硬直、超必杀。
+  // 仍然必须锁死朝向的承诺状态：空中、倒地、超必杀启动/活跃帧。
   // 逐个把对手传送到身后，看朝向是否保持不变。
   const cases = [
     ['airborne', (st) => { st.a.y = -60; st.a.vy = -6; st.a.state = 'jump'; }],
-    ['hitstun', (st) => { st.a.state = 'hitstun'; st.a.hitstun = 12; }],
     ['knockdown', (st) => { st.a.state = 'knockdown'; st.a.wakeup = 20; }],
-    ['blockstun', (st) => { st.a.state = 'guard'; st.a.blockstun = 10; }],
     ['super', (st) => { st.a.meter = 100; }],
   ];
   const held = [];
@@ -422,13 +425,46 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
     for (let i = 0; i < 6; i += 1) {
       t = step(t, action, 'idle');
       if (i === 1) t.b.x = t.a.x - 70;
-      if (t.a.facing !== 1 && i <= 4) flipped = true;
+      if (t.a.facing !== 1) flipped = true;
     }
     held.push(name + (flipped ? '=FLIPPED' : '=held'));
   }
-  check('K35b 空中/受击/倒地/格挡硬直/超必杀期间朝向不被穿身翻转',
+  check('K35b 空中/倒地/超必杀启动期朝向不被穿身翻转',
     held.every((h) => h.endsWith('=held')),
     held.join(' '));
+
+  // 反过来：硬直中必须立刻面向攻击者（KOF 的受击转身），否则会被连续
+  // 从背后打到硬直结束，全程背对对手。
+  const stunned = [];
+  for (const [name, setup] of [
+    ['hitstun', (st) => { st.a.state = 'hitstun'; st.a.hitstun = 12; }],
+    ['blockstun', (st) => { st.a.state = 'guard'; st.a.blockstun = 10; }],
+  ]) {
+    let t = createInitialState(11, 'facing-turn-' + name, { a: 'ember', b: 'tide' });
+    t.a.x = 430;
+    t.b.x = 530;
+    t.a.facing = 1;
+    setup(t);
+    t.b.x = t.a.x - 70;   // 对手在身后
+    t = step(t, 'idle', 'idle');
+    stunned.push(name + (t.a.facing === -1 ? '=turned' : '=STUCK' + t.a.facing));
+  }
+  check('K35c 受击/格挡硬直中转身面向对手',
+    stunned.every((h) => h.endsWith('=turned')),
+    stunned.join(' '));
+
+  // 从截图复现的场景：波动被跳过身后，收招期必须转向对手，不能一直背对。
+  let p = createInitialState(11, 'facing-fireball-recovery', { a: 'gale', b: 'gale' });
+  p.a.x = 600;
+  p.b.x = 700;
+  p = step(p, 'fireball', 'idle');
+  for (let i = 0; i < 14; i += 1) p = step(p, 'idle', 'idle');  // 跳过启动+活跃帧
+  p.b.x = p.a.x - 90;                                            // 对手落在身后
+  p = step(p, 'idle', 'idle');
+  check('K35d 波动收招期转身面向身后的对手（截图场景）',
+    p.a.state === 'projectile' && p.a.moveFrame > MOVES.fireball.startup + MOVES.fireball.active
+      && p.a.facing === -1,
+    'moveFrame=' + p.a.moveFrame + ' facing=' + p.a.facing);
 
   // 反过来也必须成立：承诺状态一结束，下一帧就得重新面向对手，
   // 否则锁朝向会变成「永远背对」。
@@ -436,7 +472,7 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
   r.a.x = 430;
   r.b.x = r.a.x - 70;   // 对手一开始就在身后
   for (let i = 0; i < 3; i += 1) r = step(r, 'idle', 'idle');
-  check('K35c 回到中立帧后立刻重新面向对手',
+  check('K35e 回到中立帧后立刻重新面向对手',
     r.a.facing === -1 && r.b.facing === 1,
     'a=' + r.a.facing + ' b=' + r.b.facing);
 }

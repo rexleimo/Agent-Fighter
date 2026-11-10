@@ -77,7 +77,16 @@ function selectFrame(anim, f, globalFrame, track) {
     if (w > 0 && w < 10 && clips.getup) return { clipId: 'getup', idx: w > 5 ? 0 : 1, hard: false };
     return { clipId: 'knockdown', idx: w > 14 ? 0 : 1, hard: false };
   }
-  if (state === 'hitstun') return { clipId: 'hitstun', idx: (f.hitstun || 0) % 2, hard: true };
+  if (state === 'hitstun') {
+    // Draw the impact flinch first, then hold the stagger. Alternating the two
+    // drawings every render frame (the old `hitstun % 2`) strobed the whole
+    // body at 30 Hz: two different silhouettes flickering read as the
+    // character popping big and small mid-combo.
+    const peak = track.stunPeak || (f.hitstun || 0);
+    const clip = clips.hitstun || clips.idle;
+    const idx = (f.hitstun || 0) > peak * 0.5 ? 0 : Math.min(1, clip.frames.length - 1);
+    return { clipId: 'hitstun', idx, hard: false };
+  }
   if (state === 'guard' || (f.blockstun || 0) > 0) {
     if ((f.blockstun || 0) > 0 && clips.blockstun) return { clipId: 'blockstun', idx: 0, hard: true };
     return { clipId: 'guard', idx: 1, hard: false };

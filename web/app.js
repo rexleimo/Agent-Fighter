@@ -518,12 +518,27 @@ function drawSpriteBody(c, img, o) {
   const m = S.moves[f.moveId];
   const active = Boolean(m && acting && f.moveFrame >= m.startup && f.moveFrame < m.startup + m.active);
   let sx = 1, sy = 1, lean = 0, bob = 0, flashing = false;
+  const track = (S.spriteTrack[o.side] = S.spriteTrack[o.side] || {});
+  if (state === 'hitstun') {
+    const hs = f.hitstun || 0;
+    // Every new hit restarts the stun counter upward: flash its first three
+    // render frames. The old `hitstun % 7 < 2` lit the body eight times a
+    // second for the whole stun, which read as a strobe artifact on top of the
+    // pose flicker rather than a hit.
+    if (hs > (track.prevHitstun || 0)) track.flashLeft = 3;
+    track.stunPeak = Math.max(track.stunPeak || 0, hs);
+    track.prevHitstun = hs;
+  } else {
+    track.stunPeak = 0;
+    track.prevHitstun = 0;
+    track.flashLeft = 0;
+  }
   if (state === 'walk' || state === 'dash') bob = Math.sin(((S.current && S.current.frame) || 0) * 0.24) * 2.2;
   if (f.y < -2) bob = -2;
-  // Two lit frames out of every seven, not a steady blowout: a constant
-  // brightness lift turned the whole body white for the entire stun, which is
-  // what made pale fighters read as empty shapes in the middle of a combo.
-  if (state === 'hitstun' && f.hitstun > 0 && f.hitstun % 7 < 2) flashing = true;
+  if (state === 'hitstun' && (track.flashLeft || 0) > 0) {
+    flashing = true;
+    track.flashLeft -= 1;
+  }
   if (state === 'knockdown') { lean = -1.12 * dir; bob = 10; }
 
   c.save();
@@ -540,7 +555,6 @@ function drawSpriteBody(c, img, o) {
   const rim = 'drop-shadow(0 0 1.5px rgba(6,10,18,.8))';
   if (spritesReady(def.id)) {
     // Frame-by-frame sprite animation: the server state selects the drawing.
-    const track = (S.spriteTrack[o.side] = S.spriteTrack[o.side] || {});
     const filters = [rim];
     if (flashing) filters.push('saturate(1.45)', 'brightness(1.12)', 'contrast(1.06)');
     if (o.side === 'b') filters.push('hue-rotate(-14deg)', 'saturate(1.06)', 'brightness(0.97)');

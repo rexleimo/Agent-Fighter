@@ -490,12 +490,29 @@ function updateProjectiles(s) {
  * Airborne, committed, stunned and knocked-down fighters therefore keep the
  * facing they took off with; they turn on the next neutral grounded frame.
  */
-const TURNING_STATES = new Set(['idle', 'walk', 'crouch', 'guard']);
+const TURNING_STATES = new Set(['idle', 'walk', 'crouch', 'guard', 'hitstun']);
+
+/**
+ * Facing follows the opponent whenever turning cannot swing a live hitbox to
+ * the other side: neutral states, stun/blockstun, and a move's recovery tail.
+ * Startup and active frames stay committed (flipping mid-swing teleported the
+ * hitbox behind the character), and dashes, jumps and knockdowns keep their
+ * take-off facing. Recovery is free because its boxes are gone, which removes
+ * the long "both fighters with their backs to each other" window after a
+ * whiffed fireball or a cross-up.
+ */
+function canTurn(f) {
+  if (f.y !== 0 || f.vy !== 0 || f.wakeup > 0) return false;
+  if (f.state === 'dash' || f.state === 'jump' || f.state === 'knockdown') return false;
+  if (f.state === 'attack' || f.state === 'projectile' || f.state === 'special') {
+    const m = f.moveId ? moveFor(f, f.moveId) : null;
+    return Boolean(m) && (f.moveFrame || 0) >= m.startup + m.active;
+  }
+  return TURNING_STATES.has(f.state);
+}
 
 function reface(f, other) {
-  if (!TURNING_STATES.has(f.state)) return;
-  if (f.y !== 0 || f.vy !== 0) return;
-  if (f.hitstun > 0 || f.blockstun > 0 || f.wakeup > 0) return;
+  if (!canTurn(f)) return;
   f.facing = other.x >= f.x ? 1 : -1;
 }
 
