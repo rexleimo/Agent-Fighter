@@ -23,12 +23,87 @@ const SOUND_TYPES = new Set([
   'hit', 'block', 'cancel', 'armor', 'counter', 'super_start', 'ko', 'wakeup',
 ]);
 
+/**
+ * Directional cues as SVG path data, authored in prototype space: origin at
+ * the impact point, +x pointing where the hit travels, a shape that spans
+ * about one unit. Path2D takes the string verbatim, so the geometry stays
+ * readable as path grammar instead of as arithmetic inside the draw loop.
+ *
+ * The prototype is the left fighter's drawing. The right fighter is the same
+ * path under a mirrored transform (see drawMirrored), which is what makes the
+ * effects read as coming off the correct body: a guard that opens toward its
+ * attacker, a spark that sprays along the punch, dust kicked behind a rising
+ * head. Any of these drawn to screen coordinates would point one way for both
+ * fighters, and the fighter on the right would look like it was blocking and
+ * getting hit backwards.
+ */
+const FX_PATHS = {
+  // Shield crescent bulging forward, plus a shorter inner echo.
+  guard: [
+    'M -0.24 -1 C 0.62 -0.86 1 -0.36 1 0 C 1 0.36 0.62 0.86 -0.24 1',
+    'M 0 0.52 C 0.4 0.42 0.62 0.2 0.62 0 C 0.62 -0.2 0.4 -0.42 0 -0.52',
+  ],
+  // Two chevrons opening along the direction of travel.
+  spark: ['M 0.14 -0.8 L 0.94 0 L 0.14 0.8', 'M 0.04 -0.44 L 0.52 0 L 0.04 0.44'],
+  // Braced plate: a flat front edge with the body mass behind it.
+  armor: ['M 0.74 -1 L 0.74 1', 'M 0.74 -0.62 L -0.1 -0.34 M 0.74 0.62 L -0.1 0.34'],
+  // Comma-shaped puff that trails away from the direction of travel.
+  dust: 'M 0.1 -0.18 C -0.52 -0.4 -1 -0.14 -0.86 0.2 C -0.74 0.5 -0.1 0.42 0.18 0.18 Z',
+};
+
+/** Which body a cue belongs to, and therefore which way it should face. */
+const CUE_OWNER = {
+  hit: 'by',        // the spark sprays along the attacker's punch
+  block: 'on',      // the guard belongs to whoever blocked
+  armor: 'on',      // armor absorbs on the defender's body
+  wakeup: 'by',     // the fighter standing back up
+};
+
+const paths = new Map();
+function fxPath(d) {
+  let p = paths.get(d);
+  if (!p) {
+    p = new Path2D(d);
+    paths.set(d, p);
+  }
+  return p;
+}
+
+/**
+ * Draw unit-space paths mirrored for a fighter's facing. The scale is the cue
+ * size, so a path never needs a second copy for the other side; lineWidth is
+ * divided back out because the transform would otherwise thicken it with the
+ * shape. Text stays outside this transform — mirrored glyphs are unreadable.
+ */
+function drawMirrored(c, x, y, facing, size, strokes) {
+  c.save();
+  c.translate(x, y);
+  c.scale(facing * size, size);
+  c.lineCap = 'round';
+  c.lineJoin = 'round';
+  for (const [pathData, color, width] of strokes) {
+    c.strokeStyle = color;
+    c.lineWidth = width / size;
+    c.stroke(fxPath(pathData));
+  }
+  c.restore();
+}
+
+function fillMirrored(c, x, y, facing, size, pathData, color) {
+  c.save();
+  c.translate(x, y);
+  c.scale(facing * size, size);
+  c.fillStyle = color;
+  c.fill(fxPath(pathData));
+  c.restore();
+}
+
 export function createImpactFx({
   labelFor = () => '',
   plainLabel = (moveId) => moveId,
   onSound = null,
   enabled = () => true,
-  ground = 330,
+  ground = 440,
   framesPerTick = 6,
 } = {}) {
   const seen = new Set();
@@ -68,6 +143,14 @@ export function createImpactFx({
     parts = parts.filter((p) => now - p.born < LIFE);
     fireSounds(now);
     if (!enabled()) return;
+    // The cue's own event names whose body it belongs to (`by`/`on` carry the
+    // side letters 'a'/'b', not the sides themselves), and that fighter's facing
+    // says which way the shape has to open. Replay frames carry the same
+    // facing, so scrubbing backwards mirrors the way the live stage did.
+    const facingOf = (p, role) => {
+      const f = frame[p[role]];
+      return f ? (f.facing || 1) : 1;
+    };
     c.save();
     for (const p of parts) {
       const age = now - p.born;
@@ -77,6 +160,7 @@ export function createImpactFx({
       const k = Math.max(0, 1 - age / LIFE);
       const x = p.x !== undefined ? p.x : w / 2;
       const y = p.y !== undefined ? ground + p.y : h * 0.45;
+      const dir = facingOf(p, CUE_OWNER[p.type] || 'by');
       c.textAlign = 'center';
       if (p.type === 'hit') {
         const r = 8 + age * 2.6;
@@ -84,12 +168,20 @@ export function createImpactFx({
         c.lineWidth = 3 * k + 0.6;
         c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke();
         for (let i = 0; i < 8; i += 1) {
-          const a = (i / 8) * Math.PI * 2 + age * 0.05;
+          // The star's spin has to reverse with the facing as well: a regular
+          // eight-spoke figure is mirror-symmetric, so reflecting the drawing
+          // is exactly negating the rotation. Spinning both sides the same way
+          // is what made the right fighter's impact look like a different effect.
+          const a = (i / 8) * Math.PI * 2 + dir * age * 0.05;
           c.beginPath();
           c.moveTo(x + Math.cos(a) * 6, y + Math.sin(a) * 6);
           c.lineTo(x + Math.cos(a) * (16 + age), y + Math.sin(a) * (16 + age));
           c.stroke();
         }
+        drawMirrored(c, x, y, dir, 20 + age * 2.1, [
+          [FX_PATHS.spark[0], 'rgba(255,236,196,' + (k * 0.95).toFixed(2) + ')', 3.4],
+          [FX_PATHS.spark[1], 'rgba(255,178,96,' + (k * 0.7).toFixed(2) + ')', 2.2],
+        ]);
         c.font = '700 ' + (18 + Math.min(8, age * 0.4)) + 'px ui-monospace, monospace';
         c.lineWidth = 3; c.strokeStyle = 'rgba(8,14,22,.9)';
         const txt = '-' + p.damage + (p.combo > 1 ? '  ' + p.combo + ' HIT' : '');
@@ -97,9 +189,10 @@ export function createImpactFx({
         c.fillStyle = p.knockdown ? '#ff8a6b' : '#ffd166';
         c.fillText(txt, x, y - 24 - age * 0.6);
       } else if (p.type === 'block') {
-        c.strokeStyle = 'rgba(130,205,255,' + k.toFixed(2) + ')';
-        c.lineWidth = 3;
-        c.beginPath(); c.arc(x, y, 22 + age * 0.8, -1.2, 1.2); c.stroke();
+        drawMirrored(c, x, y, dir, 22 + age * 0.8, [
+          [FX_PATHS.guard[0], 'rgba(130,205,255,' + k.toFixed(2) + ')', 3],
+          [FX_PATHS.guard[1], 'rgba(196,232,255,' + (k * 0.55).toFixed(2) + ')', 2],
+        ]);
         c.font = '600 11px ui-monospace, monospace';
         c.fillStyle = 'rgba(170,220,255,' + k.toFixed(2) + ')';
         c.fillText('GUARD', x, y - 28 - age * 0.4);
@@ -107,6 +200,10 @@ export function createImpactFx({
         c.strokeStyle = 'rgba(255,200,90,' + k.toFixed(2) + ')';
         c.lineWidth = 3;
         c.beginPath(); c.arc(x, y, 30 + age, 0, Math.PI * 2); c.stroke();
+        drawMirrored(c, x, y, dir, 26 + age * 0.6, [
+          [FX_PATHS.armor[0], 'rgba(255,226,150,' + (k * 0.9).toFixed(2) + ')', 4],
+          [FX_PATHS.armor[1], 'rgba(255,200,90,' + (k * 0.55).toFixed(2) + ')', 2.4],
+        ]);
         c.font = '600 11px ui-monospace, monospace';
         c.fillStyle = '#ffd166';
         c.fillText('ARMOR', x, y - 36);
@@ -120,11 +217,20 @@ export function createImpactFx({
         c.fillStyle = 'rgba(255,225,160,' + k.toFixed(2) + ')';
         c.fillText(labelFor(side, p.move, match), side === 'a' ? w * 0.27 : w * 0.73, 104 - age * 0.35);
       } else if (p.type === 'wakeup') {
-        c.fillStyle = 'rgba(180,200,220,' + (k * 0.4).toFixed(2) + ')';
-        for (let i = 0; i < 5; i += 1) {
-          c.beginPath();
-          c.arc(x + (i - 2) * 14, ground - 2 - age * 0.4, 5 + age * 0.5, 0, Math.PI * 2);
-          c.fill();
+        // Dust kicked off the shoulder that was on the floor, so it trails
+        // behind the way the fighter is facing rather than spreading evenly.
+        const puff = 10 + age * 0.7;
+        for (let i = 0; i < 3; i += 1) {
+          const size = puff * (1 - i * 0.22);
+          fillMirrored(
+            c,
+            x - dir * size * 0.9,
+            ground - 2 - age * 0.4 - i * 3,
+            dir,
+            size,
+            FX_PATHS.dust,
+            'rgba(180,200,220,' + (k * 0.36 * (1 - i * 0.22)).toFixed(2) + ')',
+          );
         }
       }
     }

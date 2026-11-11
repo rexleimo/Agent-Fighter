@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "verify": "node scripts/verify.js",
     "verify:combat": "node scripts/verify-combat.mjs",
+    "verify:team": "node scripts/verify-team.mjs",
     "sheet:moves": "node scripts/move-sheet.mjs",
     "sim": "node scripts/simulate.js",
     "hosted-demo": "node scripts/hosted-demo.mjs",
@@ -20,6 +21,8 @@
     "assets:clean": "node scripts/assets/clean.mjs",
     "rig:bake": "node scripts/assets/build.mjs",
     "verify:anim": "node scripts/verify-anim.mjs",
+    "verify:render": "node scripts/verify-render.mjs",
+    "verify:facing": "node scripts/verify-facing.mjs",
     "lab:rig": "node scripts/capture-rig.mjs",
     "demo:kit": "node scripts/kit-demo.mjs"
   },

@@ -358,6 +358,12 @@ verifyDeterminism();
 verifyReplays();
 verifySpectatorFrames();
 await verifyEndToEnd();
+// C23 - team elimination mode has its own gate: pure state-machine math plus a
+// live 3v3 scrim driven over MCP + WebSocket (see scripts/verify-team.mjs).
+const teamGate = spawnSync(process.execPath, ['scripts/verify-team.mjs'], { cwd: ROOT, encoding: 'utf8', timeout: 150000 });
+const teamSummary = (teamGate.stdout || '').split('\n').filter((l) => /team checks passed/.test(l)).join(' ').trim();
+check('C23 组队淘汰赛门禁（T1-T12：回血/淘汰/换人/回放重演/双通道全流程）', teamGate.status === 0,
+  teamSummary || String(teamGate.stderr || teamGate.stdout || 'no output').slice(-200));
 const passed = results.filter((r) => r.ok).length;
 console.log('\n=== ' + passed + '/' + results.length + ' checks passed ===\n');
 if (passed !== results.length) process.exitCode = 1;

@@ -2,14 +2,15 @@
  * Sprite sheet slicer / baker.
  *
  * Turns a raw 4x4 generated sheet into game-ready frames:
- *   split 16 cells -> matte (flood-fill white) -> strip the baked contact
- *   shadow -> key out the enclosed background pockets -> measure head-to-feet per
- *   cell -> one scale per fighter -> feet-baseline alignment -> pack a 4x4
- *   atlas -> emit per-fighter anim JSON.
+ *   split 16 cells -> matte (flood-fill the sheet's own backdrop, white or
+ *   chroma) -> strip the baked contact shadow -> key out the enclosed backdrop
+ *   pockets -> measure head-to-feet per cell -> one scale per fighter ->
+ *   feet-baseline alignment -> pack a 4x4 atlas -> emit per-fighter anim JSON.
  *
- * The runtime contract (web/sprite.js) is: every frame is FRAME x FRAME px,
- * the fighter's feet sit at ANCHOR [x, y] inside the frame, and clips map
- * server move phases to frame indices. Nothing here knows about combat.
+ * The runtime contract (web/sprite.js) is: every frame is a tight ink crop
+ * carrying its offset (ox, oy) from ANCHOR [x, y], the fighter's feet sit on
+ * that anchor, and clips map server move phases to frame indices. Nothing
+ * here knows about combat.
  *
  * Output (content-addressed, served under /assets/v/sprites/):
  *   web/assets/v/sprites/<id>/<sheet>.<hash>.png|webp   (atlas)
@@ -23,17 +24,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FIGHTERS } from '../../src/fighters.js';
 import {
-  readPNG, cropRGBA, blitRGBA, writeVariantPair, sha256, shortHash, writeAtomic,
+  readPNG, cropRGBA, blitRGBA, writeVariantPair, sha256, shortHash, writeAtomic, hashFile, shelfPack,
 } from '../lib/imageops.mjs';
 import { encodeRGBA } from '../lib/png.mjs';
-import { GRID, CELL_COUNT, SHEETS, SHEET_IDS, NATIVE_FACING } from './sheets.mjs';
+import {
+  GRID, CELL_COUNT, SHEETS, SHEET_IDS, facingReview, shipsFlipped, ART_ROW_ORDER, OFF_MODEL_ART,
+  CROSS_ROW_SPLITS, BODY_HEAD_OVERRIDES,
+} from './sheets.mjs';
+import { detectBackdrop, keyOf, chokeSpill, despillRim, CHOKE_TOL } from './backdrop.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SOURCE = path.join(ROOT, 'assets', 'source', 'sprites');
 const OUT = path.join(ROOT, 'web', 'assets');
 const VDIR = path.join(OUT, 'v', 'sprites');
 
-export const FRAME = 256;          // normalized frame edge (px)
+export const FRAME = 256;          // nominal cell edge (px); frames ship tight ink crops
 export const STANCE_H = 200;       // normalized standing height (px)
 export const ANCHOR = [128, 248];  // feet baseline inside the frame
 const SHEET_PX = 1024;             // raw generated sheet edge
@@ -77,21 +82,32 @@ function frameInset(near, w, h, maxInset = 6) {
   return 0;
 }
 
-function isSheetWhite(r, g, b) {
-  return Math.min(r, g, b) > 218 && Math.max(r, g, b) - Math.min(r, g, b) < 24;
-}
-
-function matteCell(img) {
+/**
+ * The sheet background is one flat colour the generator was told to leave
+ * empty, so the walkable set is whatever the backdrop detection calls key. See
+ * backdrop.mjs: white on the corpus as shipped, magenta on a chroma sheet.
+ */
+function matteCell(img, backdrop = detectBackdrop(img, { cell: CELL })) {
+  const key = keyOf(backdrop);
   const { width: w, height: h, rgba } = img;
   const near = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i += 1) {
     const r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2];
-    near[i] = isSheetWhite(r, g, b) ? 1 : 0;
+    near[i] = key.isKey(r, g, b) ? 1 : 0;
   }
   const inset = frameInset(near, w, h);
   const x0 = inset, y0 = inset, x1 = w - inset, y1 = h - inset;
   // Erode by one: walkable white needs a full 3x3 neighbourhood of white.
   // Outside the matte region counts as white so its edge stays walkable.
+  //
+  // The erosion stays on for a chroma key too, and for a reason that only shows
+  // up on the stage: a soft effect (a dash trail, a shockwave) is painted as the
+  // art colour thinned out over the ground, so its faint core lands INSIDE
+  // KEY_TOL and is the same colour as the backdrop. Those cores are long and
+  // thin, so eroding the walk is what keeps the fill from travelling along a
+  // streak and deleting the effect. Measured on quartz react: with the erosion
+  // lifted for chroma the kept near-backdrop pixels in the trail cells fell
+  // 103->57 and 127->64 — that is lost effect, not lost ground.
   const solid = new Uint8Array(w * h);
   for (let y = y0; y < y1; y += 1) {
     for (let x = x0; x < x1; x += 1) {
@@ -149,6 +165,10 @@ function matteCell(img) {
       }
     }
   }
+  // The chroma seam: where the generator blended the backdrop into the figure
+  // the result is neither key nor art, and left in it draws a pink outline on
+  // the stage. One rim pass, and only for a keyed backdrop.
+  const spill = chokeSpill(rgba, alpha, w, h, key);
   // Drop small neutral connected components (stray checker speckle), keep art.
   const label = new Int32Array(w * h);
   const q2 = new Int32Array(w * h);
@@ -180,7 +200,12 @@ function matteCell(img) {
   for (let i = 0; i < w * h; i += 1) {
     out[i * 4 + 3] = (alpha[i] && !kill.has(label[i])) ? 255 : 0;
   }
-  return { width: w, height: h, rgba: out };
+  // The pale half of the seam: a blended edge pixel is the backdrop mixed with
+  // the art under it, so its colour carries a component along the backdrop's
+  // own chroma axis. Projecting that component off the outer rings is what
+  // stops white armour from drawing itself a pink outline.
+  const despill = despillRim(out, w, h, backdrop);
+  return { width: w, height: h, rgba: out, matte: { key: backdrop.kind, spill, despill } };
 }
 
 /**
@@ -350,19 +375,44 @@ function stripGroundShadows(img) {
  * 93% (it does open onto fire), while cinder's flame cores run 90-100% and
  * tide's water cores 64-95%. Only the low-chroma class is therefore trusted
  * below the ground size, which keeps every effect whole.
+ *
+ * On a chroma sheet the walk has to reach further than the key tolerance,
+ * because the backdrop seals its own pockets: the gap between an arm and the
+ * ribs is flat magenta at its centre and a blended pink ring at its edge, and
+ * the ring is what cuts it off from the outer ground. So the island grows
+ * through the spill class but is judged only on its strict core, and the core
+ * has to be most of the island. On the quartz react trial that is the whole
+ * difference between a hole and a clean frame: 313 px of trapped backdrop in
+ * one cell, 180 px in another, each ringed by 100 px of blend the key test
+ * alone could never cross.
  */
 const POCKET_MIN_AREA = 500;   // px; smaller islands are gaps, not ground
 const POCKET_SD = 8;           // the sheet background is flat, shaded art is not
 const POCKET_DEV = 3;          // island mean must sit on the sheet background value
 const POCKET_INK_SHARE = 0.5;  // max fraction of a cell's ink one key may take
+const POCKET_CORE_SHARE = 0.35; // min fraction of an island that must be pure key
+// On a chroma sheet the share has to carry the whole decision, because the rim
+// test it would otherwise lean on is meaningless there (see below). Measured on
+// quartz react, the four visible magenta holes in body gaps are 0.80-0.86 pure
+// core, while every patch carried by a real blend — the flecks between the
+// shockwave shards, any faint effect core — is 0.55 or under. 0.7 cuts the
+// holes and leaves the effects alone.
+const CHROMA_CORE_SHARE = 0.7;
 const GAP_MIN_AREA = 120;      // px; the smallest gap worth cutting
+// The white floor exists so a small pale detail survives; on a chroma sheet the
+// halo share above is the detail's protection instead, and it works at any size.
+// An 81 px patch in the crotch gap of a kneeling pose is unmistakable on stage
+// (quartz react cell 4), and 120 px was the only thing keeping it in.
+const CHROMA_GAP_MIN = 24;     // px; smallest chroma gap worth cutting
 const GAP_RIM_CHROMA = 0.35;   // a rim this colourful belongs to an effect
 
 function isChromatic(r, g, b) {
   return Math.max(r, g, b) - Math.min(r, g, b) >= 24;
 }
 
-function dropBackgroundPockets(img) {
+function dropBackgroundPockets(img, backdrop = detectBackdrop(img, { cell: CELL })) {
+  const key = keyOf(backdrop);
+  const spillish = key.isSpill || (() => false);
   const { width: sheetW, height: sheetH, rgba } = img;
   const dropped = [];
   for (let gy = 0; gy < GRID; gy += 1) {
@@ -370,6 +420,7 @@ function dropBackgroundPockets(img) {
       const ox = gx * CELL, oy = gy * CELL;
       const at = (x, y) => ((oy + y) * sheetW + ox + x) * 4;
       const near = new Uint8Array(CELL * CELL);
+      const walk = new Uint8Array(CELL * CELL);
       const opaque = new Uint8Array(CELL * CELL);
       let ink = 0, bgSum = 0, bgN = 0;
       for (let y = 0; y < CELL; y += 1) {
@@ -382,28 +433,56 @@ function dropBackgroundPockets(img) {
             continue;
           }
           opaque[idx] = 1; ink += 1;
-          if (isSheetWhite(rgba[i], rgba[i + 1], rgba[i + 2])) near[idx] = 1;
+          if (key.isKey(rgba[i], rgba[i + 1], rgba[i + 2])) {
+            near[idx] = 1; walk[idx] = 1;
+          } else if (spillish(rgba[i], rgba[i + 1], rgba[i + 2])) {
+            walk[idx] = 1;
+          }
         }
       }
       if (ink < 500 || !bgN) continue;
       const bgMean = bgSum / bgN;
       const seen = new Uint8Array(CELL * CELL);
+      // On a white sheet an island grows through the spill class, because a
+      // neutral anti-aliased rim is still ground. On a chroma sheet that growth
+      // is useless: the blend is one connected seam ringing the whole silhouette,
+      // so every hole rides the seam and the region measures the figure, not the
+      // hole (quartz react cell 4: an 81 px crotch gap counted against a network
+      // it could never be judged inside). Grow on the pure key alone and weigh
+      // the blend locally instead.
+      const grow = backdrop.kind === 'white' ? walk : near;
+      const haloAt = (x, y, halo) => {
+        for (let dy = -2; dy <= 2; dy += 1) {
+          for (let dx = -2; dx <= 2; dx += 1) {
+            const xx = x + dx, yy = y + dy;
+            if (xx < 0 || yy < 0 || xx >= CELL || yy >= CELL) continue;
+            const k = yy * CELL + xx;
+            if (walk[k] && !near[k]) halo.add(k);
+          }
+        }
+      };
       let taken = 0;
       for (let seed = 0; seed < CELL * CELL; seed += 1) {
         if (!near[seed] || seen[seed]) continue;
         const queue = [seed];
         seen[seed] = 1;
+        const core = [];
+        const halo = new Set();
         let n = 0, sum = 0, sq = 0;
         for (let head = 0; head < queue.length; head += 1) {
           const idx = queue[head];
           const x = idx % CELL, y = (idx / CELL) | 0, i = at(x, y);
-          const l = (Math.max(rgba[i], rgba[i + 1], rgba[i + 2])
-            + Math.min(rgba[i], rgba[i + 1], rgba[i + 2])) / 2;
-          n += 1; sum += l; sq += l * l;
+          if (near[idx]) {
+            const l = (Math.max(rgba[i], rgba[i + 1], rgba[i + 2])
+              + Math.min(rgba[i], rgba[i + 1], rgba[i + 2])) / 2;
+            n += 1; sum += l; sq += l * l;
+            core.push(idx);
+            if (grow === near) haloAt(x, y, halo);
+          }
           const nb = [x > 0 ? idx - 1 : -1, x < CELL - 1 ? idx + 1 : -1,
             y > 0 ? idx - CELL : -1, y < CELL - 1 ? idx + CELL : -1];
           for (const k of nb) {
-            if (k < 0 || !near[k] || seen[k]) continue;
+            if (k < 0 || !grow[k] || seen[k]) continue;
             seen[k] = 1; queue.push(k);
           }
         }
@@ -411,26 +490,44 @@ function dropBackgroundPockets(img) {
         const sd = Math.sqrt(Math.max(0, sq / n - mean * mean));
         if (sd > POCKET_SD || Math.abs(mean - bgMean) > POCKET_DEV) continue;
         if (n < POCKET_MIN_AREA) {
-          if (n < GAP_MIN_AREA) continue;
-          let rim = 0, colourful = 0;
-          for (const idx of queue) {
-            const x = idx % CELL, y = (idx / CELL) | 0;
-            const nb = [x > 0 ? idx - 1 : -1, x < CELL - 1 ? idx + 1 : -1,
-              y > 0 ? idx - CELL : -1, y < CELL - 1 ? idx + CELL : -1];
-            for (const k of nb) {
-              if (k < 0 || near[k] || !opaque[k]) continue;
-              const i = at(k % CELL, (k / CELL) | 0);
-              rim += 1;
-              if (isChromatic(rgba[i], rgba[i + 1], rgba[i + 2])) colourful += 1;
+          if (n < (backdrop.kind === 'white' ? GAP_MIN_AREA : CHROMA_GAP_MIN)) continue;
+          // The rim test is a white-sheet instrument. It asks whether the pixels
+          // hugging the island are colourful, on the logic that a neutral rim
+          // means ground and a bright rim means an effect painted over it. A
+          // chroma key breaks that logic completely: the backdrop IS a bright
+          // colour, so it tints every art pixel it blends into and the rim of a
+          // plain hole measures 100% colourful. Measured on quartz react, the
+          // islands sitting in the crotch gap, behind the knee and under the
+          // elbow were flat (sd 3.4-3.6), on the backdrop value (dev under 0.3)
+          // and 0.80-0.86 pure core — holes by every number except the rim.
+          // There the core share below has to decide alone.
+          if (backdrop.kind === 'white') {
+            let rim = 0, colourful = 0;
+            for (const idx of core) {
+              const x = idx % CELL, y = (idx / CELL) | 0;
+              const nb = [x > 0 ? idx - 1 : -1, x < CELL - 1 ? idx + 1 : -1,
+                y > 0 ? idx - CELL : -1, y < CELL - 1 ? idx + CELL : -1];
+              for (const k of nb) {
+                if (k < 0 || walk[k] || !opaque[k]) continue;
+                const i = at(k % CELL, (k / CELL) | 0);
+                rim += 1;
+                if (isChromatic(rgba[i], rgba[i + 1], rgba[i + 2])) colourful += 1;
+              }
             }
+            if (!rim || colourful / rim >= GAP_RIM_CHROMA) continue;
           }
-          if (!rim || colourful / rim >= GAP_RIM_CHROMA) continue;
         }
-        if (taken + n > ink * POCKET_INK_SHARE) continue;
+        // An island is judged by its core, so the core has to be most of it: a
+        // magenta effect with a flat bright centre must not ride a thin
+        // backdrop halo out of the frame.
+        const size = grow === near ? n + halo.size : queue.length;
+        const share = backdrop.kind === 'white' ? POCKET_CORE_SHARE : CHROMA_CORE_SHARE;
+        if (size * share > n) continue;
+        if (taken + queue.length > ink * POCKET_INK_SHARE) continue;
         for (const idx of queue) {
           rgba[at(idx % CELL, (idx / CELL) | 0) + 3] = 0;
         }
-        taken += n;
+        taken += queue.length;
         dropped.push({ n, cell: gy * GRID + gx });
       }
     }
@@ -544,6 +641,11 @@ function bodyExtent(img) {
  * animation came out shrunk or enlarged. The idle stance is the one pose that
  * is upright, effect-free and present for every fighter, so it defines
  * STANCE_H and everything else is measured against it.
+ *
+ * A sheet may still be drawn at the wrong size, and only its own upright poses
+ * can prove it — see standingCorrection, which reads a sheet's scale off the
+ * clips the game plays while the fighter is on their feet, never off the first
+ * cells and never off a pose that is allowed to crouch.
  */
 function median(values) {
   const s = values.slice().sort((a, b) => a - b);
@@ -556,6 +658,154 @@ function stanceReference(baseCells) {
     .filter((h) => h > 0);
   if (hs.length) return median(hs);
   return median(baseCells.filter((c) => c.bbox).map((c) => c.bbox.h));
+}
+
+/**
+ * Ink area of the same stance cells the height reference came from.
+ *
+ * Height alone cannot tell a zoom from a pose: a crouched wind-up is 40%
+ * shorter than the stance but still carries the whole body, while a cell the
+ * generator drew too small carries fewer pixels AND is shorter. Pairing the
+ * two measurements separates the two cases, which a height-only correction
+ * cannot (it inflated every crouch).
+ */
+function stanceArea(baseCells) {
+  const as = SHEETS.base.clips.idle.cells
+    .map((i) => (baseCells[i] && baseCells[i].bbox ? baseCells[i].bbox.opaque : 0))
+    .filter((a) => a > 0);
+  return as.length ? median(as) : 0;
+}
+
+/** Width of the same stance cells, so a pose can be judged on both axes. */
+function stanceWidth(baseCells) {
+  const ws = SHEETS.base.clips.idle.cells
+    .map((i) => (baseCells[i] && baseCells[i].bbox ? baseCells[i].bbox.w : 0))
+    .filter((w) => w > 0);
+  return ws.length ? median(ws) : 0;
+}
+
+/**
+ * Clips that are standing in the game's own terms, not by measurement.
+ *
+ * A wind-up, a heavy kick or a super finisher may put the head anywhere and
+ * still be correct art. A guard and a blockstun may not: the fighter is on
+ * their feet bracing. Those are the only poses inside a sheet that can prove
+ * the sheet was drawn at the wrong size, so they are what the sheet scale is
+ * read off. The tall-cells rule this replaces let an off-model react sheet
+ * through whenever its crouches happened to clear the height filter, and could
+ * not tell a shrunk sheet from a hunched one at all.
+ */
+const STANDING_CLIPS = new Set(['idle', 'walk', 'guard', 'blockstun']);
+const STANDING_SCALE_MIN = 0.8;
+const STANDING_SCALE_MAX = 1.25;
+// Below this drift a standing pose is simply the stance at breathing height
+// and the existing sheet correction is left in charge.
+const STANDING_DRIFT_MIN = 0.06;
+// How far the bounded correction is allowed to fall short of the stance before
+// the sheet is called off-model art. A uniform resize is the only thing this
+// rule can honestly do, so when the clamp cannot reach stance height the rest
+// is a drawing problem and only a redraw closes it. Mass and width per body
+// height are reported as evidence but never judged: a guard is braced square-on
+// with the arms folded in, so it carries more body per unit height than an open
+// side stance by design, and scoring that as a defect buried the sheets that
+// were simply drawn small.
+const STANDING_RESIDUAL_MAX = 0.1;
+
+function standingCells(sheetId, cells) {
+  const picked = [];
+  for (const [clipId, spec] of Object.entries(SHEETS[sheetId].clips)) {
+    if (!STANDING_CLIPS.has(clipId)) continue;
+    for (const i of spec.cells) {
+      const c = cells[i];
+      if (c && c.body && c.bbox && c.bbox.opaque) picked.push(c);
+    }
+  }
+  return picked;
+}
+
+/**
+ * Sheet scale read off the standing poses the sheet itself contains.
+ *
+ * Always `{ evidence, scale? }`, plus `defect` when the bounded correction
+ * could not reach stance height:
+ *  - `scale` is absent below STANDING_DRIFT_MIN — the sheet is at model and the
+ *    existing sheet correction keeps the lead.
+ *  - `defect` carries the same evidence with the wanted scale and the residual
+ *    share left after clamping. It is not a reason to skip the correction; a
+ *    25% enlargement that leaves the pose 18% short still removes most of the
+ *    on-screen pop, and the residual is what gets registered as art debt.
+ *  - `{}` means the sheet has no standing pose (punch/kick/skill), which is an
+ *    honest "cannot judge", not a pass.
+ */
+function standingCorrection(sheetId, cells, ref) {
+  const pool = standingCells(sheetId, cells);
+  if (!pool.length || !ref.h || !ref.w || !ref.a) return {};
+  const h = median(pool.map((c) => c.body.h));
+  const w = median(pool.map((c) => c.bbox.w));
+  const a = median(pool.map((c) => c.bbox.opaque));
+  const scale = ref.h / h;
+  const byWidth = (w / h) / (ref.w / ref.h);
+  const byArea = (Math.sqrt(a) / h) / (Math.sqrt(ref.a) / ref.h);
+  const evidence = {
+    poses: pool.length,
+    stanceH: ref.h,
+    standingH: h,
+    heightShare: +(h / ref.h).toFixed(3),
+    byWidth: +byWidth.toFixed(3),
+    byArea: +byArea.toFixed(3),
+  };
+  // Nothing to correct means nothing to judge.
+  if (Math.abs(scale - 1) <= STANDING_DRIFT_MIN) return { evidence };
+  const applied = Math.min(STANDING_SCALE_MAX, Math.max(STANDING_SCALE_MIN, scale));
+  const residual = h * applied / ref.h;
+  const out = { evidence, scale: applied };
+  if (Math.abs(residual - 1) > STANDING_RESIDUAL_MAX) {
+    out.defect = {
+      ...evidence,
+      wantedScale: +scale.toFixed(3),
+      appliedScale: +applied.toFixed(3),
+      residualShare: +residual.toFixed(3),
+    };
+  }
+  return out;
+}
+
+/**
+ * Per-cell scale, so consecutive frames of one clip cannot disagree in size.
+ *
+ * The generator draws each cell of a sheet at its own zoom: forge's heavy-kick
+ * row carries 41% of the pixels his stance row carries, and slag's dash goes
+ * 241px -> 113px inside one four-frame clip. A fighter-global and even a
+ * sheet-global scale leave that pop, and it is what reads on screen as the
+ * same character being "one big, one small".
+ *
+ * The correction is applied only when the two independent measurements agree:
+ *  - head-to-feet height says the figure is small AND ink area says the body
+ *    is smaller too -> the cell was drawn zoomed out: enlarge it.
+ *  - height says small but area says the same -> it is a crouch, not a zoom:
+ *    leave the sheet scale alone.
+ * The smaller of the two agreeing corrections wins, and the result is bounded,
+ * so no single measurement can rewrite a pose.
+ */
+const CELL_SCALE_MAX = 1.25;
+const CELL_SCALE_MIN = 0.72;
+
+/**
+ * Smallest dominant component that can still be a fighter.
+ *
+ * Measured over all 1280 baked cells: the smallest real pose (a knocked-down
+ * body) has a 6.3k dominant component, the worst generator miss has 366. The
+ * cut sits 8x below the real minimum so it can only fire on a missing body.
+ */
+const BODY_COMPONENT_MIN = 3000;
+
+function cellScale(cell, refH, refA, fallback) {
+  if (!cell.body || !cell.bbox || !refH || !refA || !cell.bbox.opaque) return fallback;
+  const dH = refH / cell.body.h - 1;
+  const dA = Math.sqrt(refA / cell.bbox.opaque) - 1;
+  if (dH * dA <= 0) return fallback;
+  const c = Math.abs(dH) < Math.abs(dA) ? dH + 1 : dA + 1;
+  return fallback * Math.min(CELL_SCALE_MAX, Math.max(CELL_SCALE_MIN, c));
 }
 
 /**
@@ -587,11 +837,21 @@ function mirrorX(img) {
   return { width: img.width, height: img.height, rgba: out };
 }
 
-/** Place a cropped cell into a FRAME so the measured feet land on ANCHOR. */
+/**
+ * Place a cropped cell so the measured feet land on ANCHOR, and return the
+ * tight ink crop with its offset from that anchor.
+ *
+ * The offset is the contract. A running lunge puts the head far to one side of
+ * the feet centroid, and a fixed square frame used to cut it off there (the
+ * decapitated dash frames). Shipping the tight crop plus (ox, oy) keeps every
+ * body pixel without sliding the feet off the logical position or shrinking
+ * the pose relative to its neighbours.
+ */
 function placeFrame(cropped, scale, body, flip = false) {
   const bodyH = body ? body.h : cropped.height;
-  // Effects are allowed to overflow and clip; the body is not. So the only
-  // resize allowed is the one that keeps head-to-feet inside the frame.
+  // Head-to-feet stays inside the nominal cell height so a pose cannot be
+  // drawn taller than the stage headroom; width is no longer a constraint
+  // because the frame is the ink itself, not a box around it.
   const room = ANCHOR[1] - 6;
   const fit = Math.min(scale, room / bodyH);
   const dw = Math.max(1, Math.round(cropped.width * fit));
@@ -599,22 +859,12 @@ function placeFrame(cropped, scale, body, flip = false) {
   const scaled = flip ? mirrorX(resizeBilinear(cropped, dw, dh)) : resizeBilinear(cropped, dw, dh);
   const scaledBbox = { minX: 0, minY: 0, maxX: dw - 1, maxY: dh - 1, w: dw, h: dh };
   const fx = feetCenterX(scaled, scaledBbox);
-  const frame = { width: FRAME, height: FRAME, rgba: Buffer.alloc(FRAME * FRAME * 4) };
   const dx = Math.round(ANCHOR[0] - fx);
   const footRow = body ? Math.round((body.feet + 1) * (dh / cropped.height)) : dh;
   const dy = ANCHOR[1] - footRow;
-  // Clip blit to the frame bounds (a wide punch may overflow the cell).
-  for (let row = 0; row < dh; row += 1) {
-    const ty = dy + row;
-    if (ty < 0 || ty >= FRAME) continue;
-    for (let col = 0; col < dw; col += 1) {
-      const tx = dx + col;
-      if (tx < 0 || tx >= FRAME) continue;
-      const si = (row * dw + col) * 4, di = (ty * FRAME + tx) * 4;
-      scaled.rgba.copy(frame.rgba, di, si, si + 4);
-    }
-  }
-  return frame;
+  const ink = bboxOf(scaled) || { minX: 0, minY: 0, w: dw, h: dh };
+  const tight = cropRGBA(scaled, ink.minX, ink.minY, ink.w, ink.h);
+  return { ...tight, ox: dx + ink.minX, oy: dy + ink.minY };
 }
 
 /** Label opaque connected components; return per-comp area, centroid, bbox. */
@@ -648,25 +898,238 @@ function labelComponents(img) {
   return { label, comps };
 }
 /**
+ * The art rows actually drawn on a sheet, top to bottom.
+ *
+ * Only body-sized components vote: a detached flame wisp between two rows
+ * would otherwise split a row that is really one.
+ */
+function artRows(comps) {
+  const bodies = comps.filter((c) => (c.maxY - c.minY + 1) >= 60 && c.area >= 1500);
+  const sorted = [...bodies].sort((a, b) => a.cy - b.cy);
+  const rows = [];
+  for (const c of sorted) {
+    const last = rows[rows.length - 1];
+    if (last && c.cy - last.cyMax <= CELL * 0.5) last.cyMax = Math.max(last.cyMax, c.cy);
+    else rows.push({ cyMin: c.cy, cyMax: c.cy });
+  }
+  return rows;
+}
+
+/**
+ * Two whole bodies stacked in one cell.
+ *
+ * A fighter drawn next to their own effect is one pose and measures as a
+ * vertical overlap near 100%; a fighter drawn *above* another fighter because
+ * the sheet's rows fell into the same grid row overlaps by nothing at all.
+ * Measured over the off-grid forge sheets: every doubled cell has a second
+ * body at 94-99% of the first with 0% overlap, while the nearest legitimate
+ * cell (quartz skill, a figure beside a large summoned effect) is 86% share
+ * but 100% overlap. The cut therefore sits on overlap, not on size.
+ */
+function doubledBodies(comps) {
+  const bodies = comps.filter((c) => (c.maxY - c.minY + 1) >= 60 && c.area >= 1500);
+  for (let i = 0; i < bodies.length; i += 1) for (let j = i + 1; j < bodies.length; j += 1) {
+    const a = bodies[i], b = bodies[j];
+    const big = a.area >= b.area ? a : b, small = a.area >= b.area ? b : a;
+    if (small.area < big.area * 0.5) continue;
+    const overlap = Math.min(big.maxY, small.maxY) - Math.max(big.minY, small.minY) + 1;
+    const shorter = Math.min(big.maxY - big.minY + 1, small.maxY - small.minY + 1);
+    if (overlap <= shorter * 0.25) return true;
+  }
+  return false;
+}
+
+/**
+ * Split cross-row merged components by marker watershed.
+ *
+ * Two poses whose effects touch matte as one component, and centroid routing
+ * then hands both bodies to a single cell. Eroding the mask kills the thin
+ * petal necks before it kills a torso, so the surviving cores mark the poses;
+ * flooding each core back through the un-eroded mask gives every effect pixel
+ * to the pose it touches, which a straight horizontal cut cannot do (it would
+ * sever legs or ring). `label` is rewritten in place; returns the replacement
+ * comp list plus the ids that could not be split.
+ */
+function splitCrossRowComponents(label, comps, matted, markers, seedBelowY = 0, claimUpper = []) {
+  const w = matted.width, h = matted.height;
+  let maxId = comps.reduce((m, c) => Math.max(m, c.id), 0);
+  const out = [];
+  const failed = [];
+  const stale = [];
+  const claimed = new Set();
+  for (const comp of comps) {
+    const bw = comp.maxX - comp.minX + 1, bh = comp.maxY - comp.minY + 1;
+    if (bh <= CELL * 1.2) { out.push(comp); continue; }
+    const mask = new Uint8Array(bw * bh);
+    for (let y = 0; y < bh; y += 1) for (let x = 0; x < bw; x += 1) {
+      const gi = (comp.minY + y) * w + (comp.minX + x);
+      if (label[gi] === comp.id && matted.rgba[gi * 4 + 3] > 8) mask[y * bw + x] = 1;
+    }
+    let cores = null;
+    // coral's petal neck measured ~5px thick: radius 4 still left one core.
+    for (const radius of [2, 3, 4, 6]) {
+      let cur = mask;
+      for (let pass = 0; pass < radius; pass += 1) {
+        const next = new Uint8Array(bw * bh);
+        for (let y = 1; y < bh - 1; y += 1) for (let x = 1; x < bw - 1; x += 1) {
+          const i = y * bw + x;
+          if (!cur[i]) continue;
+          let all = 1;
+          for (let dy = -1; dy <= 1 && all; dy += 1) for (let dx = -1; dx <= 1; dx += 1) {
+            if (!cur[i + dy * bw + dx]) { all = 0; break; }
+          }
+          next[i] = all;
+        }
+        cur = next;
+      }
+      const seen = new Int32Array(bw * bh);
+      const queue = new Int32Array(bw * bh);
+      const found = [];
+      let cid = 0;
+      for (let seed = 0; seed < bw * bh; seed += 1) {
+        if (!cur[seed] || seen[seed]) continue;
+        cid += 1;
+        let head = 0, tail = 0, area = 0, sy = 0;
+        let minX = bw, minY = bh, maxX = -1, maxY = -1;
+        queue[tail++] = seed; seen[seed] = cid;
+        while (head < tail) {
+          const i = queue[head++]; area += 1;
+          const x = i % bw, y = (i / bw) | 0;
+          sy += y;
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+          if (x > 0 && cur[i - 1] && !seen[i - 1]) { seen[i - 1] = cid; queue[tail++] = i - 1; }
+          if (x < bw - 1 && cur[i + 1] && !seen[i + 1]) { seen[i + 1] = cid; queue[tail++] = i + 1; }
+          if (y > 0 && cur[i - bw] && !seen[i - bw]) { seen[i - bw] = cid; queue[tail++] = i - bw; }
+          if (y < bh - 1 && cur[i + bw] && !seen[i + bw]) { seen[i + bw] = cid; queue[tail++] = i + bw; }
+        }
+        found.push({ id: cid, area, cy: comp.minY + sy / area, minX, minY, maxX, maxY });
+      }
+      // Only body cores may mark: an eroded ring pocket is big but headless,
+      // and a core still spanning two rows is the merge itself, not a pose.
+      const bodies = [];
+      for (const c of found.sort((a, b) => b.area - a.area)) {
+        if (c.area < 1500 || c.maxY - c.minY + 1 > CELL * 1.2) continue;
+        const cw = c.maxX - c.minX + 1, ch = c.maxY - c.minY + 1;
+        const crop = { width: cw, height: ch, rgba: Buffer.alloc(cw * ch * 4) };
+        for (let y = 0; y < ch; y += 1) for (let x = 0; x < cw; x += 1) {
+          const i = (c.minY + y) * bw + (c.minX + x);
+          if (seen[i] !== c.id) continue;
+          const gi = (comp.minY + c.minY + y) * w + (comp.minX + c.minX + x);
+          matted.rgba.copy(crop.rgba, (y * cw + x) * 4, gi * 4, gi * 4 + 4);
+        }
+        const be = bodyExtent(crop);
+        if (be && be.h >= 100) bodies.push(c);
+      }
+      if (bodies.length >= markers) { cores = { seen, picks: bodies.slice(0, markers) }; break; }
+    }
+    if (!cores) { failed.push(comp.id); out.push(comp); continue; }
+    const owner = new Int32Array(bw * bh);
+    const queue = new Int32Array(bw * bh);
+    const seeded = cores.picks.map(() => 0);
+    let head = 0, tail = 0;
+    cores.picks.forEach((c, k) => {
+      for (let i = 0; i < bw * bh; i += 1) {
+        if (cores.seen[i] !== c.id) continue;
+        // The lower core seeds only below the registered row, so ink above it
+        // joins whichever pose it hangs off by the short path, not the ring.
+        if (seedBelowY && c.cy > seedBelowY && comp.minY + ((i / bw) | 0) < seedBelowY) continue;
+        owner[i] = k + 1; queue[tail++] = i; seeded[k] += 1;
+      }
+    });
+    if (seeded.some((n) => !n)) { failed.push(comp.id); out.push(comp); continue; }
+    while (head < tail) {
+      const i = queue[head++];
+      const x = i % bw, y = (i / bw) | 0;
+      if (x > 0 && mask[i - 1] && !owner[i - 1]) { owner[i - 1] = owner[i]; queue[tail++] = i - 1; }
+      if (x < bw - 1 && mask[i + 1] && !owner[i + 1]) { owner[i + 1] = owner[i]; queue[tail++] = i + 1; }
+      if (y > 0 && mask[i - bw] && !owner[i - bw]) { owner[i - bw] = owner[i]; queue[tail++] = i - bw; }
+      if (y < bh - 1 && mask[i + bw] && !owner[i + bw]) { owner[i + bw] = owner[i]; queue[tail++] = i + bw; }
+    }
+    // Distance alone cuts a boot where a ring spike touches it: the lower
+    // core's path up the spike beats the upper core's path down the leg, so
+    // the boot ships as two fragments in two cells. Registered boxes hand
+    // measured contact-zone ink back to the topmost pose.
+    if (claimUpper.length) {
+      let upperK = 0;
+      cores.picks.forEach((c, k) => { if (c.cy < cores.picks[upperK].cy) upperK = k; });
+      for (const box of claimUpper) {
+        let touched = 0;
+        const y0 = Math.max(box.y0 - comp.minY, 0), y1 = Math.min(box.y1 - comp.minY, bh - 1);
+        const x0 = Math.max(box.x0 - comp.minX, 0), x1 = Math.min(box.x1 - comp.minX, bw - 1);
+        for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) {
+          const i = y * bw + x;
+          if (!mask[i]) continue;
+          touched += 1;
+          owner[i] = upperK + 1;
+        }
+        if (touched) claimed.add(box);
+      }
+    }
+    const pieces = cores.picks.map(() => ({
+      area: 0, sx: 0, sy: 0, chroma: 0, minX: w, minY: h, maxX: -1, maxY: -1,
+    }));
+    for (let y = 0; y < bh; y += 1) for (let x = 0; x < bw; x += 1) {
+      const i = y * bw + x;
+      if (!owner[i]) continue;
+      const gi = (comp.minY + y) * w + (comp.minX + x);
+      const p = pieces[owner[i] - 1];
+      const r = matted.rgba[gi * 4], g = matted.rgba[gi * 4 + 1], b = matted.rgba[gi * 4 + 2];
+      p.area += 1; p.sx += comp.minX + x; p.sy += comp.minY + y;
+      p.chroma += Math.max(r, g, b) - Math.min(r, g, b);
+      if (comp.minX + x < p.minX) p.minX = comp.minX + x;
+      if (comp.minX + x > p.maxX) p.maxX = comp.minX + x;
+      if (comp.minY + y < p.minY) p.minY = comp.minY + y;
+      if (comp.minY + y > p.maxY) p.maxY = comp.minY + y;
+      label[gi] = maxId + owner[i];
+    }
+    pieces.forEach((p, k) => {
+      out.push({
+        id: maxId + k + 1, area: p.area, cx: p.sx / p.area, cy: p.sy / p.area,
+        minX: p.minX, minY: p.minY, maxX: p.maxX, maxY: p.maxY, chroma: p.chroma / p.area,
+      });
+    });
+    maxId += pieces.length;
+  }
+  for (const box of claimUpper) if (!claimed.has(box)) stale.push(box);
+  return { comps: out, failed, stale };
+}
+
+/**
  * The AI grid drifts: a pose can overflow its 256px cell (head above the top
  * edge) while a neighbour's head/fist intrudes at the bottom. Fixed-cell crops
  * therefore cut heads and capture stray limbs. Instead we matte the whole
- * sheet and assign each connected component to the cell holding its CENTROID:
- * a pose's overflow head stays connected to its own body (kept), while an
- * intruding neighbour fragment is a separate component centred elsewhere
- * (dropped). The union bbox of a cell's components is the true pose extent.
+ * sheet and assign each connected component to the cell holding its CORE
+ * COLUMN and its CENTROID ROW: a pose's overflow head stays connected to its
+ * own body (kept), while an intruding neighbour fragment is a separate
+ * component centred elsewhere (dropped). The union bbox of a cell's components
+ * is the true pose extent.
  */
-function sliceSheet(file) {
+function sliceSheet(file, { rowOrder = null, splitSpec = null, headOverrides = null } = {}) {
   const src = readPNG(file);
   if (src.width !== SHEET_PX || src.height !== SHEET_PX) {
     throw new Error(`${file}: expected ${SHEET_PX}x${SHEET_PX}, got ${src.width}x${src.height}`);
   }
-  const matted = matteCell(src);
+  const backdrop = detectBackdrop(src, { cell: CELL });
+  const matted = matteCell(src, backdrop);
   stripGroundShadows(matted);
-  dropBackgroundPockets(matted);
+  dropBackgroundPockets(matted, backdrop);
   stripSealFade(matted);
-  const { label, comps } = labelComponents(matted);
+  const labelled = labelComponents(matted);
+  const label = labelled.label;
+  let comps = labelled.comps;
+  let splitFailed = [];
+  let splitStale = [];
+  if (splitSpec) {
+    const split = splitCrossRowComponents(
+      label, comps, matted, splitSpec.markers, splitSpec.seedBelowY || 0, splitSpec.claimUpper || [],
+    );
+    comps = split.comps;
+    splitFailed = split.failed;
+    splitStale = split.stale;
+  }
   const byCell = Array.from({ length: CELL_COUNT }, () => []);
+  const kept = [];
   // A pose belongs to the cell holding its dense CORE. Centroid anchoring
   // breaks on long horizontal VFX trails (a flame stream drags the centroid
   // into the next column), so the column is taken from the mass-concentrated
@@ -703,16 +1166,47 @@ function sliceSheet(file) {
     if (ch <= 24 && cw > ch * 2.2 && c.chroma < 30 && c.area < cw * 20) continue;
     // A component spanning the whole sheet is a leftover frame, not a pose.
     if (cw >= SHEET_PX * 0.98 && ch >= SHEET_PX * 0.98) continue;
+    kept.push(c);
+  }
+  // The generator does not always obey the 4x4 layout. forge came back with
+  // five rows of four on react and kick; under a fixed grid, art rows two and
+  // three both floor into grid row one, so a single dash cell received two
+  // whole bodies stacked and the game drew a doubled fighter whose feet sat on
+  // neither baseline. When the sheet's own rows disagree with GRID, the pose
+  // that answers each spec row comes from ART_ROW_ORDER for that sheet.
+  const rows = artRows(kept);
+  const remap = rows.length !== GRID;
+  const order = remap ? (rowOrder || rows.map((_, i) => i)) : null;
+  const nearestRow = (c) => {
+    let best = 0, bestDistance = Infinity;
+    for (let i = 0; i < rows.length; i += 1) {
+      const mid = (rows[i].cyMin + rows[i].cyMax) / 2;
+      const d = Math.abs(c.cy - mid);
+      if (d < bestDistance) { bestDistance = d; best = i; }
+    }
+    return best;
+  };
+  for (const c of kept) {
     const ax = coreColumn(c);
     const gx = Math.min(GRID - 1, Math.max(0, Math.floor(ax / CELL)));
-    const gy = Math.min(GRID - 1, Math.max(0, Math.floor(c.cy / CELL)));
+    let gy = Math.min(GRID - 1, Math.max(0, Math.floor(c.cy / CELL)));
+    if (remap) {
+      gy = order.indexOf(nearestRow(c)); // -1 = an art row no clip uses
+      if (gy < 0 || gy * GRID + gx >= CELL_COUNT) continue;
+    }
     byCell[gy * GRID + gx].push(c);
   }
   const cells = [];
+  cells.artRows = rows.length;
+  cells.splitFailed = splitFailed;
+  cells.splitStale = splitStale;
+  cells.crossRowLeft = kept
+    .filter((c) => (c.maxY - c.minY + 1) > CELL * 1.2)
+    .map((c) => ({ id: c.id, h: c.maxY - c.minY + 1 }));
   for (let i = 0; i < CELL_COUNT; i += 1) {
     const mine = byCell[i];
     if (!mine.length) {
-      cells.push({ index: i, matted: null, bbox: null, components: 0 });
+      cells.push({ index: i, matted: null, bbox: null, components: 0, doubled: false });
       continue;
     }
     const keep = new Set(mine.map((c) => c.id));
@@ -729,46 +1223,216 @@ function sliceSheet(file) {
     }
     cells.push({
       index: i, matted: clean, components: mine.length,
+      doubled: doubledBodies(mine),
+      largest: Math.max(...mine.map((c) => c.area)),
       parts: mine.map((c) => `a${c.area}[${c.minX},${c.minY} ${c.maxX - c.minX + 1}x${c.maxY - c.minY + 1}]`),
       bbox: { minX: 0, minY: 0, maxX: w - 1, maxY: h - 1, w, h, opaque: mine.reduce((a, c) => a + c.area, 0) },
+      origin: { x: minX, y: minY },
       body: bodyExtent(clean),
     });
   }
+  if (headOverrides) {
+    cells.bodyOverrideStale = [];
+    for (const [key, sheetY] of Object.entries(headOverrides)) {
+      const i = Number(key);
+      const c = cells[i];
+      const rel = c && c.body && c.origin ? sheetY - c.origin.y : -1;
+      if (!c || !c.body || rel < 0 || rel > c.body.feet) { cells.bodyOverrideStale.push(i); continue; }
+      c.body = { ...c.body, headTop: rel, h: c.body.feet - rel + 1 };
+    }
+  }
   return cells;
+}
+
+/**
+ * Ink, top edge and bottom edge of a placed frame, in anchor space (oy shifts
+ * the tight crop back onto the shared baseline so clips stay comparable).
+ *
+ * Rows need three pixels to count as an edge: a stray effect wisp above the
+ * head is not where the drawing starts.
+ */
+function frameStats(img, oy = 0) {
+  let ink = 0, top = -1, bottom = -1;
+  for (let y = 0; y < img.height; y += 1) {
+    let row = 0;
+    for (let x = 0; x < img.width; x += 1) {
+      if (img.rgba[(y * img.width + x) * 4 + 3] > 24) row += 1;
+    }
+    ink += row;
+    if (row >= 3) { if (top < 0) top = y; bottom = y; }
+  }
+  return { ink, top: top < 0 ? -1 : top + oy, bottom: bottom < 0 ? -1 : bottom + oy, span: top < 0 ? 0 : bottom - top + 1 };
+}
+
+/**
+ * Geometry contract over the drawings a clip actually ships, per clip.
+ *
+ * Three failures the playtest reported, each measurable before anything
+ * leaves the bake: a frame with no body in it (the character vanishes
+ * mid-combo), a frame whose feet are not on the shared baseline (the sprite
+ * reads as detached), and consecutive drawings that jump in size (一大一小).
+ * Prone poses are exempt from the size check — lying flat is a real height
+ * change, not a zoom.
+ */
+const PRONE_CLIPS = new Set(['knockdown', 'getup']);
+const FRAME_THIN_SHARE = 0.4;
+const BASELINE_TOLERANCE = 6;
+const CLIP_SPREAD_MAX = 2.3;
+
+function auditClip(sheetId, clipId, cells, stats) {
+  const problems = [];
+  const mine = cells.filter((i) => stats[i]);
+  if (!mine.length) return problems;
+  const inks = mine.map((i) => stats[i].ink).sort((a, b) => a - b);
+  const medianInk = inks[inks.length >> 1] || 1;
+  for (const i of mine) {
+    const st = stats[i];
+    if (st.ink < medianInk * FRAME_THIN_SHARE) {
+      problems.push({ sheet: sheetId, clip: clipId, cell: i, problem: 'frame-too-thin', ink: st.ink, median: medianInk });
+    }
+    if (st.bottom < ANCHOR[1] - BASELINE_TOLERANCE || st.bottom > FRAME - 1) {
+      problems.push({ sheet: sheetId, clip: clipId, cell: i, problem: 'off-baseline', bottom: st.bottom });
+    }
+  }
+  if (PRONE_CLIPS.has(clipId)) return problems;
+  const spans = mine.map((i) => stats[i].span);
+  const min = Math.min(...spans), max = Math.max(...spans);
+  if (min > 0 && max / min > CLIP_SPREAD_MAX) {
+    problems.push({ sheet: sheetId, clip: clipId, problem: 'clip-scale-spread', min, max, ratio: +(max / min).toFixed(2) });
+  }
+  return problems;
 }
 
 function bakeFighter(id, { write = true } = {}) {
   const sheets = {};
   const qa = [];
+  const repairs = [];
   const sliced = SHEET_IDS.map((sheetId) => {
     const file = path.join(SOURCE, id, sheetId + '.png');
     if (!fs.existsSync(file)) throw new Error(`missing raw sheet: ${file}`);
-    return sliceSheet(file);
+    return sliceSheet(file, {
+      rowOrder: ART_ROW_ORDER[id]?.[sheetId] || null,
+      splitSpec: CROSS_ROW_SPLITS[id + '/' + sheetId] || null,
+      headOverrides: BODY_HEAD_OVERRIDES[id + '/' + sheetId] || null,
+    });
   });
   const baseIndex = SHEET_IDS.indexOf('base');
   const refH = stanceReference(sliced[baseIndex] || []);
+  const refA = stanceArea(sliced[baseIndex] || []);
+  const refW = stanceWidth(sliced[baseIndex] || []);
   const globalScale = refH ? STANCE_H / refH : 1;
+  const stance = { h: refH, w: refW, a: refA };
+  const standing = {};
+  const defects = [];
   SHEET_IDS.forEach((sheetId, s) => {
     const cells = sliced[s];
-    const scale = globalScale * sheetCorrection(cells, refH);
-    // Pack the 16 normalized frames into a 4x4 atlas.
-    const atlas = { width: FRAME * GRID, height: FRAME * GRID, rgba: Buffer.alloc(FRAME * GRID * FRAME * GRID * 4) };
+    // Orientation is a property a person read off these drawings: facingReview
+    // throws when no read exists, so an unadjudicated sheet cannot bake at all.
+    const review = facingReview(id, sheetId);
+    const sha = shortHash(hashFile(path.join(SOURCE, id, sheetId + '.png')));
+    if (sha !== review.sha) {
+      qa.push({ sheet: sheetId, problem: 'facing-stale', adjudicatedAgainst: review.sha, now: sha });
+    }
+    const stray = review.flip.filter((c) => !Number.isInteger(c) || c < 0 || c >= CELL_COUNT);
+    if (stray.length) qa.push({ sheet: sheetId, problem: 'facing-cell-out-of-range', cells: stray });
+    // An off-contract sheet is only shippable once its row map is declared:
+    // without one, the bake is guessing which pose answers which clip.
+    if (cells.artRows !== GRID && !ART_ROW_ORDER[id]?.[sheetId]) {
+      qa.push({ sheet: sheetId, problem: 'off-layout-sheet', artRows: cells.artRows });
+    }
+    // Two whole bodies in one cell is the doubled-fighter defect the renderer
+    // cannot fix: whichever frame is picked, its feet are on neither baseline.
+    const stacked = cells.filter((c) => c.doubled).map((c) => c.index);
+    if (stacked.length) qa.push({ sheet: sheetId, problem: 'multi-body-cell', cells: stacked });
+    // A component taller than a cell and a fraction holds two poses joined by
+    // touching effect ink; doubledBodies cannot see it (one component), so the
+    // height itself is the gate. Registered sheets split it; new drift fails.
+    if (cells.crossRowLeft.length) {
+      qa.push({ sheet: sheetId, problem: 'cross-row-component', comps: cells.crossRowLeft });
+    }
+    if (cells.splitFailed.length) {
+      qa.push({ sheet: sheetId, problem: 'cross-row-split-failed', comps: cells.splitFailed });
+    }
+    if (cells.splitStale.length) {
+      qa.push({ sheet: sheetId, problem: 'cross-row-claim-stale', boxes: cells.splitStale });
+    }
+    if (cells.bodyOverrideStale && cells.bodyOverrideStale.length) {
+      qa.push({ sheet: sheetId, problem: 'body-head-override-stale', cells: cells.bodyOverrideStale });
+    }
+    const stand = standingCorrection(sheetId, cells, stance);
+    const sheetScale = globalScale
+      * (stand.scale !== undefined ? stand.scale : sheetCorrection(cells, refH));
+    // cellScale judges a raw cell against the raw stance. When this sheet has
+    // already been rescaled off its own standing pose, the reference has to
+    // move with the sheet, or a cell the sheet just fixed is corrected a second
+    // time and the hurt poses come out giants.
+    const sheetFactor = stand.scale !== undefined ? stand.scale : 1;
+    const refHs = refH ? refH / sheetFactor : refH;
+    const refAs = refA ? refA / (sheetFactor * sheetFactor) : refA;
+    if (stand.evidence) {
+      const key = id + '/' + sheetId;
+      const known = stand.defect ? OFF_MODEL_ART[key] || null : null;
+      standing[sheetId] = {
+        ...stand.evidence,
+        appliedScale: stand.scale !== undefined ? +stand.scale.toFixed(3) : null,
+        // After the applied scale, how far the standing pose still sits from
+        // stance height. This is the number a renderer can check without pixels:
+        // a shipped atlas whose standing pose is off-model has to say so here.
+        residualShare: stand.defect ? stand.defect.residualShare : null,
+        offModel: stand.defect ? { registered: !!known, reason: known ? known.reason : null } : null,
+      };
+    }
+    if (stand.defect) {
+      defects.push({ sheet: sheetId, ...stand.defect, known: OFF_MODEL_ART[id + '/' + sheetId] || null });
+      // Registered sheets are art debt with a decision behind them; an
+      // unregistered one is new drift and has to fail the bake.
+      if (!OFF_MODEL_ART[id + '/' + sheetId]) {
+        qa.push({ sheet: sheetId, problem: 'off-model-standing-pose', ...stand.defect });
+      }
+    }
+    // Shelf-pack the tight frames. A fixed 4x4 grid of square cells is what
+    // cut the wide lunges; the packer only has to keep rects disjoint.
+    const placed = [];
     const frames = [];
+    const stats = [];
     cells.forEach((cell, i) => {
       if (!cell.bbox) {
         qa.push({ sheet: sheetId, cell: i, problem: 'empty' });
         frames.push(null);
+        stats.push(null);
         return;
       }
       if (cell.bbox.h < 40 && cell.bbox.w < 120) qa.push({ sheet: sheetId, cell: i, problem: 'pose-too-small', h: cell.bbox.h });
       if (!cell.body) qa.push({ sheet: sheetId, cell: i, problem: 'no-head-landmark', h: cell.bbox.h });
+      // An effect burst with the fighter missing (coral's ex finisher came back
+      // as scattered petals and nothing else) would blank the character in the
+      // middle of a combo. Ship no such frame: the clip repeats a real pose.
+      if (cell.largest < BODY_COMPONENT_MIN) {
+        repairs.push({ sheet: sheetId, cell: i, largest: cell.largest });
+        frames.push(null);
+        stats.push(null);
+        return;
+      }
       const cropped = cropRGBA(cell.matted, cell.bbox.minX, cell.bbox.minY, cell.bbox.w, cell.bbox.h);
-      const frame = placeFrame(cropped, scale, cell.body, NATIVE_FACING[id][sheetId] > 0);
-      const ax = (i % GRID) * FRAME, ay = Math.floor(i / GRID) * FRAME;
-      blitRGBA(atlas, { x: ax, y: ay }, frame);
-      frames.push({ x: ax, y: ay, w: FRAME, h: FRAME });
+      const scale = cellScale(cell, refHs, refAs, sheetScale);
+      placed.push({ i, frame: placeFrame(cropped, scale, cell.body, shipsFlipped(review, i)) });
     });
-    sheets[sheetId] = { atlas, frames, scale };
+    const packed = shelfPack(placed.map((p) => ({ w: p.frame.width, h: p.frame.height })), { gutter: 2, maxWidth: FRAME * GRID });
+    const atlasH = Math.max(FRAME, packed.height);
+    const atlas = { width: packed.width, height: atlasH, rgba: Buffer.alloc(packed.width * atlasH * 4) };
+    placed.forEach((p, k) => {
+      const r = packed.placed[k];
+      blitRGBA(atlas, { x: r.x, y: r.y }, p.frame);
+      // The shipped rect must hold exactly the ink placeFrame measured: any
+      // lost column or row here is a body cut back into the atlas.
+      const bb = bboxOf(cropRGBA(atlas, r.x, r.y, r.w, r.h));
+      if (!bb || bb.minX !== 0 || bb.minY !== 0 || bb.w !== r.w || bb.h !== r.h) {
+        qa.push({ sheet: sheetId, cell: p.i, problem: 'frame-ink-lost', want: { w: r.w, h: r.h }, got: bb });
+      }
+      frames[p.i] = { x: r.x, y: r.y, w: r.w, h: r.h, ox: p.frame.ox, oy: p.frame.oy };
+      stats[p.i] = frameStats(p.frame, p.frame.oy);
+    });
+    sheets[sheetId] = { atlas, frames, stats, scale: sheetScale };
   });
 
   // Write atlases + build the clip table.
@@ -780,20 +1444,36 @@ function bakeFighter(id, { write = true } = {}) {
     const hash = sha256(encodeRGBA(atlas.width, atlas.height, atlas.rgba));
     const pair = writeVariantPair({ dir, name: sheetId, image: atlas, hash, alpha: true, quality: 85, write, keepPng: false });
     const url = '/assets/v/sprites/' + id + '/' + path.basename(pair.webpPath || pair.pngPath);
-    sheetRefs[sheetId] = { atlas: url, width: atlas.width, height: atlas.height, bytes: pair.webpBytes || pair.pngBytes };
+    sheetRefs[sheetId] = {
+      atlas: url, width: atlas.width, height: atlas.height,
+      bytes: pair.webpBytes || pair.pngBytes,
+      // The standing-pose evidence travels with the atlas so a checker can
+      // assert the size contract without re-measuring a single pixel.
+      standing: standing[sheetId] || null,
+    };
     atlasBytes += pair.webpBytes || pair.pngBytes;
   }
 
   const clips = {};
   for (const sheetId of SHEET_IDS) {
     for (const [clipId, spec] of Object.entries(SHEETS[sheetId].clips)) {
+      const picked = spec.cells.map((c) => sheets[sheetId].frames[c]);
+      // A repaired drawing repeats the closest real one instead of dropping
+      // out of the list: the phase maps index into this frame list, so
+      // removing a frame would silently shift every later phase.
+      for (let i = 0; i < picked.length; i += 1) {
+        if (picked[i]) continue;
+        picked[i] = picked.slice(0, i).reverse().find(Boolean)
+          || picked.slice(i + 1).find(Boolean) || null;
+      }
       clips[clipId] = {
         sheet: sheetId,
-        frames: spec.cells.map((c) => sheets[sheetId].frames[c]).filter(Boolean),
+        frames: picked.filter(Boolean),
         loop: Boolean(spec.loop),
         fps: spec.fps || 0,
         phases: spec.phases || null,
       };
+      qa.push(...auditClip(sheetId, clipId, spec.cells, sheets[sheetId].stats));
     }
   }
   const anim = {
@@ -814,7 +1494,7 @@ function bakeFighter(id, { write = true } = {}) {
   }
   return {
     id, anim: '/assets/v/sprites/' + id + '/' + animName,
-    atlasBytes, animBytes: animBuf.length, qa,
+    atlasBytes, animBytes: animBuf.length, qa, repairs, defects,
     clipCount: Object.keys(clips).length,
   };
 }
@@ -831,6 +1511,10 @@ function main() {
   const probe = arg('--probe', '');
 
   if (probe) {
+    const src = readPNG(path.resolve(probe));
+    const backdrop = detectBackdrop(src, { cell: CELL });
+    console.log(`[probe] backdrop: kind=${backdrop.kind} rgb=(${backdrop.rgb.join(',')})`
+      + ` flat=${backdrop.flat.toFixed(1)} chokeTol=${backdrop.kind === 'white' ? 'n/a' : CHOKE_TOL}`);
     const cells = sliceSheet(path.resolve(probe));
     for (const c of cells) {
       console.log(`cell ${String(c.index).padStart(2)}: comps=${c.components}`
@@ -850,7 +1534,9 @@ function main() {
       const problems = entry.qa.length;
       if (problems) bad += 1;
       console.log(`[slice] ${id}: clips=${entry.clipCount} atlas=${entry.atlasBytes}B qa=${problems}`
-        + (problems ? ' ' + JSON.stringify(entry.qa.slice(0, 4)) : ''));
+        + (problems ? ' ' + JSON.stringify(entry.qa.slice(0, 4)) : '')
+        + (entry.repairs.length ? ` repaired=${JSON.stringify(entry.repairs)}` : '')
+        + (entry.defects.length ? ` off-model=${JSON.stringify(entry.defects)}` : ''));
     } catch (err) {
       bad += 1;
       console.error(`[slice] ${id}: ${err.message}`);
@@ -886,8 +1572,10 @@ function main() {
 
 export {
   matteCell, stripGroundShadows, dropBackgroundPockets, stripSealFade, sliceSheet,
-  bodyExtent,
-  median, stanceReference, sheetCorrection, placeFrame, bakeFighter,
+  bodyExtent, cropRGBA, labelComponents, doubledBodies, splitCrossRowComponents,
+  median, stanceReference, stanceWidth, sheetCorrection, standingCorrection,
+  placeFrame, bakeFighter,
+  frameStats, auditClip, BODY_COMPONENT_MIN,
 };
 
 // Importable so the bake can be audited frame by frame; the CLI only runs when

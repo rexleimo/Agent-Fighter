@@ -40,6 +40,9 @@ const POSES = [
   ['super', { state: 'attack', moveId: 'super', active: true }],
   ['hitstun', { state: 'hitstun', hitstun: 8 }],
   ['knockdown', { state: 'knockdown', wakeup: 20 }],
+  // Appended last: the geometry report indexes poses by position. Dash leans
+  // forward, so it is whole-body checked but kept out of GROUNDED.
+  ['dash', { state: 'dash', vx: 6 }],
 ];
 // Grounded poses must share one feet baseline; airborne/lying poses are exempt.
 const GROUNDED = new Set(['idle', 'walk', 'crouch', 'guard', 'lp', 'hp', 'hk', 'dp', 'special', 'super']);
@@ -95,7 +98,9 @@ for (const { id, cells } of rows) {
   POSES.forEach(([label, spec], i) => {
     const f = fighterFor(id, spec);
     const ctx = cells[i].getContext('2d');
-    drawSprite(ctx, f, { gx: CW / 2, gy: GROUND, globalFrame: 0, track: {}, height: H });
+    // Dash leans hard into its facing; centre it left so the lean fits the cell.
+    const gx = label === 'dash' ? 40 : CW / 2;
+    drawSprite(ctx, f, { gx, gy: GROUND, globalFrame: 0, track: {}, height: H });
   });
 }
 

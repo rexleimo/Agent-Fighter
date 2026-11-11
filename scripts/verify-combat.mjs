@@ -182,6 +182,40 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
   check('K19 命中停顿冻结模拟且帧号继续前进',
     frozen.length > 0 && frozen.every((f) => f.a.moveFrame === frozen[0].a.moveFrame),
     'hitstopFrames=' + frozen.length);
+
+  // 空中硬直/起身时钟：必须等身体落地才继续走。以前会在空中耗尽，
+  // 把角色瞬移回地面站好（受击抽搐、倒地闪烁的根因之一）。
+  let airStun = createInitialState(11, 'air-stun', { a: 'gale', b: 'ember' });
+  airStun.a.x = 400;
+  airStun.b.x = 520;
+  airStun.b.state = 'hitstun';
+  airStun.b.hitstun = 1;
+  airStun.b.y = -90;
+  let stunAir = 0;
+  for (let i = 0; i < 60 && airStun.b.state === 'hitstun'; i += 1) {
+    airStun = step(airStun, 'idle', 'idle');
+    if (airStun.b.state === 'hitstun' && airStun.b.y < 0) stunAir += 1;
+  }
+  check('K19b 空中受击硬直保持到落地，不在空中切回中立',
+    stunAir > 8 && airStun.b.state === 'idle' && airStun.b.y === 0,
+    'airborneHeld=' + stunAir + ' landedState=' + airStun.b.state);
+
+  let airWake = createInitialState(11, 'air-wakeup', { a: 'gale', b: 'ember' });
+  airWake.a.x = 400;
+  airWake.b.x = 520;
+  airWake.b.state = 'knockdown';
+  airWake.b.wakeup = 4;
+  airWake.b.y = -120;
+  let wakeHeldInAir = true;
+  let groundedTicks = 0;
+  for (let i = 0; i < 60; i += 1) {
+    airWake = step(airWake, 'idle', 'idle');
+    if (airWake.b.y < 0 && airWake.b.wakeup !== 4) wakeHeldInAir = false;
+    if (airWake.b.y === 0 && airWake.b.state === 'knockdown') groundedTicks += 1;
+  }
+  check('K19c 起身时钟在空中暂停，落地后才数完并站起',
+    wakeHeldInAir && groundedTicks >= 3 && airWake.b.state === 'idle' && airWake.b.y === 0,
+    'held=' + wakeHeldInAir + ' floorTicks=' + groundedTicks + ' state=' + airWake.b.state);
 }
 
 /* 9 — projectile has its own box, block/hit resolved by overlap */
@@ -540,6 +574,42 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
   w = step(w, 'idle', 'idle');
   check('K38b 起身当帧即分离，不留一帧穿模', w.b.state === 'idle' && gapOf(w) >= -1,
     'state=' + w.b.state + ' gap=' + gapOf(w));
+}
+
+/* 39 — 升空弧线不被叠加：空中被 launch 击倒不能再给一次完整升力。 */
+{
+  const juggle = (attack) => {
+    let s = createInitialState(11, 'launch-juggle', { a: 'gale', b: 'gale' });
+    s.a.x = 430;
+    s.b.x = 500;
+    s.b.y = -80;
+    s.b.vy = -2;
+    s.b.state = 'jump';
+    let peak = 0, hits = 0;
+    for (let i = 0; i < 90; i += 1) {
+      s = step(s, attack && i % 24 === 0 ? attack : 'idle', 'idle');
+      if (s.b.y < peak) peak = s.b.y;
+      hits += s.events.filter((e) => e.type === 'hit').length;
+    }
+    return { peak, hits };
+  };
+  // 对照：同一空中状态但没人出招，身体只沿原有弧线走完。
+  const free = juggle(null);
+  const mashed = juggle('dp');
+  check('K39 空中被 launch 击倒不叠加升力（峰值不高于自由弧线）',
+    mashed.hits > 0 && mashed.peak >= free.peak - 2,
+    'free=' + free.peak.toFixed(1) + ' mashed=' + mashed.peak.toFixed(1) + ' hits=' + mashed.hits);
+
+  // 天花板：任何来源的上升都被夹在 AIR_CEILING 内，渲染层按同一预算留白。
+  let c = createInitialState(11, 'air-ceiling', { a: 'gale', b: 'gale' });
+  c.b.vy = -60;
+  let low = 0;
+  for (let i = 0; i < 60; i += 1) {
+    c = step(c, 'idle', 'idle');
+    if (c.b.y < low) low = c.b.y;
+  }
+  check('K39b 任何升力都被夹在 AIR_CEILING 内，头不会被画出舞台',
+    low >= -CONFIG.AIR_CEILING, 'minY=' + low + ' ceiling=' + -CONFIG.AIR_CEILING);
 }
 
 const failed = results.filter((r) => !r.ok);

@@ -6,9 +6,13 @@ import {
   assetFor, legacyArtUrl, loadFighterArt, loadManifest, loadStageArt, manifestReady, preloadFighters, variantFor,
 } from './asset-store.js';
 import { isEnabled as soundEnabled, play as playSound, setEnabled as setSoundEnabled } from './audio.js';
+import { createTeamUI } from './team.js';
 
 const $ = (id) => document.getElementById(id);
-const GROUND = 330;
+// Floor line in canvas px: above it is the airborne budget (jump peaks 112 px
+// with a ~204 px sprite, and the tallest raised-arm frame reaches 260 px above
+// the feet), so a shorter stage drew heads off the top.
+const GROUND = 440;
 const COLOR_A = '#35d6a4';
 const COLOR_B = '#5b8cff';
 const stageCanvas = $('stage');
@@ -43,7 +47,7 @@ const S = {
   galleryIO: null,
   configs: null,
   replay: { matchId: null, match: null, ticks: [], index: 0, timer: null },
-  tools: ['register_agent', 'update_strategy', 'submit_strategy', 'get_strategy_template', 'validate_strategy', 'simulate_strategy', 'get_rules', 'get_observation_schema', 'join_queue', 'create_room', 'join_room', 'list_rooms', 'list_fighters', 'get_my_matches', 'get_match_result', 'get_leaderboard', 'get_replay', 'get_agent_stats'],
+  tools: ['register_agent', 'update_strategy', 'submit_strategy', 'get_strategy_template', 'validate_strategy', 'simulate_strategy', 'get_rules', 'get_observation_schema', 'join_queue', 'create_room', 'join_room', 'set_team_order', 'list_rooms', 'list_fighters', 'get_my_matches', 'get_match_result', 'get_leaderboard', 'get_replay', 'get_agent_stats'],
 };
 
 const ACTION_LABEL = {
@@ -57,6 +61,7 @@ const EVENT_LABEL = {
   move_start: '出招', hitstop: '命中停顿',
 };
 const PHASE_LABEL = { startup: '起手', active: '判定', recovery: '收招', none: '可行动' };
+const REASON_LABEL = { ko: 'KO', time_up: '时间到', elimination: '全队淘汰' };
 const label = (a) => ACTION_LABEL[a] || (S.moves[a] && S.moves[a].label) || a;
 
 // Combo presentation: the stage canvas and the replay canvas each own one
@@ -131,6 +136,8 @@ function handleMessage(msg) {
       renderRoomBar();
       renderPresence();
       renderMatchHead();
+      teamUI.sync(msg.match);
+      teamUI.renderExhibition();
       renderBoard();
       renderReplayList();
       renderLobby();
@@ -164,7 +171,31 @@ function handleMessage(msg) {
       renderRoomBar();
       renderPresence();
       renderMatchHead();
+      teamUI.sync(msg.match);
       if (msg.leaderboard) { S.board = msg.leaderboard; renderBoard(); }
+      break;
+    case 'round_start':
+      S.match = msg.match;
+      ensureMatchFighters(msg.match);
+      S.frameQueue.length = 0;
+      // Frame indices restart every round, so the FX dedupe needs the same
+      // reset as a new match or the new round's impacts get swallowed.
+      stageFx.reset();
+      replayFx.reset();
+      impactFx.stage.reset();
+      impactFx.replay.reset();
+      S.current = msg.match.lastFrame;
+      renderMatchHead();
+      teamUI.onRoundStart(msg);
+      break;
+    case 'round_end':
+      teamUI.onRoundEnd(msg);
+      break;
+    case 'intermission':
+      teamUI.onIntermission(msg);
+      break;
+    case 'order_locked':
+      teamUI.onOrderLocked(msg);
       break;
     case 'tick':
       if (!S.match || msg.matchId !== S.match.matchId) break;
@@ -182,6 +213,7 @@ function handleMessage(msg) {
       appendCombat(msg.events);
       renderBudget(msg.budget);
       updateTickLabel(msg.tick, msg.hud);
+      teamUI.onTick(msg);
       break;
     case 'match_end':
       S.lastResult = { ...msg.result, matchId: msg.matchId };
@@ -189,7 +221,8 @@ function handleMessage(msg) {
       $('stageBadge').innerHTML = '<i></i>MATCH ENDED';
       if (msg.leaderboard) { S.board = msg.leaderboard; renderBoard(); }
       if (msg.recentMatches) { S.recent = msg.recentMatches; renderReplayList(); }
-      appendSystemEvent('对局结束 · ' + (msg.result.winnerName || msg.result.winner) + ' 胜出 · ' + (msg.result.reason === 'ko' ? 'KO' : '时间到'), 'ev-ko');
+      teamUI.onMatchEnd(msg);
+      appendSystemEvent('对局结束 · ' + (msg.result.winnerName || msg.result.winner) + ' 胜出 · ' + (REASON_LABEL[msg.result.reason] || msg.result.reason), 'ev-ko');
       break;
     default:
       break;
@@ -526,10 +559,8 @@ function drawSpriteBody(c, img, o) {
     // second for the whole stun, which read as a strobe artifact on top of the
     // pose flicker rather than a hit.
     if (hs > (track.prevHitstun || 0)) track.flashLeft = 3;
-    track.stunPeak = Math.max(track.stunPeak || 0, hs);
     track.prevHitstun = hs;
   } else {
-    track.stunPeak = 0;
     track.prevHitstun = 0;
     track.flashLeft = 0;
   }
@@ -562,9 +593,9 @@ function drawSpriteBody(c, img, o) {
     if (active) {
       // Motion ghost: dark and saturated. A brightened ghost is a white smear
       // that erases the pose it is supposed to repeat.
-      drawSprite(c, f, { gx: gx - 14 * dir, gy, globalFrame, track: {}, height: H, alpha: 0.18, tint: 'saturate(1.7) brightness(0.72)' });
+      drawSprite(c, f, { gx: gx - 14 * dir, gy, globalFrame, height: H, alpha: 0.18, tint: 'saturate(1.7) brightness(0.72)' });
     }
-    drawSprite(c, f, { gx, gy, globalFrame, track, height: H, tint });
+    drawSprite(c, f, { gx, gy, globalFrame, height: H, tint });
   } else {
   const sk = f.skeleton;
   const rigid = RIG_STATES[state] || !sk;
@@ -1069,11 +1100,15 @@ function draw(c, frame, match, canvas) {
   c.clearRect(0, 0, w, h);
   // Impact shake: a short zoom plus a jolt, so the frame edges never show
   // a gap while the scene is displaced.
-  const sh = S.showFx && frame ? fx.shake(frame) : { x: 0, y: 0 };
+  const sh = S.showFx && frame ? fx.shake(frame) : { x: 0, y: 0, amp: 0 };
   if (sh.x || sh.y) {
-    const amp = Math.min(0.05, (Math.abs(sh.x) + Math.abs(sh.y)) * 0.004);
+    // Zoom off the impulse envelope, never off the noise sample: deriving it
+    // from |x|+|y| put the whole frame between 1.00 and 1.05 by chance on
+    // neighbouring frames, which reads as the fighters themselves swelling
+    // and shrinking on every link of a combo rather than the camera kicking.
+    const zoom = 1 + Math.min(0.03, sh.amp * 0.0028);
     c.translate(w / 2, h / 2);
-    c.scale(1 + amp, 1 + amp);
+    c.scale(zoom, zoom);
     c.translate(-w / 2, -h / 2);
     c.translate(sh.x, sh.y);
   }
@@ -1266,15 +1301,32 @@ function drawResult(c, w, h, match) {
   c.restore();
 }
 
-function loop() {
-  // The server streams one snapshot per simulation frame (60/s). Present one
-  // queued snapshot per animation frame: skipping frames is exactly what makes
-  // a fighter look like it teleports, and painting several snapshots in a
-  // single rAF would only ever show the last one anyway.
+// The server streams one snapshot per simulation frame (60/s). Playback is
+// paced by wall time, not by rAF: one snapshot per animation frame only works
+// at exactly 60 Hz. On a 120 Hz panel it ran the match at double speed and
+// then sat empty half of every tick, and a dropped frame left the queue to be
+// skipped wholesale — both read as the fighters twitching.
+const FRAME_MS = 1000 / 60;
+let playClock = 0;
+let playTime = 0;
+function loop(now) {
+  const t = Number.isFinite(now) ? now : performance.now();
+  const dt = playTime ? Math.min(100, t - playTime) : FRAME_MS;
+  playTime = t;
   if (S.frameQueue.length) {
-    S.current = S.frameQueue.shift();
-    draw(ctx, S.current, S.match, stageCanvas);
-    renderHud(S.current);
+    playClock += dt;
+    let played = 0;
+    while (playClock >= FRAME_MS && S.frameQueue.length && played < 4) {
+      S.current = S.frameQueue.shift();
+      playClock -= FRAME_MS;
+      played += 1;
+    }
+    if (played) {
+      draw(ctx, S.current, S.match, stageCanvas);
+      renderHud(S.current);
+    }
+  } else {
+    playClock = 0;
   }
   requestAnimationFrame(loop);
 }
@@ -1318,6 +1370,12 @@ function renderRoomBar() {
   const m = S.match || {};
   const mode = m.mode || 'demo';
   const tag = $('roomTag');
+  if (m.format === 'team') {
+    tag.textContent = 'TEAM · 组队淘汰赛' + (m.code ? ' · ' + m.code : '');
+    tag.className = 'room-tag mode-team';
+    $('roomCopy').textContent = '3v3 组队淘汰 · 不计分 · 胜者回血 15% · 回合间各一次换人机会';
+    return;
+  }
   tag.textContent = (mode === 'demo' ? 'DEMO · 演示场' : mode === 'ranked' ? 'RANKED · 排位场' : 'SCRIM · 私房') + (m.code ? ' · ' + m.code : '');
   tag.className = 'room-tag mode-' + mode;
   $('roomCopy').textContent = mode === 'demo'
@@ -1363,10 +1421,11 @@ function renderLobby() {
     const b = r.b || null;
     return '<article class="room-card ' + r.status + (active ? ' watching' : '') + '">'
       + '<div class="rc-top"><span class="rc-mode mode-' + r.mode + '">' + (MODE_LABEL[r.mode] || r.mode) + '</span>'
+      + teamUI.roomBadge(r)
       + '<span class="rc-status ' + r.status + '">' + (STATUS_LABEL[r.status] || r.status) + '</span>'
       + '<span class="rc-score">' + (r.ranked ? '计分' : '不计分') + '</span></div>'
       + '<div class="rc-vs">' + sideHtml(a, '房主') + '<span class="rc-vs-mark">VS</span>' + sideHtml(b, '对手') + '</div>'
-      + '<div class="rc-meta"><span>' + (PAIRING_LABEL[r.pairing] || r.pairing) + '</span><span>·</span><span>TICK ' + r.tick + '</span><span>·</span><span>' + r.spectators + ' 人观战</span></div>'
+      + '<div class="rc-meta"><span>' + (PAIRING_LABEL[r.pairing] || r.pairing) + '</span><span>·</span><span>TICK ' + r.tick + '</span>' + teamUI.roomMeta(r) + '<span>·</span><span>' + r.spectators + ' 人观战</span></div>'
       + (r.code ? '<div class="rc-code mono">邀请码 ' + esc(r.code) + '</div>' : '')
       + '<div class="rc-foot"><span class="mono">' + esc(r.matchId || r.roomId) + '</span>'
       + '<button class="rc-watch" data-room="' + esc(r.roomId) + '">' + (active ? '正在观看' : '观战此房间') + '</button></div>'
@@ -1592,7 +1651,7 @@ function renderReplayList() {
     '<div class="match-item ' + (S.replay.matchId === m.matchId ? 'active' : '') + '" data-id="' + m.matchId + '">' +
     '<div class="mi-top"><span>' + escapeHtml(short(m.matchId, 18)) + '</span><span>' + m.ticks + ' 拍</span></div>' +
     '<div class="mi-names"><b>' + escapeHtml(m.a.name) + '</b> vs <span>' + escapeHtml(m.b.name) + '</span></div>' +
-    '<div class="mi-meta">胜 ' + escapeHtml(m.winnerName) + ' · ' + (m.reason === 'ko' ? 'KO' : '时间到') + ' · Δ ' + m.ratingDeltaA + '</div>' +
+    '<div class="mi-meta">' + (m.format === 'team' ? '3v3 组队 · ' : '') + '胜 ' + escapeHtml(m.winnerName) + ' · ' + (REASON_LABEL[m.reason] || m.reason) + ' · Δ ' + m.ratingDeltaA + '</div>' +
     '</div>'
   ).join('');
   list.querySelectorAll('.match-item').forEach((el) => el.addEventListener('click', () => selectReplay(el.dataset.id)));
@@ -1639,7 +1698,7 @@ function showReplayFrame(index) {
   draw(rctx, f, S.replay.match, replayCanvas);
   $('replayRange').value = String(index);
   $('replayTickLabel').textContent = String(index + 1).padStart(3, '0') + ' / ' + S.replay.ticks.length;
-  $('replayFrameLabel').textContent = 'FRAME ' + String(f.frame).padStart(4, '0') + ' · TICK ' + String(index).padStart(4, '0');
+  $('replayFrameLabel').textContent = 'FRAME ' + String(f.frame).padStart(4, '0') + ' · TICK ' + String(index).padStart(4, '0') + (t.round ? ' · ROUND ' + t.round : '');
   const events = $('replayEvents');
   const rows = [];
   rows.push('<div class="ev"><span class="ev-tick">' + String(index).padStart(3, '0') + '</span><div class="ev-body"><div class="ev-title">A → ' + label(t.actions.a) + '　·　B → ' + label(t.actions.b) + '</div><div class="ev-sub mono">' + t.actions.a + ' / ' + t.actions.b + '</div></div></div>');
@@ -1793,10 +1852,12 @@ async function init() {
     $('footSeason').textContent = st.server.season;
     renderRoomBar();
     renderMatchHead();
+    teamUI.sync(st.match);
     renderBoard();
     renderReplayList();
     renderLobby();
     renderFighters();
+    teamUI.renderExhibition();
     $('mcpConfig').textContent = '{\n  "mcpServers": {\n    "afl": {\n      "url": "' + location.origin + '/mcp"\n    }\n  }\n}';
     $('codeSample').textContent = $('codeSample').textContent.replace(/ws:\/\/localhost:8787\/ws\/agent/g, (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/agent');
     $('agentPrompt').textContent = $('agentPrompt').textContent.replace(/<站点>/g, location.origin);
@@ -1829,5 +1890,12 @@ async function init() {
     api('/api/state').then((st) => { $('spectatorCount').textContent = st.spectators; }).catch(() => {});
   }, 5000);
 }
+
+const teamUI = createTeamUI({
+  state: S,
+  switchRoom,
+  goLive: () => document.querySelector('.nav-btn[data-view="live"]').click(),
+  log: appendSystemEvent,
+});
 
 init();

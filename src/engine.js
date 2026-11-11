@@ -9,10 +9,10 @@ import {
 import { buildObservation, validateAction } from './protocol.js';
 import { stableStringify, createReplay, appendTick, hashObject } from './replay.js';
 
-function makeFighter(id, x, facing, fighterId = null) {
+function makeFighter(id, x, facing, fighterId = null, start = null) {
   const def = getFighter(fighterId || undefined);
   return {
-    id, hp: CONFIG.MAX_HP, meter: 0,
+    id, hp: start ? start.hp : CONFIG.MAX_HP, meter: start ? start.meter : 0,
     fighterId: def.id, kit: def.kit,
     x, y: 0, vx: 0, vy: 0, facing,
     state: 'idle', moveId: null, moveFrame: 0, hasHit: false,
@@ -30,7 +30,7 @@ function makeFighter(id, x, facing, fighterId = null) {
   };
 }
 
-export function createInitialState(seed = 1, matchId = 'local', fighters = {}) {
+export function createInitialState(seed = 1, matchId = 'local', fighters = {}, start = null) {
   return {
     matchId,
     frame: 0,
@@ -38,8 +38,8 @@ export function createInitialState(seed = 1, matchId = 'local', fighters = {}) {
     seed: seed >>> 0,
     rng: (seed >>> 0) || 1,
     fighters: { a: fighters.a || null, b: fighters.b || null },
-    a: makeFighter('a', 300, 1, fighters.a),
-    b: makeFighter('b', 660, -1, fighters.b),
+    a: makeFighter('a', 300, 1, fighters.a, start && start.a),
+    b: makeFighter('b', 660, -1, fighters.b, start && start.b),
     projectiles: [],
     hitstop: 0,
     superFlash: 0,
@@ -232,6 +232,7 @@ function physics(f) {
   f.x += f.vx;
   f.y += f.vy;
   if (f.y < 0) f.vy += CONFIG.GRAVITY;
+  if (f.y < -CONFIG.AIR_CEILING) f.y = -CONFIG.AIR_CEILING;
   if (f.y >= 0) {
     f.y = 0;
     f.vy = 0;
@@ -340,7 +341,7 @@ function applyDamage(s, atk, def, hb, atkSide, defSide) {
   if (hb.knockdown) {
     def.state = 'knockdown';
     def.wakeup = CONFIG.WAKEUP_FRAMES;
-    def.vy = hb.launch ? -7 : 0;
+    if (def.y >= 0) def.vy = hb.launch ? CONFIG.LAUNCH_VY : 0;
   }
   s.hitstop = Math.max(s.hitstop, hb.hitstop);
   const advantage = hb.hitstun - ((hb.moveTotal || totalFor(atk, hb.move)) - (atk.moveFrame || 0));
@@ -382,7 +383,7 @@ function resolveCounter(s, atk, def, hb, atkSide, defSide) {
   if (spec.knockdown) {
     atk.state = 'knockdown';
     atk.wakeup = CONFIG.WAKEUP_FRAMES;
-    atk.vy = spec.launch ? -7 : 0;
+    if (atk.y >= 0) atk.vy = spec.launch ? CONFIG.LAUNCH_VY : 0;
   }
   def.meter = Math.min(CONFIG.MAX_METER, def.meter + 30);
   s.hitstop = Math.max(s.hitstop, 8);
@@ -548,8 +549,16 @@ export function step(state, rawA, rawB) {
   let woke = false;
   for (const [side, f] of [['a', s.a], ['b', s.b]]) {
     if (f.hitstun > 0) {
-      f.hitstun -= 1;
-      if (f.hitstun === 0 && f.state === 'hitstun') f.state = 'idle';
+      // A launched victim can outlast its stun in the air. Expiring it up there
+      // dropped the fighter to idle mid-flight: the hurt drawing gave way to
+      // the jump loop and the landing carried no reaction. Hold the last stun
+      // frame until the body is back on the ground.
+      if (f.hitstun === 1 && f.state === 'hitstun' && f.y < 0) {
+        // held
+      } else {
+        f.hitstun -= 1;
+        if (f.hitstun === 0 && f.state === 'hitstun') f.state = 'idle';
+      }
     }
     if (f.blockstun > 0) {
       f.blockstun -= 1;
@@ -571,14 +580,21 @@ export function step(state, rawA, rawB) {
     }
     if (f.invuln > 0) f.invuln -= 1;
     if (f.wakeup > 0) {
-      f.wakeup -= 1;
-      if (f.wakeup === 0) {
-        f.state = 'idle';
-        f.vy = 0;
-        f.y = 0;
-        f.invuln = Math.max(f.invuln, CONFIG.WAKEUP_INVULN);
-        woke = true;
-        s.events.push({ frame: s.frame, type: 'wakeup', by: side });
+      // Hold the getup clock while a launched body is still in the air: it
+      // used to expire mid-flight, snap y to 0 and stand the fighter up in
+      // the sky. Floor time should only start on landing.
+      if (f.state === 'knockdown' && f.y < 0) {
+        // held
+      } else {
+        f.wakeup -= 1;
+        if (f.wakeup === 0) {
+          f.state = 'idle';
+          f.vy = 0;
+          f.y = 0;
+          f.invuln = Math.max(f.invuln, CONFIG.WAKEUP_INVULN);
+          woke = true;
+          s.events.push({ frame: s.frame, type: 'wakeup', by: side });
+        }
       }
     }
   }
@@ -662,16 +678,18 @@ export function renderState(state) {
   };
 }
 
-export function createMatch({ seed = 1, matchId = 'local', agents = [], fighters = {}, ticks = CONFIG.MATCH_TICKS, rulesVersion = CONFIG.RULES_VERSION } = {}) {
-  let state = createInitialState(seed, matchId, fighters);
+export function createMatch({ seed = 1, matchId = 'local', agents = [], fighters = {}, start = null, ticks = CONFIG.MATCH_TICKS, rulesVersion = CONFIG.RULES_VERSION } = {}) {
+  let state = createInitialState(seed, matchId, fighters, start);
   let tick = 0;
   let lastObsHash = { a: '', b: '' };
   const history = { a: [], b: [] };
   const replay = createReplay(matchId, seed, agents);
   replay.rulesVersion = rulesVersion;
   // Kits change frame data, so a replay is only reproducible with the same
-  // two fighters recorded alongside it.
+  // two fighters recorded alongside it. Team rounds additionally carry the
+  // hp/meter the round opened with.
   replay.fighters = { a: state.fighters.a, b: state.fighters.b };
+  replay.start = start;
 
   return {
     get state() { return state; },
@@ -683,9 +701,9 @@ export function createMatch({ seed = 1, matchId = 'local', agents = [], fighters
         ? { matchId, winner: state.winner, reason: state.reason, hpA: state.a.hp, hpB: state.b.hp, ticks: tick, frame: state.frame }
         : null;
     },
-    observations(deadlineMs = CONFIG.TICK_MS) {
-      const a = buildObservation(state, 'a', tick, deadlineMs, history.a, seed);
-      const b = buildObservation(state, 'b', tick, deadlineMs, history.b, seed);
+    observations(deadlineMs = CONFIG.TICK_MS, extra = null) {
+      const a = buildObservation(state, 'a', tick, deadlineMs, history.a, seed, extra);
+      const b = buildObservation(state, 'b', tick, deadlineMs, history.b, seed, extra);
       lastObsHash = { a: hashObject(a), b: hashObject(b) };
       return { a, b };
     },
@@ -737,7 +755,7 @@ export function runMatch({ seed = 1, matchId = 'local', policyA, policyB, defaul
 }
 
 export function renderReplay(replay) {
-  let state = createInitialState(replay.seed, replay.matchId, replay.fighters || {});
+  let state = createInitialState(replay.seed, replay.matchId, replay.fighters || {}, replay.start || null);
   const ticks = [];
   for (const rec of replay.ticks) {
     state.tick = rec.tick;
@@ -755,7 +773,7 @@ export function renderReplay(replay) {
 }
 
 export function replayMatch(replay) {
-  let state = createInitialState(replay.seed, replay.matchId, replay.fighters || {});
+  let state = createInitialState(replay.seed, replay.matchId, replay.fighters || {}, replay.start || null);
   const mismatches = [];
   for (const rec of replay.ticks) {
     if (stateHash(state) !== rec.stateHashBefore) {

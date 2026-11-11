@@ -114,7 +114,7 @@ main { max-width: 1460px; margin: 0 auto; padding: 22px 26px 40px; }
   position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
   background: #0d141d; line-height: 0;
 }
-#stage, #replayCanvas { display: block; width: 100%; height: auto; aspect-ratio: 960 / 420; }
+#stage, #replayCanvas { display: block; width: 100%; height: auto; aspect-ratio: 960 / 530; }
 .stage-topbar {
   position: absolute; top: 0; left: 0; right: 0; height: 40px;
   display: flex; justify-content: space-between; align-items: center; padding: 0 16px;

@@ -276,6 +276,21 @@ const server = http.createServer(async (req, res) => {
     res.end(text);
     return;
   }
+  if (p === '/api/team-exhibition' && req.method === 'POST') {
+    let args = {};
+    try { args = JSON.parse(await readBody(req) || '{}'); } catch { /* defaults */ }
+    try {
+      const room = manager.createExhibition({ teamA: args.teamA, teamB: args.teamB });
+      json(res, 200, {
+        roomId: room.id, code: room.code, format: 'team', team: room.teams,
+        watchUrl: '/?view=live&room=' + encodeURIComponent(room.id),
+        note: 'Exhibition: built-in agents pilot the teams you picked. Unranked.',
+      });
+    } catch (err) {
+      json(res, 400, { error: err.message });
+    }
+    return;
+  }
   if (p === '/api/token' && req.method === 'POST') {
     let args = {};
     try { args = JSON.parse(await readBody(req) || '{}'); } catch { /* defaults */ }

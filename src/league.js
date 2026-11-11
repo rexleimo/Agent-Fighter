@@ -9,6 +9,7 @@ import { OBSERVATION_JSON_SCHEMA } from './protocol.js';
 import { serializeReplay } from './replay.js';
 import { publicFighters, publicTeams, DEFAULT_FIGHTER, isValidFighter } from './fighters.js';
 import { validateStrategy, strategyHash, strategyTemplate, simulateStrategy, describeDsl, DSL_VERSION } from './strategy-dsl.js';
+import { normalizeTeam, TEAM_SIZE, TEAM_HEAL, TEAM_INTERMISSION_MS, TEAM_MAX_ROUNDS } from './team.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCALE = 173.7178;
@@ -181,8 +182,9 @@ export class League {
     return agent;
   }
 
-  registerAgent({ name, kind = 'rule', fighterId = DEFAULT_FIGHTER, source = 'external' } = {}) {
+  registerAgent({ name, kind = 'rule', fighterId = DEFAULT_FIGHTER, source = 'external', team = null } = {}) {
     if (!name || typeof name !== 'string') throw new Error('name is required');
+    const roster = team === null || team === undefined ? null : normalizeTeam(team);
     const id = 'usr_' + randomBytes(5).toString('hex');
     const token = 'ag_' + randomBytes(16).toString('hex');
     const versionHash = createHash('sha256').update(id + name).digest('hex').slice(0, 12);
@@ -194,6 +196,7 @@ export class League {
       track: kind === 'rule' ? 'rule_only' : 'open',
       description: source === 'hosted' ? '托管策略：由联赛服务端解释声明式规则' : '用户自带策略，通过 WebSocket 实时接入',
       fighterId: isValidFighter(fighterId) ? fighterId : DEFAULT_FIGHTER,
+      team: roster,
       versionHash,
       token,
       source: source === 'hosted' ? 'hosted' : 'external',
@@ -386,7 +389,7 @@ export class League {
     return [a, b];
   }
 
-  recordMatch({ matchId, agentA, agentB, result, replay, decisions, roomId = null, mode = 'ranked', ranked = true, fighters = null }) {
+  recordMatch({ matchId, agentA, agentB, result, replay, decisions, roomId = null, mode = 'ranked', ranked = true, fighters = null, format = 'single', team = null }) {
     const counted = ranked !== false;
     const scoreA = result.winner === 'a' ? 1 : result.winner === 'b' ? 0 : 0.5;
     const beforeA = { rating: agentA.rating, rd: agentA.rd, sigma: agentA.sigma };
@@ -423,6 +426,8 @@ export class League {
       b: { id: agentB.id, name: agentB.name, versionHash: agentB.versionHash, kind: agentB.kind, track: agentB.track, source: agentB.source, fighterId: (fighters && fighters.b) || agentB.fighterId || DEFAULT_FIGHTER, ratingBefore: Math.round(beforeB.rating) },
       roomId,
       mode,
+      format,
+      team: team || null,
       ranked: counted,
       fighters: fighters || { a: agentA.fighterId || DEFAULT_FIGHTER, b: agentB.fighterId || DEFAULT_FIGHTER },
       winner: result.winner,
@@ -438,7 +443,10 @@ export class League {
     };
     this.matches.push(match);
     this.matches = this.matches.slice(-200);
-    fs.writeFileSync(path.join(this.replayDir, matchId + '.jsonl'), serializeReplay(replay), 'utf8');
+    const replayText = replay && replay.format === 'afl-team-replay/1'
+      ? JSON.stringify(replay) + '\n'
+      : serializeReplay(replay);
+    fs.writeFileSync(path.join(this.replayDir, matchId + '.jsonl'), replayText, 'utf8');
     this.save();
     return match;
   }
@@ -524,6 +532,20 @@ export class League {
       moves,
       boxes: publicBoxData(),
       skills,
+      team: {
+        format: 'team',
+        size: TEAM_SIZE,
+        maxRounds: TEAM_MAX_ROUNDS,
+        healOnRoundWin: TEAM_HEAL,
+        intermissionMs: TEAM_INTERMISSION_MS,
+        rules: [
+          'Each side fields 3 distinct fighters in a chosen entry order.',
+          'A round ends on KO or time up (higher hp wins). The round loser\'s fighter is eliminated; a drawn round eliminates both current fighters.',
+          'The round winner\'s fighter recovers ' + TEAM_HEAL + ' hp (capped at ' + CONFIG.MAX_HP + ') and keeps its remaining hp and meter into the next round; benched fighters freeze.',
+          'Between rounds each side may reorder its alive pool ONCE (head enters next); silence keeps the order. External agents reply team_order over WS, anyone can call set_team_order during the window.',
+          'A side with no alive fighter loses the match; both empty at once is a draw. Team matches are unranked.',
+        ],
+      },
       note: 'One decision tick = 6 render frames at 60fps. Hits are resolved by AABB overlap of skeleton-anchored hitboxes against skeleton-derived hurtboxes, NOT by a distance check. Standing block loses to low, crouch block loses to high/overhead, throws are unblockable. Cancel a landed move inside frameData.cancelInto. The kernel never waits: a late act falls back to defaultAction.',
     };
   }

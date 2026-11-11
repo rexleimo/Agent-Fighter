@@ -5,102 +5,102 @@
     128,
     248
   ],
-  "generatedAt": "2026-11-10T00:25:19.098Z",
+  "generatedAt": "2026-11-11T05:37:07.800Z",
   "fighters": [
     {
       "id": "abyss",
-      "anim": "/assets/v/sprites/abyss/anim.2f4afb1fdedc.json",
-      "atlasBytes": 685722,
+      "anim": "/assets/v/sprites/abyss/anim.bd667cde33f7.json",
+      "atlasBytes": 732174,
       "clipCount": 23
     },
     {
       "id": "basalt",
-      "anim": "/assets/v/sprites/basalt/anim.071aed546f01.json",
-      "atlasBytes": 639752,
+      "anim": "/assets/v/sprites/basalt/anim.b07024aa2e97.json",
+      "atlasBytes": 729570,
       "clipCount": 23
     },
     {
       "id": "cinder",
-      "anim": "/assets/v/sprites/cinder/anim.14130e9150b1.json",
-      "atlasBytes": 744538,
+      "anim": "/assets/v/sprites/cinder/anim.f5b2c4b3e87d.json",
+      "atlasBytes": 779038,
       "clipCount": 23
     },
     {
       "id": "coral",
-      "anim": "/assets/v/sprites/coral/anim.83fd4c1b5f42.json",
-      "atlasBytes": 652032,
+      "anim": "/assets/v/sprites/coral/anim.3c9fd2c7555d.json",
+      "atlasBytes": 676958,
       "clipCount": 23
     },
     {
       "id": "ember",
-      "anim": "/assets/v/sprites/ember/anim.284702fcc686.json",
-      "atlasBytes": 747784,
+      "anim": "/assets/v/sprites/ember/anim.464eadf6ee74.json",
+      "atlasBytes": 786968,
       "clipCount": 23
     },
     {
       "id": "forge",
-      "anim": "/assets/v/sprites/forge/anim.f1b5d40c3cc9.json",
-      "atlasBytes": 527944,
+      "anim": "/assets/v/sprites/forge/anim.b820c4b87a41.json",
+      "atlasBytes": 662344,
       "clipCount": 23
     },
     {
       "id": "gale",
-      "anim": "/assets/v/sprites/gale/anim.ec193cbbb7d7.json",
-      "atlasBytes": 604790,
+      "anim": "/assets/v/sprites/gale/anim.a8f33c6831ec.json",
+      "atlasBytes": 637042,
       "clipCount": 23
     },
     {
       "id": "girder",
-      "anim": "/assets/v/sprites/girder/anim.5b53fe524de8.json",
-      "atlasBytes": 516874,
+      "anim": "/assets/v/sprites/girder/anim.4eb84db7b29c.json",
+      "atlasBytes": 593252,
       "clipCount": 23
     },
     {
       "id": "mist",
-      "anim": "/assets/v/sprites/mist/anim.7c20f885d364.json",
-      "atlasBytes": 696248,
+      "anim": "/assets/v/sprites/mist/anim.48e5784a6450.json",
+      "atlasBytes": 714180,
       "clipCount": 23
     },
     {
       "id": "noct",
-      "anim": "/assets/v/sprites/noct/anim.2a89958277b0.json",
-      "atlasBytes": 577994,
+      "anim": "/assets/v/sprites/noct/anim.7ac6acfa4641.json",
+      "atlasBytes": 649250,
       "clipCount": 23
     },
     {
       "id": "prism",
-      "anim": "/assets/v/sprites/prism/anim.11661a2abe8d.json",
-      "atlasBytes": 622752,
+      "anim": "/assets/v/sprites/prism/anim.dae8387889d8.json",
+      "atlasBytes": 713620,
       "clipCount": 23
     },
     {
       "id": "pyre",
-      "anim": "/assets/v/sprites/pyre/anim.e8be46b52c10.json",
-      "atlasBytes": 687386,
+      "anim": "/assets/v/sprites/pyre/anim.930164365b7f.json",
+      "atlasBytes": 752470,
       "clipCount": 23
     },
     {
       "id": "quartz",
-      "anim": "/assets/v/sprites/quartz/anim.3883026d62b2.json",
-      "atlasBytes": 460848,
+      "anim": "/assets/v/sprites/quartz/anim.2a9416769d4e.json",
+      "atlasBytes": 619304,
       "clipCount": 23
     },
     {
       "id": "slag",
-      "anim": "/assets/v/sprites/slag/anim.f9f843a700c4.json",
-      "atlasBytes": 796916,
+      "anim": "/assets/v/sprites/slag/anim.fead809db7ec.json",
+      "atlasBytes": 820640,
       "clipCount": 23
     },
     {
       "id": "tide",
-      "anim": "/assets/v/sprites/tide/anim.aa07fcf9e414.json",
-      "atlasBytes": 753560,
+      "anim": "/assets/v/sprites/tide/anim.a3f90b48f5df.json",
+      "atlasBytes": 773556,
       "clipCount": 23
     },
     {
       "id": "volt",
-      "anim": "/assets/v/sprites/volt/anim.74b1caadb08e.json",
-      "atlasBytes": 592974,
+      "anim": "/assets/v/sprites/volt/anim.b25810ad97ca.json",
+      "atlasBytes": 733810,
       "clipCount": 23
     }
   ]

@@ -80,9 +80,17 @@ export function createFx({ labelFor, colors = {} } = {}) {
     }
   }
 
-  /** Screen shake for the current frame. Deterministic: same frame, same jolt. */
+  /**
+   * Screen shake for the current frame. Deterministic: same frame, same jolt.
+   *
+   * The envelope is returned next to the offset on purpose. A caller that
+   * reads the jolt's magnitude off |x|+|y| is reading a noise *sample*, which
+   * lands anywhere between nothing and the full envelope on consecutive
+   * frames — good for the jolt, wrong for anything scaled, because it makes a
+   * zoom breathe at frame rate instead of easing back from the impact.
+   */
   function shake(frame) {
-    if (!frame) return { x: 0, y: 0 };
+    if (!frame) return { x: 0, y: 0, amp: 0 };
     const f = frame.frame;
     let amp = 0;
     // Hitstop freezes the simulation but not the clock: shaking during those
@@ -94,9 +102,9 @@ export function createFx({ labelFor, colors = {} } = {}) {
       if (age < 0 || age > im.life) continue;
       amp += im.amp * Math.pow(0.82, age);
     }
-    if (amp <= 0.01) return { x: 0, y: 0 };
+    if (amp <= 0.01) return { x: 0, y: 0, amp: 0 };
     amp = Math.min(amp, 11);
-    return { x: noise(f * 1.7) * amp, y: noise(f * 2.3 + 411) * amp * 0.55 };
+    return { x: noise(f * 1.7) * amp, y: noise(f * 2.3 + 411) * amp * 0.55, amp };
   }
 
   const CHAIN_MAX = 6;

@@ -44,6 +44,11 @@ const ROOMS_MD = [
   '| demo | 内置 Agent 轮转，永不停 | 否 | 首页默认观战大屏 |',
   '| ranked | 同赛道 + rating 就近；等待 3 秒无人则配 rating 最接近的内置陪练 | 是（Glicko-2） | 正式排名 |',
   '| scrim | create_room 拿房间码，对手 join_room 加入；45 秒无人则配陪练 | 否 | 约战、调策略 |',
+  '| team | create_room(format="team") 拿房间码，对手 join_room 带自己的 3 人队加入 | 否 | 拳皇式 3v3 淘汰赛 |',
+  '',
+  '组队淘汰赛：每方 3 名不同角色按顺序出场；回合败者角色阵亡（平局回合双方都阵亡）；',
+  '胜方当局角色回血 15% 并携带剩余血/气进入下一回合；回合间 8 秒休息窗内每方可重排一次存活出场顺序',
+  '（set_team_order 或 WS team_order），不提交保持原序；一方无人可战即输。',
   '',
   '排位强制镜像角色（双方同为晶衡 quartz），保证榜单比较的是策略而非角色强度。',
   '私房允许双方使用不同角色。',
@@ -149,18 +154,34 @@ export function createMCPHandler(league, manager = null) {
       const agent = league.agentByToken(args.token);
       if (!agent) throw new Error('invalid token');
       if (args.fighterId && isValidFighter(args.fighterId)) agent.fighterId = args.fighterId;
-      const room = manager.createScrim(agent);
+      const format = args.format === 'team' ? 'team' : 'single';
+      const room = manager.createScrim(agent, { format, team: args.team || null });
       return {
-        roomId: room.id, code: room.code, mode: 'scrim', ranked: false,
+        roomId: room.id, code: room.code, mode: 'scrim', format, ranked: false,
         status: 'waiting', watchUrl: '/?view=live&room=' + encodeURIComponent(room.id),
-        note: 'Share this code. The opponent calls join_room with their own token. Unranked.',
+        team: room.teams ? room.teams.a : null,
+        note: format === 'team'
+          ? 'Team elimination. Share this code; the opponent calls join_room with their own 3-fighter team. Unranked.'
+          : 'Share this code. The opponent calls join_room with their own token. Unranked.',
       };
     },
     join_room: (args) => {
       const agent = league.agentByToken(args.token);
       if (!agent) throw new Error('invalid token');
-      const room = manager.joinScrim(agent, args.roomCode);
-      return { joined: true, roomId: room.id, code: room.code, mode: 'scrim', ranked: false, opponent: room.aAgent.name, watchUrl: '/?view=live&room=' + encodeURIComponent(room.id) };
+      const room = manager.joinScrim(agent, args.roomCode, { team: args.team || null });
+      return { joined: true, roomId: room.id, code: room.code, mode: 'scrim', format: room.format, ranked: false, opponent: room.aAgent.name, watchUrl: '/?view=live&room=' + encodeURIComponent(room.id) };
+    },
+    set_team_order: (args) => {
+      const agent = league.agentByToken(args.token);
+      if (!agent) throw new Error('invalid token');
+      const room = manager.rooms.get(manager.agentRoom.get(agent.id));
+      if (!room || !room.current || room.current.a.id !== agent.id && room.current.b.id !== agent.id) {
+        throw new Error('you are not in a live match');
+      }
+      const side = room.current.a.id === agent.id ? 'a' : 'b';
+      const out = room.submitOrder(side, args.order);
+      if (!out.ok) throw new Error(out.reason + (out.expected ? '; alive pool: ' + out.expected.join(',') : ''));
+      return { ...out, side, roomId: room.id, round: room.current.team.round };
     },
     list_rooms: () => ({ rooms: manager.listRooms(), lobby: manager.state(), note: 'demo = built-in showcase, ranked = ELO ladder, scrim = private unranked room.' }),
     get_match_result: (args) => league.getMatchResult(args.matchId),
@@ -168,6 +189,11 @@ export function createMCPHandler(league, manager = null) {
     get_replay: (args) => {
       const text = league.getReplay(args.matchId);
       if (text === null) throw new Error('replay not found: ' + args.matchId);
+      let envelope = null;
+      try { envelope = JSON.parse(text); } catch { /* single-round JSONL */ }
+      if (envelope && envelope.format === 'afl-team-replay/1') {
+        return { matchId: args.matchId, format: 'afl-team-replay/1', json: text };
+      }
       return { matchId: args.matchId, format: 'afl-replay/1', jsonl: text };
     },
     get_agent_stats: (args) => league.getAgentStats(args.agentId),

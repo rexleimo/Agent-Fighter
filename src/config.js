@@ -28,6 +28,15 @@ export const CONFIG = Object.freeze({
   COMBO_FRAMES: 90,
   JUMP_VY: -15,
   JUMP_VX: 4,
+  // Knockdown launch impulse. A grounded body only: applied in mid-air it
+  // restarted the rise from wherever the victim already was, so each juggle hit
+  // lifted the fighter another arc until the sprite left the stage.
+  LAUNCH_VY: -7,
+  // Highest a body can be above the floor. The stage draws the sprite cell 253px
+  // above the feet, so this plus GROUND has to stay inside the canvas; verify-
+  // render locks that arithmetic. A jump peaks at 112, so the clamp only ever
+  // fires on a mis-tuned impulse.
+  AIR_CEILING: 170,
   WALK_F: 4,
   WALK_B: 3,
   DASH_F: 13,

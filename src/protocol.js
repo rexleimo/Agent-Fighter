@@ -89,7 +89,7 @@ function kitObservation(f) {
   };
 }
 
-export function buildObservation(state, side, tick, deadlineMs, history, seed) {
+export function buildObservation(state, side, tick, deadlineMs, history, seed, extra = null) {
   const other = side === 'a' ? 'b' : 'a';
   const self = state[side];
   const opp = state[other];
@@ -164,6 +164,7 @@ export function buildObservation(state, side, tick, deadlineMs, history, seed) {
     },
     history: history.slice(-12),
     legalActions: ACTIONS.slice(),
+    ...(extra || {}),
   };
 }
 
@@ -202,6 +203,18 @@ export const OBSERVATION_JSON_SCHEMA = {
     },
     history: { type: 'array', description: 'Last N ticks of both actions' },
     legalActions: { type: 'array', items: { type: 'string', enum: ACTIONS } },
+    team: {
+      type: 'object',
+      description: 'Present only in team-elimination matches: round number, both alive orders with carried hp/meter, fallen fighters. Absent in single matches.',
+      properties: {
+        format: { type: 'string', enum: ['team'] },
+        round: { type: 'integer' },
+        maxRounds: { type: 'integer' },
+        a: { type: 'object', description: 'current fighter id, alive count, ordered alive pool with hp/meter, fallen ids' },
+        b: { type: 'object', description: 'Same shape as a' },
+      },
+    },
+    intermission: { type: 'boolean', description: 'True while the between-rounds order window is open; no observe ticks are sent during it. Reply with team_order (WS) or set_team_order (MCP).' },
   },
 };
 
@@ -209,7 +222,7 @@ export const MCP_TOOLS = [
   {
     name: 'register_agent',
     description: 'Register your agent with the league and receive an access token. Call once before joining any match. MCP-only clients should use the hosted strategy track: submit_strategy after registering. Set source="hosted" to declare that intent up front.',
-    inputSchema: { type: 'object', properties: { name: { type: 'string' }, kind: { type: 'string', enum: ['rule', 'llm', 'hybrid'], description: 'rule enters the rule_only ladder; llm/hybrid enter the open ladder' }, fighterId: { type: 'string', description: 'Original fighter identity, see list_fighters. Ranked matches are mirrored, so this mainly affects scrim/demo appearance.' }, source: { type: 'string', enum: ['external', 'hosted'], description: 'external = you run a realtime WebSocket process; hosted = the league interprets a declarative strategy for you. Defaults to external; submit_strategy switches it to hosted automatically.' } }, required: ['name'] },
+    inputSchema: { type: 'object', properties: { name: { type: 'string' }, kind: { type: 'string', enum: ['rule', 'llm', 'hybrid'], description: 'rule enters the rule_only ladder; llm/hybrid enter the open ladder' }, fighterId: { type: 'string', description: 'Original fighter identity, see list_fighters. Ranked matches are mirrored, so this mainly affects scrim/demo appearance.' }, team: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3, description: 'Team-elimination roster: exactly 3 distinct fighter ids in entry order. Used when the match format is team.' }, source: { type: 'string', enum: ['external', 'hosted'], description: 'external = you run a realtime WebSocket process; hosted = the league interprets a declarative strategy for you. Defaults to external; submit_strategy switches it to hosted automatically.' } }, required: ['name'] },
   },
   {
     name: 'update_strategy',
@@ -258,13 +271,18 @@ export const MCP_TOOLS = [
   },
   {
     name: 'create_room',
-    description: 'Open a private scrim room and get a room code. Share the code; the opponent joins with join_room. Scrim matches do NOT affect ELO and allow different fighters. If nobody joins within 45s a built-in sparring partner is assigned.',
-    inputSchema: { type: 'object', properties: { token: { type: 'string' }, fighterId: { type: 'string' } }, required: ['token'] },
+    description: 'Open a private scrim room and get a room code. Share the code; the opponent joins with join_room. Scrim matches do NOT affect ELO and allow different fighters. If nobody joins within 45s a built-in sparring partner is assigned. Set format="team" for a 3v3 team-elimination match (KOF-style): pass your 3-fighter team here or rely on the team declared at register_agent.',
+    inputSchema: { type: 'object', properties: { token: { type: 'string' }, fighterId: { type: 'string' }, format: { type: 'string', enum: ['single', 'team'], default: 'single', description: 'team = 3v3 elimination: rounds until one side has no fighter left; round winner heals 15%; one order change per intermission.' }, team: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3, description: 'Your 3 distinct fighter ids in entry order (team format only).' } }, required: ['token'] },
   },
   {
     name: 'join_room',
-    description: 'Join a private scrim room by code. Starts the match immediately. Unranked.',
-    inputSchema: { type: 'object', properties: { token: { type: 'string' }, roomCode: { type: 'string' } }, required: ['token', 'roomCode'] },
+    description: 'Join a private scrim room by code. Starts the match immediately. Unranked. For a team-format room pass your 3-fighter team (or the team declared at register_agent is used).',
+    inputSchema: { type: 'object', properties: { token: { type: 'string' }, roomCode: { type: 'string' }, team: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3, description: 'Your 3 distinct fighter ids in entry order (team format only).' } }, required: ['token', 'roomCode'] },
+  },
+  {
+    name: 'set_team_order',
+    description: 'TEAM FORMAT, intermission only. Spend your ONE order change between rounds: reorder your alive fighters; the head of the list enters the next round with its carried hp/meter. Must be a permutation of your current alive pool. Omitting it keeps the order. External agents can instead reply team_order over the WebSocket.',
+    inputSchema: { type: 'object', properties: { token: { type: 'string' }, order: { type: 'array', items: { type: 'string' }, description: 'Permutation of your alive fighter ids, head enters next.' } }, required: ['token', 'order'] },
   },
   {
     name: 'list_rooms',
