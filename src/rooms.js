@@ -75,7 +75,7 @@ export class Room {
     this.mode = mode;                 // demo | ranked | scrim
     this.code = code;
     this.ranked = ranked;             // scrim/demo results do not touch ELO
-    this.pairing = pairing;           // showcase | rating | code | sparring | exhibition
+    this.pairing = pairing;           // showcase | rating | code | sparring (the only values the matchmaker produces)
     this.format = format;             // single | team (3v3 elimination)
     this.teams = teams;               // { a: [3 ids], b: [3 ids] } for team format
     this.league = league;
@@ -327,7 +327,12 @@ export class Room {
     for (const side of ['a', 'b']) {
       const agent = c[side];
       const conn = this.agentConns.get(agent.id);
-      if (conn && agent.source === 'external') {
+      // Same predicate as the observe path: whoever is driven tick by tick over
+      // the wire is whoever must be told the intermission window opened. Using
+      // source === 'external' here instead meant a registered player who pilots
+      // over WS - hosted, but no strategy submitted yet - got every observe and
+      // no reorder window at all.
+      if (conn && isRemoteSide(agent)) {
         conn.send({
           type: 'intermission', matchId: c.matchId, round: c.team.round, side,
           deadlineMs: TEAM_INTERMISSION_MS, team: teamView(c.team),
@@ -653,25 +658,30 @@ export class RoomManager {
       versionHash: agent.versionHash, tickMs: CONFIG.TICK_MS,
       defaultAction: agent.defaultAction,
       mode,
-      message: agent.source === 'hosted'
-        ? 'Hosted strategy detected: the league will run your strategy server-side. No realtime connection needed.'
-        : 'Queued. You will receive observe messages each tick; reply with act before deadlineMs.',
+      // Truthful, and keyed off the same predicate the tick loop uses: a hosted
+      // agent only stops needing realtime once a strategy is actually on file.
+      message: isRemoteSide(agent)
+        ? 'Queued. You will receive observe messages each tick; reply with act before deadlineMs.'
+        : 'Hosted strategy on file: the league runs your strategy server-side, so no realtime connection is needed. Your team_order / set_team_order calls still work here.',
     });
     conn.onMessage = (msg) => {
       if (msg.type === 'act' || msg.type === 'team_order') this.onAct(conn, msg);
     };
     conn.onClose = () => this.onAgentDisconnect(conn);
-    if (agent.source !== 'hosted') {
-      // MCP create_room / join_room may already have seated this agent in a
-      // room. A bare WebSocket connect must resume that room (and restore act
-      // routing), not queue a second, ranked match for the same agent.
-      const assigned = this.rooms.get(this.agentRoom.get(agent.id));
-      if (assigned && ['waiting', 'running', 'intermission'].includes(assigned.status)) {
-        conn.meta.roomId = assigned.id;
-        const seated = this.waiting.find((w) => w.agentId === agent.id);
-        if (seated) seated.conn = conn;
-        return;
-      }
+    // MCP create_room / join_room may already have seated this agent in a room.
+    // A bare WebSocket connect must resume that room for ANY agent, including a
+    // hosted one: onAct() drops every act and team_order whose conn has no
+    // roomId, so gating this on source === 'hosted' meant a registered player
+    // (hosted by default) who pilots over WS received observes but had all of
+    // their replies silently discarded - the match ran on timeouts alone.
+    const assigned = this.rooms.get(this.agentRoom.get(agent.id));
+    if (assigned && ['waiting', 'running', 'intermission'].includes(assigned.status)) {
+      conn.meta.roomId = assigned.id;
+      const seated = this.waiting.find((w) => w.agentId === agent.id);
+      if (seated) seated.conn = conn;
+      return;
+    }
+    if (isRemoteSide(agent)) {
       // A prior MCP join_queue may already have queued this agent (e.g. with a
       // scrim code). Keep that entry and just attach the live connection.
       const existing = this.waiting.find((w) => w.agentId === agent.id);

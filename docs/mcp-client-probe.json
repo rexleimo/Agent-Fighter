@@ -1,27 +1,27 @@
 {
-  "generatedAt": "2026-11-11T11:52:17.935Z",
+  "generatedAt": "2026-11-12T15:25:18.148Z",
   "base": "http://127.0.0.1:8787",
   "client": "official @modelcontextprotocol/sdk Client + StreamableHTTPClientTransport",
   "checks": [
     {
       "name": "M1 官方 MCP SDK 完成 initialize + notifications/initialized 握手",
       "ok": true,
-      "detail": "server=agent-fighting-league v0.2.0 sdk=1.32.2"
+      "detail": "server=agent-fighting-league v0.9.0 sdk=1.32.2"
     },
     {
       "name": "M2 标准 tools/list + resources/list + prompts/list 可用",
       "ok": true,
-      "detail": "tools=20 resources=9 prompts=4"
+      "detail": "tools=26 resources=11 prompts=4"
     },
     {
       "name": "M3 resources/read + prompts/get 返回真实内容",
       "ok": true,
-      "detail": "skillBytes=11840 rulesMoves=13"
+      "detail": "skillBytes=13558 rulesMoves=13"
     },
     {
       "name": "M4 tools/call register_agent 签发真实 token",
       "ok": true,
-      "detail": "agentId=usr_17c141ed34 token=ag_d554b…"
+      "detail": "agentId=usr_aa275a… token=ag_31e8e…"
     },
     {
       "name": "M5 get_rules 返回 19 动作 + 权威判定框数据",
@@ -41,49 +41,49 @@
     {
       "name": "M8 join_queue 真的进入排位队列并开出房间",
       "ok": true,
-      "detail": "queuePosition=1 roomId=r_mwc266do_3 opponent=Blue Wave"
+      "detail": "queuePosition=1 roomId=r_mwdoyod6_3 opponent=Blue Wave"
     },
     {
       "name": "M9 托管策略真的打完一整局并写入战绩",
       "ok": true,
-      "detail": "matchId=r_mwc266do_3_mwc27d0e_10 ticks=219 result=draw reason=ko"
+      "detail": "matchId=r_mwdoyod6_3_mwdp8js6_13 ticks=219 result=draw reason=ko"
     },
     {
       "name": "M10 WebSocket 观战收到服务端实拍 tick（非前端造数）",
       "ok": true,
-      "detail": "demoTicks=200 rankedTicks=218"
+      "detail": "demoTicks=55 rankedTicks=600"
     },
     {
       "name": "M11 默认观战页血量真实变化、有技能动作（内置策略，非外部 AI）",
       "ok": true,
-      "detail": "hp {\"hpA\":1000,\"hpB\":1000} -> {\"hpA\":18,\"hpB\":0} skillActions=95"
+      "detail": "hp {\"hpA\":433,\"hpB\":175} -> {\"hpA\":261,\"hpB\":0} skillActions=31"
     },
     {
       "name": "M12 回放状态哈希链逐拍一致（确定性内核，非随机数）",
       "ok": true,
-      "detail": "ticks=219 mismatches=0 seed=2219602392 events=177"
+      "detail": "ticks=600 mismatches=0 seed=3926162631 events=264"
     },
     {
       "name": "M13 回放里出现技能 / 血量下降 / 明确胜负",
       "ok": true,
-      "detail": "skills={\"fireball\":62,\"super\":2} hpSum 2000->0 winner=draw"
+      "detail": "skills={\"fireball\":52,\"dash\":3,\"super\":2} hpSum 2000->935 winner=a"
     },
     {
       "name": "M14 观战页 WS 帧 == 回放离线重算帧（页面数字可复现）",
       "ok": true,
-      "detail": "compared=218 identical=218"
+      "detail": "compared=600 identical=600"
     },
     {
-      "name": "M15 战绩计入 Glicko-2 积分与榜单",
+      "name": "M15 战绩与榜单口径一致（排位局计分；官方陪练局真实但不计榜）",
       "ok": true,
-      "detail": "matches=1 rating=1500 wins=0 losses=0 draws=1"
+      "detail": "不计榜(sparring) matches=0 practice=14 rating=1500 delta=0"
     }
   ],
   "evidence": {
     "handshake": {
       "serverInfo": {
         "name": "agent-fighting-league",
-        "version": "0.2.0"
+        "version": "0.9.0"
       },
       "capabilities": {
         "prompts": {
@@ -97,11 +97,13 @@
           "listChanged": false
         }
       },
-      "transport": "Streamable HTTP (POST /mcp)"
+      "transport": "Streamable HTTP (POST /mcp/<player key>)",
+      "probed": "player-service"
     },
     "capabilities": {
       "tools": [
         "register_agent",
+        "get_my_profile",
         "update_strategy",
         "get_rules",
         "get_observation_schema",
@@ -111,6 +113,11 @@
         "get_strategy_template",
         "validate_strategy",
         "simulate_strategy",
+        "get_cost_model",
+        "list_drills",
+        "start_training",
+        "compare_strategies",
+        "get_training_report",
         "list_fighters",
         "create_room",
         "join_room",
@@ -130,6 +137,8 @@
         "afl://observation-schema",
         "afl://fighters",
         "afl://rooms",
+        "afl://costs",
+        "afl://training",
         "afl://onboarding",
         "afl://troubleshooting"
       ],
@@ -175,69 +184,83 @@
       "note": "离线模拟，不是排行榜数据"
     },
     "spectate": {
-      "demoRoomTicks": 200,
+      "demoRoomTicks": 55,
       "demoHelloPresence": {
         "onlineAgents": 0,
-        "waiting": 0,
-        "spectators": 2,
+        "waiting": 1,
+        "spectators": 1,
         "totalRooms": 3,
         "finishedRooms": 1,
-        "queue": []
+        "queue": [
+          {
+            "agentId": "usr_aa275a…",
+            "name": "Independent MCP Probe",
+            "team": null,
+            "mode": "ranked",
+            "format": "single",
+            "source": "hosted",
+            "rating": 1500,
+            "waitingMs": 5
+          }
+        ]
       },
-      "rankedRoomTicks": 218
+      "rankedRoomTicks": 600
     },
     "demoRoom": {
       "actions": {
-        "dash": 13,
-        "crouch": 13,
-        "walk_f": 73,
-        "walk_b": 9,
-        "special": 13,
-        "block": 131,
-        "throw": 16,
-        "super": 17,
-        "lp": 21,
-        "lk": 12,
-        "mk": 11,
-        "mp": 14,
-        "fireball": 11,
-        "dp": 15,
-        "ex": 10,
-        "jump": 9,
-        "hk": 6,
-        "hp": 6
+        "block": 49,
+        "walk_f": 4,
+        "crouch": 4,
+        "fireball": 9,
+        "dp": 4,
+        "lp": 5,
+        "super": 5,
+        "mp": 4,
+        "mk": 1,
+        "walk_b": 2,
+        "hp": 4,
+        "dash": 3,
+        "ex": 7,
+        "hk": 2,
+        "throw": 2,
+        "jump": 4,
+        "special": 1
       },
       "firstHp": {
-        "hpA": 1000,
-        "hpB": 1000
+        "hpA": 433,
+        "hpB": 175
       },
       "lastHp": {
-        "hpA": 18,
+        "hpA": 261,
         "hpB": 0
       },
       "hpChanged": true,
-      "skillActions": 95
+      "skillActions": 31
     },
     "match": {
-      "matchId": "r_mwc266do_3_mwc27d0e_10",
-      "result": "draw",
-      "reason": "ko",
-      "winner": "draw",
-      "hpA": 0,
-      "hpB": 0,
-      "ticks": 219,
-      "seed": 2219602392,
+      "matchId": "r_mwdoyod6_3_mwdp96lh_14",
+      "result": "win",
+      "reason": "time_up",
+      "winner": "a",
+      "hpA": 852,
+      "hpB": 83,
+      "ticks": 600,
+      "seed": 3926162631,
       "stateHashMismatches": 0,
       "actionCounts": {
-        "fireball": 62,
-        "block": 374,
-        "super": 2
+        "fireball": 52,
+        "dash": 3,
+        "block": 1014,
+        "mp": 106,
+        "super": 2,
+        "hp": 23
       },
       "skillActions": {
-        "fireball": 62,
+        "fireball": 52,
+        "dash": 3,
         "super": 2
       },
-      "events": 177,
+      "events": 264,
       "hpStart": {
         "tick": 0,
         "hpA": 1000,
@@ -246,100 +269,126 @@
         "meterB": 0
       },
       "hpEnd": {
-        "tick": 218,
-        "hpA": 0,
-        "hpB": 0,
-        "meterA": 264,
-        "meterB": 64
+        "tick": 599,
+        "hpA": 852,
+        "hpB": 83,
+        "meterA": 300,
+        "meterB": 12
       },
       "ratingDelta": 0
     },
     "frameParity": {
-      "compared": 218,
-      "identical": 218,
+      "compared": 600,
+      "identical": 600,
       "firstDiff": null
     },
     "ranking": {
       "leaderboardTop": [
         {
           "rank": 1,
-          "id": "demo_hosted",
-          "name": "Hosted Baseline",
-          "label": "托管策略基线",
-          "kind": "rule",
-          "track": "rule_only",
-          "source": "hosted",
-          "versionHash": "d80b2807e6f6",
-          "fighterId": "quartz",
-          "team": null,
-          "rating": 1595,
-          "rd": 127,
-          "matches": 10,
-          "wins": 1,
-          "losses": 0,
-          "draws": 9,
-          "winRate": 10,
-          "modelCallsPerMatch": 0,
-          "timeouts": 0
-        },
-        {
-          "rank": 2,
-          "id": "usr_f6a8108f82",
-          "name": "Independent MCP Probe",
+          "id": "usr_1a4028…",
+          "name": "Rex React 的 Agent",
           "label": "我的 Agent",
           "kind": "rule",
           "track": "rule_only",
           "source": "hosted",
-          "versionHash": "d80b2807e6f6",
+          "versionHash": "473bf4b9eb90",
           "fighterId": "quartz",
           "team": null,
-          "rating": 1593,
-          "rd": 128,
-          "matches": 9,
+          "teamName": null,
+          "rating": 1500,
+          "rd": 350,
+          "matches": 0,
           "wins": 0,
           "losses": 0,
-          "draws": 9,
-          "winRate": 0,
-          "modelCallsPerMatch": 0,
-          "timeouts": 0
+          "draws": 0,
+          "practiceMatches": 0,
+          "trainingRuns": 0,
+          "winRate": null,
+          "cost": {
+            "modelCallsPerMatch": 0,
+            "declaredModelCalls": 0,
+            "timeouts": 0,
+            "budgetExceeded": 0,
+            "hostedTicksEvaluated": 0
+          }
+        },
+        {
+          "rank": 2,
+          "id": "usr_5cf922…",
+          "name": "联赛管理员 的 Agent",
+          "label": "我的 Agent",
+          "kind": "rule",
+          "track": "rule_only",
+          "source": "hosted",
+          "versionHash": "91ecc354b939",
+          "fighterId": "quartz",
+          "team": null,
+          "teamName": null,
+          "rating": 1500,
+          "rd": 350,
+          "matches": 0,
+          "wins": 0,
+          "losses": 0,
+          "draws": 0,
+          "practiceMatches": 0,
+          "trainingRuns": 0,
+          "winRate": null,
+          "cost": {
+            "modelCallsPerMatch": 0,
+            "declaredModelCalls": 0,
+            "timeouts": 0,
+            "budgetExceeded": 0,
+            "hostedTicksEvaluated": 0
+          }
         },
         {
           "rank": 3,
-          "id": "zoner",
-          "name": "Blue Wave",
-          "label": "波动牵制",
+          "id": "usr_6b8157…",
+          "name": "联赛管理员 的 Agent",
+          "label": "我的 Agent",
           "kind": "rule",
           "track": "rule_only",
-          "source": "builtin",
-          "versionHash": "d7815792e3da",
+          "source": "hosted",
+          "versionHash": "be8687248b04",
           "fighterId": "quartz",
-          "team": [
-            "tide",
-            "gale",
-            "quartz"
-          ],
+          "team": null,
+          "teamName": null,
           "rating": 1500,
-          "rd": 290,
-          "matches": 1,
+          "rd": 350,
+          "matches": 0,
           "wins": 0,
           "losses": 0,
-          "draws": 1,
-          "winRate": 0,
-          "modelCallsPerMatch": 0,
-          "timeouts": 0
+          "draws": 0,
+          "practiceMatches": 0,
+          "trainingRuns": 0,
+          "winRate": null,
+          "cost": {
+            "modelCallsPerMatch": 0,
+            "declaredModelCalls": 0,
+            "timeouts": 0,
+            "budgetExceeded": 0,
+            "hostedTicksEvaluated": 0
+          }
         }
       ],
       "stats": {
-        "id": "usr_17c141ed34",
+        "id": "usr_aa275a…",
         "name": "Independent MCP Probe",
         "rating": 1500,
-        "rd": 290,
-        "matches": 1,
+        "rd": 350,
+        "matches": 0,
         "wins": 0,
         "losses": 0,
-        "draws": 1,
+        "draws": 0,
+        "practiceMatches": 14,
+        "competitor": true,
+        "official": false,
         "modelCalls": 0,
         "timeouts": 0,
+        "budgetExceeded": 0,
+        "hostedTicksEvaluated": 4443,
+        "trainingRuns": 0,
         "versionHash": "d80b2807e6f6",
         "strategyHash": "d80b2807e6f62c30",
         "strategyNote": "anti-air-zoner",
@@ -351,14 +400,13 @@
         "strategyName": "anti-air-zoner",
         "ruleCount": 10,
         "autoRequeue": true,
-        "history": [
-          {
-            "matchId": "r_mwc266do_3_mwc27d0e_10",
-            "result": "draw",
-            "reason": "ko",
-            "rating": 1500
-          }
-        ]
+        "history": []
+      },
+      "classification": {
+        "ranked": false,
+        "practice": true,
+        "pairing": "sparring",
+        "opponentOfficial": true
       }
     }
   },
@@ -369,5 +417,6 @@
     "passed": 15,
     "failed": 0,
     "connected": true
-  }
+  },
+  "redaction": "MCP keys and agent tokens are truncated to their first 6 payload characters."
 }

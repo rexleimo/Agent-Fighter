@@ -8,9 +8,24 @@ export async function mcpCall(endpoint, method, params = {}, id = 1) {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
   });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.result;
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch { data = null; }
+  if (data && data.error) {
+    // Accept both shapes a server may use: a JSON-RPC error object (spec) or a
+    // bare { error: "..." } (this league's REST routes). Never surface an empty
+    // message - that is how a clear 401 turned into "Error" with no text.
+    const e = data.error;
+    const why = (e && typeof e === 'object' ? (e.message || JSON.stringify(e)) : String(e))
+      || (data.message ? String(data.message) : '')
+      || (text ? text.slice(0, 200) : '');
+    throw new Error(method + ' failed http ' + res.status + ': ' + (why || 'no message from server'));
+  }
+  if (!res.ok && !data) throw new Error(method + ' failed http ' + res.status + ': ' + text.slice(0, 200));
+  if (data && data.result === undefined && res.ok) {
+    throw new Error(method + ': server returned no result. body=' + text.slice(0, 200));
+  }
+  return data && data.result;
 }
 
 export async function initialize(baseUrl) {

@@ -17,7 +17,10 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ADMIN = { username: 'admin', password: 'admin-test-pass-123' };
-const PLAYER = { username: 'rex_player', password: 'player-pass-123', displayName: 'Rex Player' };
+// One run must not depend on the database being empty: a fixed username makes
+// the first check fail on every re-run, which turns a real signal into noise.
+const RUN = Date.now().toString(36).slice(-6);
+const PLAYER = { username: 'gate_player_' + RUN, password: 'player-pass-123', displayName: 'Gate Player ' + RUN };
 
 const TEST_DB = process.env.AFL_TEST_DATABASE_URL || '';
 if (!TEST_DB) {
@@ -233,9 +236,28 @@ async function run() {
   const after = await request('/api/me', { cookie: player.cookie });
   check('A18 logout invalidates the session', logout.res.status === 200 && after.res.status === 401, after.res.status);
 
-  const legacy = await tool('register_agent', { name: 'Legacy Anonymous' });
-  check('A19 legacy anonymous /mcp still works', Boolean(legacy.token) && legacy.existing === false,
-    String(legacy.agentId));
+  // A19: the anonymous control plane must stay closed once accounts exist.
+  // A service that can read and move an agent is bound to its player, so this
+  // check is a security gate, not a compatibility note: if it ever passes, the
+  // door was reopened and any caller could register and drive agents.
+  const anon = await rpc('tools/call', { name: 'register_agent', arguments: { name: 'Anonymous Probe' } }, null);
+  const anonText = JSON.stringify(anon.data || {});
+  const refused = anon.res.status === 401 || anon.res.status === 404
+    || (anon.res.status === 200 && anon.data?.result?.isError === true);
+  check('A19 启用账号后匿名 /mcp 被拒绝（能被驱动的服务必须绑定玩家）',
+    refused && /player MCP service required|not an MCP endpoint|auth is not configured/.test(anonText),
+    'http=' + anon.res.status + ' ' + anonText.slice(0, 130));
+
+  // And the public read-only surfaces must still be anonymous: closing the
+  // control plane may not lock spectators out of the game.
+  const pub = await request('/api/leaderboard', {});
+  const pubState = await request('/api/state', {});
+  check('A20 关闭控制面不影响公开观战/榜单（匿名只读仍然 200 且口径完整）',
+    pub.res.status === 200 && pubState.res.status === 200
+    && Array.isArray(pub.data.rows) && pub.data.scope === 'registered-players'
+    && pubState.data.server && pubState.data.server.season
+    && Array.isArray(pubState.data.rooms) && pubState.data.costs && pubState.data.costs.classes,
+    'leaderboard=' + pub.res.status + ' scope=' + pub.data.scope + ' season=' + pubState.data.server.season);
 }
 
 try {

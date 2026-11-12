@@ -16,22 +16,25 @@ cp .env.example .env # 填入 DATABASE_URL / BETTER_AUTH_SECRET / AFL_ADMIN_PASS
 pnpm db:up           # 启动独立 Postgres 容器（端口 55433，不碰本机已有库）
 pnpm db:migrate      # 建 better-auth 表 + players 档案表
 npm start            # prestart 会先构建 React 站点，然后 http://localhost:8787
-npm run verify       # 23 项端到端验收（会先构建 React 站点）
-AFL_TEST_DATABASE_URL=postgres://afl:afl_dev_password@127.0.0.1:55433/afl_test npm run verify:accounts  # 19 项认证 / MCP / Agent 验收
+npm run verify       # 24 项端到端验收（会先构建 React 站点）；实时段需下面那个测试库，否则明确 SKIP
+AFL_TEST_DATABASE_URL=postgres://afl:afl_dev_password@127.0.0.1:55433/afl_test npm run verify:accounts  # 20 项认证 / MCP / Agent 验收
 npm run verify:combat # 24 项战斗内核验收（骨架 / 判定框 / 技能 / 取消 / 倒地，纯内核无需服务）
 npm run sim          # 用回放离线比对策略（可跟 matchId）
-npm run hosted-demo  # 托管赛道一键跑通，需服务已在跑
+AFL_MCP_URL=http://localhost:8787/mcp/<key> npm run hosted-demo  # 托管赛道一键跑通：需服务在跑 + 你的玩家服务地址（GET /api/me/mcp 取）
 npm run verify:art   # 美术层真实渲染验收（HTTP + Chrome 截图），需服务已在跑
-npm run verify:ladder # 数据真实性 + 计费口径 + 训练场（43 项）：官方基线不进榜、陪练不计分、脏数据自动迁移、每局模型预算服务端强制、训练零 LLM 且不动榜
+npm run verify:ladder # 数据真实性 + 计费口径 + 训练场（44 项）：官方基线不进榜、陪练不计分、脏数据自动迁移、每局模型预算服务端强制、训练零 LLM 且不动榜
 npm run prune:replays # 回放存储用量（默认 dry run，--apply 才按留存上限删除）
-npm run verify:mcp   # 官方 MCP SDK 独立客户端实测（15 项），需服务已在跑 + 临时装 SDK，见下方
+npm run verify:mcp   # 官方 MCP SDK 独立客户端实测（15 项）：需服务在跑 + 临时装 SDK + AFL_MCP_URL，见下方
+
+# 实时/账号类验收统一用同一个测试库环境变量（不设则这些段 SKIP，不会假绿）：
+export AFL_TEST_DATABASE_URL=postgres://afl:afl_dev_password@127.0.0.1:55433/afl_test
+npm run verify && npm run verify:ladder && npm run verify:team && npm run verify:accounts
 node scripts/capture.mjs   # 真实等待，检查实时推流与前端异常，输出 docs/preview-live.png
 
-# 账号验收必须用独立的测试库（不要把测试指向开发库）：
-AFL_TEST_DATABASE_URL='postgres://afl:afl_dev_password@127.0.0.1:55433/afl_test' node scripts/verify-accounts.mjs
+# 测试库必须是独立库（不要把测试指向开发库）；账号/实时门禁会在里面注册真玩家
 ```
 
-打开 `http://localhost:8787` 就能看到正在进行的对局。一个内置演示 Agent 轮转比赛（demo 房），另一个托管策略基线持续打排位（ranked 房），页面不需要任何操作就有画面，大厅里能看到两个房间并发。
+打开 `http://localhost:8787` 就能看到正在进行的对局：官方基线在 demo 房轮转打**演示局**（页面不需要任何操作就有画面），真人玩家的 Agent 在 ranked 房打排位。演示局与陪练局都不计榜——榜单上只有真实玩家的真实战果，没有报名就没有排名，这是口径而不是故障。大厅里可以看到两类房间并发。
 
 ## 技术栈
 
@@ -184,7 +187,7 @@ PORT=9000 AFL_TICK_MS=100 AFL_DATA_DIR=./data npm start
 | `src/mcp.js` | MCP Streamable HTTP：工具 + 9 个 resources + 4 个 prompts |
 | `src/server.js` | HTTP、静态站点、大厅 API、`/SKILL.md` |
 | `sdk/agent-client.mjs` | 官方 Agent SDK（零依赖，可直接拷进自己的项目） |
-| `scripts/hosted-demo.mjs` | 托管赛道一键验证：校验 → 模拟 → 提交 → 入队 → 等真实对局 → 报战果与名次 |
+| `scripts/hosted-demo.mjs` | 托管赛道一键验证：校验 → 模拟 → 提交 → 入队 → 等真实对局 → 报战果与名次。需要 `AFL_MCP_URL`（控制面绑定玩家，脚本不会替你在背后注册账号）；战果一栏按 `ranked / practice / pairing` 如实显示这是排位、陪练还是私房 |
 | `skills/afl-league/SKILL.md` | **给 AI Agent 读的技能说明**，`GET /SKILL.md` 一个 URL 即可获取 |
 | `skills/afl-league/mcp-configs.json` | 8 类客户端的可粘贴 MCP 配置（接入页生成器读它） |
 | `examples/starter/` | 实时赛道：自包含可 fork 策略包 |

@@ -5,8 +5,9 @@
  * the 15% heal math, draw double-elimination, alive-pool-only reordering and
  * full offline match replayability. Part 2 boots a real server with 8ms ticks
  * and drives a complete team scrim through MCP + two live WebSocket pilots +
- * a spectator, then the REAL ranked loop: web signup (/api/enter) -> roster
- * lock mid-match -> matchmaking pairs the two registrants -> wins-first board.
+ * a spectator, then the REAL ranked loop: two signed-up players register
+ * rosters and strategies -> roster lock mid-match -> matchmaking pairs them ->
+ * wins-first board. There is no anonymous control plane and no /api/enter.
  *
  * Run standalone: node scripts/verify-team.mjs   (also wired as C23 in verify.js)
  */
@@ -20,6 +21,7 @@ import { CONFIG } from '../src/config.js';
 import { createMatch } from '../src/engine.js';
 import { BUILTIN_AGENTS } from '../src/agents.js';
 import { templatePolicy } from '../sdk/agent-client.mjs';
+import { authEnv, mcpTool, mcpInitialize, onboardPlayer } from './lib/harness-auth.mjs';
 import {
   TEAM_SIZE, TEAM_HEAL, TEAM_MAX_ROUNDS,
   normalizeTeam, createTeamState, teamRoundStart, applyRoundResult,
@@ -32,8 +34,23 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8798;
 const BASE = 'http://127.0.0.1:' + PORT;
 const WS = 'ws://127.0.0.1:' + PORT;
+// Better Auth pins its baseURL to http://localhost:<PORT>, so player sign-up
+// has to use that exact origin even though the rest of the gate talks to 127.0.0.1.
+const AUTH_BASE = 'http://localhost:' + PORT;
+const TEST_DB = process.env.AFL_TEST_DATABASE_URL || '';
+
+// Every live MCP call goes through a player-bound service, because the league
+// has no anonymous control plane. Tokens map back to their owner's endpoint.
+const SERVICES = new Map();
+let READ_EP = null;
 const results = [];
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function hist(messages) {
+  const out = {};
+  for (const m of messages) out[m.type] = (out[m.type] || 0) + 1;
+  return out;
+}
 
 function check(name, ok, detail) {
   results.push({ name, ok });
@@ -206,14 +223,21 @@ await runCheck('T8 回放信封识别：team 信封可解析，单局 JSONL 不�
 // ---------------------------------------------------------------- part 2
 
 async function call(name, args = {}) {
-  const res = await fetch(BASE + '/mcp', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: Math.floor(Math.random() * 1e6), method: 'tools/call', params: { name, arguments: args } }),
+  const endpoint = (args.token && SERVICES.get(args.token)) || READ_EP;
+  if (!endpoint) throw new Error('no player service resolved for ' + name + ': onboard a player first');
+  return mcpTool(endpoint, name, args);
+}
+
+/** A real player with a real agent slot - the only identity the league accepts. */
+async function playerAgent(label, { team, source } = {}) {
+  const player = await onboardPlayer(AUTH_BASE, label);
+  const reg = await mcpTool(player.endpoint, 'register_agent', {
+    name: label, ...(team ? { team } : {}), ...(source ? { source } : {}),
   });
-  const r = (await res.json()).result;
-  if (r && r.isError) throw new Error(r.content[0].text.replace(/^error: /, ''));
-  return r.structuredContent;
+  // The bound service knows its own agent, but the pilots still connect with
+  // the agent token, and call() routes by token, so keep the pair registered.
+  SERVICES.set(reg.token, player.endpoint);
+  return { ...player, ...reg, endpoint: player.endpoint };
 }
 
 function connectPilot(token, { policy, onIntermission = () => {} }) {
@@ -265,10 +289,15 @@ async function waitForServer() {
 }
 
 async function verifyLive() {
+  if (!TEST_DB) {
+    check('T9-T14 实时组队列（MCP + WS + 匹配器）', true,
+      'SKIP: AFL_TEST_DATABASE_URL is required - the league has no anonymous control plane, so these checks need real player accounts (see README 验收)');
+    return;
+  }
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'afl-verify-team-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), AFL_TICK_MS: '8', AFL_DATA_DIR: tmp },
+    env: { ...process.env, ...authEnv(PORT, TEST_DB), AFL_TICK_MS: '8', AFL_DATA_DIR: tmp },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let serverLog = '';
@@ -281,20 +310,34 @@ async function verifyLive() {
     const up = await waitForServer();
     if (!up) throw new Error('server did not start: ' + serverLog.slice(-300));
 
+    // A service must belong to someone, even for read-only calls.
+    const viewer = await onboardPlayer(AUTH_BASE, 'Team Viewer');
+    READ_EP = viewer.endpoint;
+    const init = await mcpInitialize(READ_EP);
+    check('T8a 玩家服务 initialize 与 tools/list 可用（26 工具含训练/成本面）',
+      Boolean(init.serverInfo) && (await (await fetch(READ_EP, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+      })).json()).result.tools.length >= 26, 'protocol=' + init.protocolVersion);
+
     await runCheck('T9 服务端组队入口：注册带 team、规则含 team、常驻组队演示房、非法队伍被拒', async () => {
       const rules = await call('get_rules');
       assert.ok(rules.team && rules.team.size === 3 && rules.team.healOnRoundWin === TEAM_HEAL);
       const rooms = await call('list_rooms');
       assert.ok(rooms.rooms.some((r) => r.format === 'team' && r.mode === 'demo'), 'always-on team demo room');
+      // Illegal rosters are rejected on the roster entry itself: a player-bound
+      // service has exactly one slot, so "bad register" is no longer a thing.
+      const probe = await playerAgent('Roster Probe');
       let badSize = false; let badDup = false;
-      try { await call('register_agent', { name: 'Bad Size', team: ['quartz', 'volt'] }); } catch { badSize = true; }
-      try { await call('register_agent', { name: 'Bad Dup', team: ['quartz', 'quartz', 'volt'] }); } catch { badDup = true; }
+      try { await call('set_team', { token: probe.token, team: ['quartz', 'volt'] }); } catch { badSize = true; }
+      try { await call('set_team', { token: probe.token, team: ['quartz', 'quartz', 'volt'] }); } catch { badDup = true; }
       assert.ok(badSize && badDup);
       return 'demoRoomOk reject=' + badSize + '/' + badDup;
     });
 
-    const regA = await call('register_agent', { name: 'Team Pilot A', kind: 'rule', team: TEAM_A });
-    const regB = await call('register_agent', { name: 'Team Pilot B', kind: 'rule', team: TEAM_B });
+    const regA = await playerAgent('Team Pilot A', { team: TEAM_A });
+    const regB = await playerAgent('Team Pilot B', { team: TEAM_B });
+    assert.deepEqual(regA.team, TEAM_A, 'roster registered through the player service');
     const room = await call('create_room', { token: regA.token, format: 'team', team: TEAM_A });
     assert.equal(room.format, 'team');
     const joined = await call('join_room', { token: regB.token, roomCode: room.code, team: TEAM_B });
@@ -358,12 +401,28 @@ async function verifyLive() {
       assert.ok(count('round_start') >= 1, 'round_start=' + count('round_start'));
       assert.ok(count('round_end') >= 2, 'round_end=' + count('round_end'));
       assert.ok(count('intermission') >= 1, 'intermission=' + count('intermission'));
-      assert.ok(count('order_locked') >= 2, 'order_locked=' + count('order_locked'));
+      assert.ok(count('order_locked') >= 2, 'order_locked=' + count('order_locked')
+        + ' aReplies=' + JSON.stringify(pilotA.orderReplies.map((m) => m.type + ':' + (m.reason || '')))
+        + ' mcpLock=' + JSON.stringify(mcpLock && mcpLock.locked ? 'ok' : mcpLock)
+        + ' mcpSecond=' + String(mcpSecond || '').slice(0, 60)
+        + ' Amsg=' + JSON.stringify(hist(pilotA.messages))
+        + ' Bmsg=' + JSON.stringify(hist(pilotB.messages))
+        + ' interA=' + pilotA.intermissions + ' interB=' + pilotB.intermissions);
       assert.ok(count('match_end') === 1);
       const end = spectator.messages.find((m) => m.type === 'match_end');
       assert.ok(end.result.team && end.result.reason === 'elimination');
       assert.ok(['a', 'b', 'draw'].includes(end.result.winner));
       assert.ok(pilotA.acts > 20 && pilotB.acts > 20, 'acts=' + pilotA.acts + '/' + pilotB.acts);
+      // The server must have ACCEPTED what the pilots sent. Before the room
+      // resume path was fixed, a hosted agent that connected over WS had every
+      // act dropped by a guard on conn.meta.roomId: the pilots counted acts,
+      // the league counted ~600 timeouts, and the match still "finished", so
+      // nothing looked wrong from either side's own view.
+      const stA = await call('get_agent_stats', { agentId: regA.agentId });
+      const stB = await call('get_agent_stats', { agentId: regB.agentId });
+      const cap = (n) => Math.max(3, Math.round(n * 0.05));
+      assert.ok(stA.timeouts <= cap(pilotA.acts), 'side a acts dropped: timeouts=' + stA.timeouts + ' acts=' + pilotA.acts);
+      assert.ok(stB.timeouts <= cap(pilotB.acts), 'side b acts dropped: timeouts=' + stB.timeouts + ' acts=' + pilotB.acts);
       assert.ok(pilotA.intermissions >= 1, 'pilot got intermission prompt');
       const rejected = pilotA.orderReplies.find((m) => m.type === 'order_rejected');
       assert.ok(rejected && rejected.reason === 'invalid_order', 'invalid WS order rejected');
@@ -374,7 +433,8 @@ async function verifyLive() {
       assert.ok(notInIntermission, 'set_team_order outside intermission refused');
       const roundEnds = spectator.messages.filter((m) => m.type === 'round_end');
       assert.ok(roundEnds.every((m) => m.summary.eliminated.length >= 1));
-      return 'rounds=' + roundEnds.length + ' winner=' + end.result.winner + ' acts=' + pilotA.acts + '/' + pilotB.acts;
+      return 'rounds=' + roundEnds.length + ' winner=' + end.result.winner + ' acts=' + pilotA.acts + '/' + pilotB.acts
+        + ' timeouts=' + stA.timeouts + '/' + stB.timeouts;
     });
 
     await runCheck('T11 战果落库：format=team、不计分、信封回放可重演、render=1 扁平帧', async () => {
@@ -399,23 +459,38 @@ async function verifyLive() {
     });
 
     let signup = null;
-    await runCheck('T12 网页报名 /api/enter：注册+建队+托管策略+报名，匹配器真实配对计分组队赛', async () => {
-      const post = (body) => fetch(BASE + '/api/enter', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      });
-      assert.equal((await post({ name: 'Bad Dup', team: ['gale', 'gale', 'tide'] })).status, 400, 'duplicate roster rejected');
-      assert.equal((await post({ name: 'No Team' })).status, 400, 'missing roster rejected before registration');
+    await runCheck('T12 两名玩家各自报名：注册+建队+托管策略+排位报名，匹配器真实配对计分组队赛', async () => {
+      // The league removed the one-shot POST /api/enter: registration is now
+      // sign up as a player, then drive your own bound service. That is what
+      // the account UI does, so the gate follows the same path.
+      assert.equal((await fetch(BASE + '/api/enter', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Nope' }),
+      })).status, 404, 'legacy /api/enter is not served');
 
-      const rx = await post({ name: 'Web Signup X', team: ['gale', 'forge', 'tide'] });
-      assert.equal(rx.status, 200);
-      const x = await rx.json();
+      const x = await playerAgent('Web Signup X', { team: ['gale', 'forge', 'tide'] });
+      // A hosted agent must actually carry a strategy: without one the league
+      // treats that side as remote and waits for a WS pilot, so the ranked room
+      // would stall. Submitting the official template is the documented path.
+      const tpl = await call('get_strategy_template', { token: x.token });
+      const subX = await call('submit_strategy', { token: x.token, strategy: tpl.template });
+      assert.ok(subX.accepted !== false && subX.versionHash, 'template strategy hosted for side X');
+      const rx = await call('join_queue', { token: x.token, format: 'team' });
+      assert.ok(rx.joined, 'registered player queued for team ladder');
+
       // Y deliberately fields a do-nothing strategy so the match has a decisive
       // winner and the wins-first assertions below actually exercise the win path.
-      const ry = await post({ name: 'Web Signup Y', team: ['noct', 'volt', 'ember'], strategy: { name: 'idle-sandbox', defaultAction: 'idle', rules: [{ action: 'idle' }] } });
-      assert.equal(ry.status, 200);
-      const y = await ry.json();
-      assert.ok(x.agentId && x.token && x.joined && x.strategy, 'signup returns agent+token+strategy+queue');
+      const y = await playerAgent('Web Signup Y', { team: ['noct', 'volt', 'ember'] });
+      const idle = { name: 'idle-sandbox', defaultAction: 'idle', rules: [{ action: 'idle' }] };
+      const sub = await call('submit_strategy', { token: y.token, strategy: idle });
+      assert.ok(sub.versionHash, 'hosted strategy submitted for the losing side');
+      const ry = await call('join_queue', { token: y.token, format: 'team' });
+      assert.ok(ry.joined);
       assert.deepEqual(x.team, ['gale', 'forge', 'tide']);
+
+      // Illegal rosters are rejected before any queue entry exists.
+      let dupRoster = false;
+      try { await call('set_team', { token: y.token, team: ['gale', 'gale', 'tide'] }); } catch { dupRoster = true; }
+      assert.ok(dupRoster, 'duplicate roster rejected');
 
       // The matchmaker must pair the two REAL registrants with each other.
       let room = null;
@@ -426,12 +501,12 @@ async function verifyLive() {
           && [r.a.id, r.b.id].includes(x.agentId) && [r.a.id, r.b.id].includes(y.agentId));
         if (!room) await delay(100);
       }
-      assert.ok(room, 'matchmaker paired the two signup agents');
+      assert.ok(room, 'matchmaker paired the two registered players');
       assert.equal(room.pairing, 'rating');
       assert.equal(room.ranked, true);
       const rosters = [room.team.a.order.map((e) => e.fighterId), room.team.b.order.map((e) => e.fighterId)];
-      assert.ok(rosters.some((r) => JSON.stringify(r) === JSON.stringify(x.team)), 'side rosters come from signup');
-      assert.ok(rosters.some((r) => JSON.stringify(r) === JSON.stringify(y.team)), 'side rosters come from signup');
+      assert.ok(rosters.some((r) => JSON.stringify(r) === JSON.stringify(x.team)), 'side rosters come from registration');
+      assert.ok(rosters.some((r) => JSON.stringify(r) === JSON.stringify(y.team)), 'side rosters come from registration');
 
       // Roster is locked while the match is live.
       let lockedErr = null;
@@ -452,6 +527,7 @@ async function verifyLive() {
       assert.equal(row.format, 'team');
       assert.equal(row.result, 'win', 'template strategy must beat the idle sandbox');
       assert.ok(row.ratingDelta > 0, 'ranked win moves rating up');
+      signup = { x, y, row };
       signup = { x, y, row };
       return 'room=' + room.roomId + ' result=' + row.result + ' delta=' + row.ratingDelta;
     });
@@ -478,7 +554,7 @@ async function verifyLive() {
     });
 
     await runCheck('T14 set_team：无队伍报名被拒、非法队伍被拒、建队后报名成功、局间可换队', async () => {
-      const reg = await call('register_agent', { name: 'Roster Rules', kind: 'rule' });
+      const reg = await playerAgent('Roster Rules');
       let noRoster = null;
       try { await call('join_queue', { token: reg.token, format: 'team' }); } catch (err) { noRoster = err.message; }
       assert.ok(noRoster && /roster/.test(noRoster), 'team queue without roster rejected: ' + noRoster);
@@ -493,13 +569,16 @@ async function verifyLive() {
       assert.ok(q.joined, 'queued after set_team');
       const re = await call('set_team', { token: reg.token, team: ['basalt', 'tide', 'ember'] });
       assert.deepEqual(re.team, ['basalt', 'tide', 'ember'], 're-pick allowed between matches');
-      const web = await fetch(BASE + '/api/team', {
+      // No legacy POST /api/team: the account UI drives set_team through the
+      // same player service, so the service IS the contract. Assert that.
+      const gone = await fetch(BASE + '/api/team', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: reg.token, team: ['tide', 'ember', 'basalt'] }),
       });
-      assert.equal(web.status, 200);
-      assert.deepEqual((await web.json()).team, ['tide', 'ember', 'basalt'], 'web /api/team mirrors set_team');
-      return 'validation+rePickOk';
+      assert.equal(gone.status, 404, 'legacy /api/team is not served');
+      const viaTool = await call('set_team', { token: reg.token, team: ['tide', 'ember', 'basalt'] });
+      assert.deepEqual(viaTool.team, ['tide', 'ember', 'basalt'], 'the player service is the only roster entry');
+      return 'validation+rePickOk legacyRest=404';
     });
 
     pilotA.ws.close();

@@ -117,7 +117,9 @@ pnpm db:studio    # Drizzle Studio
 ## 5. 兼容与迁移
 
 - **v0.7 是认证 breaking change**：旧的 `players.password_hash` / `sessions` 表已删除；旧 scrypt 密码哈希不能直接迁到 better-auth。升级时必须重建 `user` / `account` / `session` 表，玩家重新注册或走密码重置。当前项目处于 pre-release，开发库直接重建即可。
-- 旧的 `POST /api/enter`、`POST /api/token`、`POST /api/team`、全局 `POST /mcp` 保留，避免已有脚本与验收失效；新 UI 不再使用它们。
+- 旧的 `POST /api/enter`、`POST /api/token`、`POST /api/team` **已删除**（请求返回 404），全局 `POST /mcp` 只在未配置账号库时作为本地开发沙箱存在：一旦启用账号，匿名 `/mcp` 返回 401。
+  这三条曾经在本文件里被写成「保留的兼容入口」，而代码里根本没有——那是文档在替不存在的能力背书。现在由 `npm run verify` 的 C14b 直接抓 HTTP 状态码与文档措辞，防止再次漂移。
+  迁移方式：注册即 Better Auth 账号 → `GET /api/me/mcp` 取你自己的服务 URL → 一切动作走 `/mcp/<key>`（建房、约战、换队、报名都不需要 token 参数）。
 - 旧 `data/league.json` 里的 Agent 没有 `playerId` / `teamName`，加载时按缺省值处理；内置 Agent 继续回填队伍。
 - `set_team` 的 `teamName` 是可选参数；已有调用不变。
 - 排行榜与 `/api/agents` 的 `teamName` 字段不变。

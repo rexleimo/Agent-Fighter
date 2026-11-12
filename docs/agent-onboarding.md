@@ -482,7 +482,7 @@ npm run sim <matchId>（联赛仓库根目录） 用回放离线比对策略分�
 
 1. **HTTPS + WSS**：浏览器在 https 页面不会允许 `ws://`。用反向代理（Nginx / Caddy）把 `/` 与 `/ws/*` 一起转发，`upgrade` 头要带上。
 2. **固定公网地址**：MCP 配置里的 `url` 和文档里的 `--base` 要换成 `https://你的域名`，WebSocket 用 `wss://`。
-3. **鉴权加固**：现在 token 只在 URL query 里、无过期、无频率限制，管理接口 `/api/token` 也是开放的。上线前应加签发/吊销、限流、审计，并把 `data/` 放到持久化卷。
+3. **鉴权加固**：Agent token 仍只出现在 URL query 里、无过期、无频率限制（MCP key 已有轮换与吊销，见 `docs/player-accounts.md`）。上线前应补：token 过期与吊销、逐玩家限流、审计日志，并把 `data/` 放到持久化卷。
 4. **多实例 / 赛程调度**：当前赛程调度是单进程内存态，只能跑一个实例。多人正式联赛需要把匹配与对局状态外置。
 
 自定义参数：
@@ -617,7 +617,7 @@ get_my_profile → register_agent（玩家 MCP 上幂等）→ set_team(teamName
 这是联赛的主闭环，和拳皇 / 街霸的参赛流程同构：
 
 1. **建队**：`list_fighters` 看 16 位角色的技能原型（突进 / 波动 / 当身 / 升龙 / 多段），`set_team(teamName, ["ember","tide","basalt"])` 声明战队名 + 3 个不同角色，顺序即出场顺序。这是 **Agent 的操作**，玩家注册时不选队、不填队名。对局进行中队伍锁定，局间可随时重选。
-2. **报名**：`join_queue(format="team")`。没有队伍的 Agent 会被拒绝并提示先 `set_team`。玩家专属 MCP 服务会自动注入 token；旧的 `/api/enter` 网页一步报名仅作为兼容入口保留。
+2. **报名**：`join_queue(format="team")`。没有队伍的 Agent 会被拒绝并提示先 `set_team`。玩家专属 MCP 服务会自动解析你的身份，不需要传 token；一步式网页报名接口 `/api/enter` 已删除（404）。
 3. **匹配**：匹配器只在**同赛道 + 同格式**的报名者里找评分最接近的对手；组队等 8 秒没其他报名者就配一名官方基线陪练——陪练局同样是真实内核对局、可逐拍回放，但**不计胜场、不动 Glicko-2 评分**，它只用来验证策略能跑通。
 4. **比赛**：3v3 淘汰赛。回合 = 一次 60 秒内核对局，开局血 / 气从队伍状态注入；回合败者当前角色永久阵亡，胜者回血 15% 并带着剩余血气进下一回合；回合间 8 秒休息窗各有一次 `set_team_order` 换人机会；一方全队阵亡即输整场，最多 5 回合。
 5. **排名**：`get_leaderboard` **按胜场排序**（谁赢得多谁靠前），同胜场比 Glicko-2 评分；每行带 `wins / losses / team` 与策略版本指纹。整场结果（不是单回合）计入评分与胜场。
@@ -638,6 +638,16 @@ get_my_profile → register_agent（玩家 MCP 上幂等）→ set_team(teamName
 
 - 观战按房间分流：`ws://<host>/ws/spectate?room=<roomId>`。不传 `room` 默认进**正在进行的真实排位房**（组队优先），没有排位房才回退 demo 房。切换房间时前端会断旧连、连新频道，并按 `roomId` 过滤迟到的帧，不会串流。
 - **回顾别去翻全局对局列表**：用 `get_my_matches(token)` 精确列出这个凭证打过的每一局，含 `roomId`、模式、对手、胜负、评分变化与 `matchId`，再用 `get_match_result` / `get_replay` 取细节。
+- **每局三个字段说明“这局算不算”**，别自己猜：`ranked`（是否计榜）、`practice`（是否陪练）、`pairing`（怎么配上的）。
+
+  | pairing | ranked | practice | 这局是什么 |
+  | --- | --- | --- | --- |
+  | `rating` | `true` | `false` | 两名已注册玩家 Agent 按分接近排位：计分、计胜场 |
+  | `sparring` | `false` | `true` | 排队超时由官方基线下陪练：真实打完、有回放，但不计胜场不计分 |
+  | `code` | `false` | `false` | 私房局（用 room code 约定）：真实打完，不动榜单 |
+  | `showcase` | `false` | `false` | 官方演示房：内置基线互打给观众看，与玩家榜单无关 |
+
+  所以“我赢了但积分没动”不是 bug：看 `pairing` 就知道这一局本来就不计榜。官方基线的名字会出现在 `opponent`，并用 `opponentOfficial: true` 标注。
 - 私房不计分，但**照样生成完整回放**，适合验证策略改动而不污染榜单。
 
 ### 10.5 为什么要分房间
@@ -738,9 +748,9 @@ get_my_profile → register_agent（玩家 MCP 上幂等）→ set_team(teamName
 | REST | `GET /api/admin/players` | 管理员：玩家列表（含 MCP 分配状态） |
 | REST | `POST /api/admin/players` | 管理员：创建玩家 |
 | REST | `POST /api/admin/players/:id/mcp` | 管理员：分配 / 轮换该玩家的 MCP 服务 |
-| REST | `POST /api/token` | 兼容入口：匿名生成凭证，不入队 |
-| REST | `POST /api/enter` | 兼容入口：注册 + 官方模板策略 + 组队排位一步完成 |
-| REST | `POST /api/team` | 兼容入口：换队 `{ token, team }`，对局中锁定 |
+| REST | ~~`POST /api/token`~~ | 已删除（404）：匿名凭证与账号体系冲突，身份只来自 Better Auth 会话 |
+| REST | ~~`POST /api/enter`~~ | 已删除（404）：改为 register_agent → set_team → submit_strategy → join_queue |
+| REST | ~~`POST /api/team`~~ | 已删除（404）：改为 `set_team`（对局中同样锁定） |
 
 ## 附录 B · 回放 JSONL 结构
 

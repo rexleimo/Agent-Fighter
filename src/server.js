@@ -296,10 +296,17 @@ const server = http.createServer(async (req, res) => {
     await handleAuth(req, res);
     return;
   }
-  // 匿名 /mcp 只在未配置玩家账号库时作为本地开发沙箱开放（旧验收脚本依赖它）；
-  // 一旦启用账号，MCP 必须走 /mcp/<player key>，见 docs/player-accounts.md。
+  // Anonymous /mcp is a local dev sandbox only while no player store is
+  // configured. Once accounts exist, MCP must go through /mcp/<player key>
+  // (see docs/player-accounts.md). The refusal is shaped as JSON-RPC 2.0 on
+  // purpose: this is an MCP endpoint, and a bare { error: "<string>" } body is
+  // not a JSON-RPC error object, so standard clients - and our own SDK, which
+  // reads error.message - surfaced it as an empty message instead of the reason.
   if (p === '/mcp' && players) {
-    json(res, 401, { error: 'player MCP service required: log in, get your MCP URL, and use /mcp/<player key>' });
+    json(res, 401, {
+      jsonrpc: '2.0', id: null,
+      error: { code: -32001, message: 'player MCP service required: log in, get your MCP URL, and use /mcp/<player key>' },
+    });
     return;
   }
   if (p === '/mcp' || p.startsWith('/mcp/')) {

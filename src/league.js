@@ -521,6 +521,10 @@ export class League {
         return {
           matchId: m.matchId, roomId: m.roomId || null, mode: m.mode || 'ranked', ranked: m.ranked !== false,
           practice: Boolean(m.practice),
+          // Why the record is what it is: 'sparring' and 'code' both have
+          // ranked=false but mean different games, and a player reading their own
+          // history cannot tell them apart without this field.
+          pairing: m.pairing || null,
           format: m.format || 'single',
           side, opponent: other.name, opponentId: other.id,
           opponentOfficial: Boolean(m[side === 'a' ? 'b' : 'a'] && m[side === 'a' ? 'b' : 'a'].official),

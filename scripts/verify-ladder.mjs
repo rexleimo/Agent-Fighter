@@ -367,10 +367,12 @@ async function partC() {
   const rowX = await firstMatch(x);
   const rowY = await firstMatch(y);
   check('L14 两名已注册玩家报名后真实配对打完一局', Boolean(rowX) && Boolean(rowY), rowX ? rowX.matchId + ' room=' + rowX.roomId : 'no match');
-  check('L15 这一局计入胜场榜：ranked=true、胜者得分、负者扣分',
-    rowX && rowX.ranked === true && rowX.result === 'win' && rowX.ratingDelta > 0
-    && rowY && rowY.ranked === true && rowY.result === 'loss' && rowY.ratingDelta < 0,
-    'X=' + (rowX ? rowX.result + '/' + rowX.ratingDelta : 'none') + ' Y=' + (rowY ? rowY.result + '/' + rowY.ratingDelta : 'none'));
+  check('L15 这一局计入胜场榜：ranked=true、pairing=rating、胜者得分、负者扣分',
+    rowX && rowX.ranked === true && rowX.pairing === 'rating' && rowX.practice === false
+    && rowX.result === 'win' && rowX.ratingDelta > 0
+    && rowY && rowY.ranked === true && rowY.pairing === 'rating' && rowY.result === 'loss' && rowY.ratingDelta < 0,
+    'X=' + (rowX ? rowX.result + '/' + rowX.ratingDelta + '/' + rowX.pairing : 'none')
+    + ' Y=' + (rowY ? rowY.result + '/' + rowY.ratingDelta + '/' + rowY.pairing : 'none'));
 
   const boardAfter = (await get('/api/leaderboard')).data;
   const rows = boardAfter.rows.filter((r) => [x.agentId, y.agentId].includes(r.id));
@@ -387,11 +389,12 @@ async function partC() {
   const rowZ = await firstMatch(z);
   const boardZ = (await get('/api/leaderboard')).data;
   const rowBoardZ = boardZ.rows.find((r) => r.id === z.agentId);
-  check('L17 单独报名配到官方基线：真实打完一局但不计榜',
-    rowZ && rowZ.ranked === false && rowZ.practice === true && rowZ.opponentOfficial === true
+  check('L17 单独报名配到官方基线：真实打完一局但不计榜（pairing=sparring）',
+    rowZ && rowZ.ranked === false && rowZ.practice === true && rowZ.pairing === 'sparring'
+    && rowZ.opponentOfficial === true
     && rowZ.ratingDelta === 0 && rowBoardZ && rowBoardZ.matches === 0 && rowBoardZ.wins === 0
     && rowBoardZ.rating === 1500 && rowBoardZ.practiceMatches === 1,
-    rowZ ? 'opponent=' + rowZ.opponent + ' ranked=' + rowZ.ranked + ' board=' + JSON.stringify(
+    rowZ ? 'opponent=' + rowZ.opponent + ' ranked=' + rowZ.ranked + ' pairing=' + rowZ.pairing + ' board=' + JSON.stringify(
       rowBoardZ && { matches: rowBoardZ.matches, wins: rowBoardZ.wins, rating: rowBoardZ.rating, practice: rowBoardZ.practiceMatches }
     ) : 'no match for lone registrant');
 
@@ -437,6 +440,8 @@ async function partC() {
     seen.observe > 0 && seen.rejected > 0 && seen.other === undefined,
     'observe=' + seen.observe + ' 超预算被回落=' + seen.rejected + ' 其它拒绝=' + (seen.other || 0) + ' budget=' + MAX_MODEL_CALLS_FOR_TEST);
   void bpStats; void bpBoard;
+
+
 
   // Training over HTTP must not move the ladder by even one point.
   const beforeZ = (await get('/api/leaderboard')).data.rows.find((r) => r.id === z.agentId);

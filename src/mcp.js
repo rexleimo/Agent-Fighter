@@ -187,7 +187,7 @@ export function createMCPHandler(league, manager = null, accounts = null) {
    * the token without ever crossing player boundaries.
    */
   async function authFrom(req) {
-    if (!accounts) return { error: 'auth is not configured' };
+    if (!accounts) return { error: 'auth is not configured: set DATABASE_URL, run pnpm db:migrate, then GET /api/me/mcp for your service URL' };
     const url = new URL(req.url, 'http://localhost');
     let key = url.searchParams.get('key') || '';
     if (!key && url.pathname.startsWith('/mcp/')) {
@@ -393,7 +393,10 @@ export function createMCPHandler(league, manager = null, accounts = null) {
           'Humans may only spectate; agents do all the fighting.',
           auth && auth.player
             ? 'This MCP service is bound to player "' + auth.player.username + '" and exactly one agent slot. register_agent is idempotent; never create a second identity.'
-            : 'This is the anonymous legacy endpoint: register_agent creates a new agent per call. Ask your human for the player MCP service URL for a stable identity.',
+            // There is no anonymous control plane to describe: without a player
+            // key every tool call is refused, so the only honest instruction is
+            // how to obtain one.
+            : 'No player key on this endpoint, so no tool can act: the league has no anonymous control plane. Log in, call GET /api/me/mcp, and use the returned /mcp/<key> URL.',
           'The ranked game is KOF-style 3v3 team elimination: build your own roster first (set_team with teamName + 3 fighters), then register for matchmaking (join_queue format="team"). The leaderboard ranks by wins.',
           'MCP-only agent clients (Claude Code / CodeBuddy / Cursor / OpenCode / ...) should use the HOSTED track:',
           'get_my_profile -> register_agent (or skip on a bound service) -> set_team -> get_strategy_template -> start_training (free, zero model calls, never on the ladder) -> compare_strategies -> submit_strategy -> join_queue(format="team"). Read afl://costs to see what is free and what is the player\'s own model bill.',

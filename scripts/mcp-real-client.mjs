@@ -15,7 +15,10 @@
  * 复现：
  *   npm install --prefix /tmp/afl-mcp-probe @modelcontextprotocol/sdk
  *   AFL_MCP_SDK_ROOT=/tmp/afl-mcp-probe/node_modules \
- *     AFL_BASE=http://127.0.0.1:8787 node scripts/mcp-real-client.mjs
+ *     AFL_MCP_URL=http://127.0.0.1:8787/mcp/<player key> node scripts/mcp-real-client.mjs
+ *
+ * 用 AFL_MCP_URL 而不是 AFL_BASE：控制面绑定玩家，真实服务地址是 /mcp/<key>。
+ * 只给 AFL_BASE 时探测的是匿名沙箱（仅未配置账号库时存在），报告会写清探测的是哪一个。
  *
  * Windows 下把 /tmp 换成任意目录，AFL_MCP_SDK_ROOT 指向其 node_modules。
  * 输出：docs/mcp-client-probe.json
@@ -28,7 +31,10 @@ import { replayMatch, renderReplay } from '../src/engine.js';
 import { parseReplay } from '../src/replay.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const BASE = process.env.AFL_BASE || 'http://127.0.0.1:8787';
+const BASE = (process.env.AFL_BASE || 'http://127.0.0.1:8787').replace(/\/+$/, '');
+// Prefer the player service URL; fall back to the sandbox path and label it.
+const MCP_URL = (process.env.AFL_MCP_URL || '').replace(/\/+$/, '') || BASE + '/mcp';
+const PROBE_MODE = /\/mcp(\/|$)/.test(MCP_URL) && MCP_URL !== BASE + '/mcp' ? 'player-service' : 'anonymous-sandbox';
 const WS_BASE = BASE.replace(/^http/, 'ws');
 const REPORT_PATH = path.join(ROOT, 'docs', 'mcp-client-probe.json');
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -134,7 +140,7 @@ function hpCurve(rendered) {
 }
 
 const client = new Client({ name: 'afl-independent-probe', version: '1.0.0' }, { capabilities: {} });
-const transport = new StreamableHTTPClientTransport(new URL('/mcp', BASE));
+const transport = new StreamableHTTPClientTransport(new URL(MCP_URL));
 let connected = false;
 
 try {
@@ -143,7 +149,11 @@ try {
   connected = true;
   const serverInfo = client.getServerVersion();
   const caps = client.getServerCapabilities();
-  report.evidence.handshake = { serverInfo, capabilities: caps, transport: 'Streamable HTTP (POST /mcp)' };
+  report.evidence.handshake = {
+    serverInfo, capabilities: caps,
+    transport: 'Streamable HTTP (POST ' + (PROBE_MODE === 'player-service' ? '/mcp/<player key>' : '/mcp') + ')',
+    probed: PROBE_MODE,
+  };
   check('M1 官方 MCP SDK 完成 initialize + notifications/initialized 握手',
     Boolean(serverInfo?.name), 'server=' + serverInfo?.name + ' v' + serverInfo?.version + ' sdk=' + sdkVersion);
 
@@ -191,6 +201,17 @@ try {
     Boolean(validated?.valid) && typeof sim?.overallWinRate === 'number' && sim?.games > 0,
     'dsl=' + validated?.dsl + ' offlineWinRate=' + sim?.overallWinRate + '% games=' + sim?.games);
 
+  // Reusing a key is normal (it is the human's own service URL), and a reused
+  // agent may still be fighting from the previous run. The league locks the
+  // strategy mid-match, so wait it out instead of reporting a failure.
+  for (let i = 0; i < 90; i += 1) {
+    const live = (await call('list_rooms'))?.rooms || [];
+    const busy = live.some((r) => r.mode === 'ranked' && [r.a?.id, r.b?.id].includes(reg.agentId)
+      && (r.status === 'running' || r.status === 'intermission'));
+    if (!busy) break;
+    if (i === 89) console.error('  [probe] agent still mid-match after 90s; submitting anyway');
+    await delay(1000);
+  }
   const submitted = await call('submit_strategy', { token: reg.token, strategy });
   check('M7 submit_strategy 落库并生成版本 hash',
     Boolean(submitted?.versionHash) && submitted?.versionHash === validated?.strategyHash?.slice(0, 12),
@@ -217,7 +238,14 @@ try {
   while (Date.now() < deadline) {
     await delay(1200);
     const mine = await call('get_my_matches', { token: reg.token, limit: 5 });
-    finished = (mine?.matches || []).find((m) => m.ticks > 20);
+    // Must be THIS run's match. On a reused key the history already holds
+    // earlier games, and comparing a fresh spectator stream against an old
+    // replay would silently measure nothing (M14 compared=0). Prefer the room we
+    // just opened, and only accept a row that came from it.
+    const rows = (mine?.matches || []).filter((m) => m.ticks > 20);
+    finished = myRoom
+      ? rows.find((m) => m.roomId === myRoom.roomId || String(m.matchId).startsWith(myRoom.roomId + '_'))
+      : rows[0];
     if (finished) break;
   }
   check('M9 托管策略真的打完一整局并写入战绩', Boolean(finished),
@@ -225,6 +253,17 @@ try {
 
   const rankedObs = await rankedPromise;
   const demoObs = await demoPromise;
+
+  // A ranked room keeps requeueing, so the newest history row is not
+  // necessarily the game this spectator actually watched (that mismatch made
+  // M14 compare zero frames and still look like a pass). Re-key the comparison
+  // onto the match the frames belong to, and say so if it is not in history.
+  const seenIds = new Set([...rankedObs.ticks.values()].map((t) => t.matchId).filter(Boolean));
+  if (finished && seenIds.size && !seenIds.has(finished.matchId)) {
+    const mine2 = await call('get_my_matches', { token: reg.token, limit: 8 });
+    const alt = (mine2?.matches || []).find((m) => seenIds.has(m.matchId));
+    if (alt) finished = alt;
+  }
   report.evidence.spectate = {
     demoRoomTicks: demoObs.ticks.size,
     demoHelloPresence: demoObs.hello?.presence || null,
@@ -316,9 +355,27 @@ try {
       leaderboardTop: (board?.leaders || board?.rows || []).slice(0, 3),
       stats,
     };
-    check('M15 战绩计入 Glicko-2 积分与榜单',
-      Number(stats?.matches) >= 1 && Number.isFinite(Number(stats?.rating)),
-      'matches=' + stats?.matches + ' rating=' + stats?.rating + ' wins=' + stats?.wins + ' losses=' + stats?.losses + ' draws=' + stats?.draws);
+    // Two truths, and only one of them may hold - whichever the match actually
+    // was. A lone registrant gets an official baseline as a sparring partner:
+    // that is a real, replayable game that must NOT move the ladder. Asserting
+    // matches>=1 unconditionally was the old (wrong) expectation and would only
+    // pass by putting exhibition results onto the board.
+    const rankedGame = finished?.ranked === true;
+    const classified = finished && typeof finished.ranked === 'boolean'
+      && typeof finished.practice === 'boolean' && Boolean(finished.pairing);
+    const okLadder = rankedGame
+      ? Number(stats?.matches) >= 1 && Number(stats?.rating) !== 1500
+      : Number(stats?.matches) === 0 && Number(stats?.rating) === 1500
+        && Number(stats?.practiceMatches) >= 1 && finished.practice === true;
+    report.evidence.ranking.classification = {
+      ranked: finished?.ranked, practice: finished?.practice,
+      pairing: finished?.pairing, opponentOfficial: finished?.opponentOfficial,
+    };
+    check('M15 战绩与榜单口径一致（排位局计分；官方陪练局真实但不计榜）',
+      classified && okLadder,
+      (rankedGame ? '排位' : '不计榜(' + (finished?.pairing || '?') + ')')
+      + ' matches=' + stats?.matches + ' practice=' + stats?.practiceMatches
+      + ' rating=' + stats?.rating + ' delta=' + finished?.ratingDelta);
   }
 
   await client.close();
@@ -332,7 +389,13 @@ try {
     failed,
     connected,
   };
-  fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), 'utf8');
+  // This report is committed as evidence, so it must never carry a live
+  // credential: an MCP key is a full control plane for one player's agent, and
+  // an agent token authorises realtime control. Scrub on write, not on trust.
+  const SECRET = /((?:mcp_|ag_|usr_)[A-Za-z0-9_-]{6})[A-Za-z0-9_-]+/g;
+  const redacted = JSON.parse(JSON.stringify(report).replace(SECRET, '$1…'));
+  redacted.redaction = 'MCP keys and agent tokens are truncated to their first 6 payload characters.';
+  fs.writeFileSync(REPORT_PATH, JSON.stringify(redacted, null, 2), 'utf8');
   console.log('\n' + (failed ? 'FAILED ' : 'PASSED ') + (report.checks.length - failed) + '/' + report.checks.length
     + '  |  报告: docs/mcp-client-probe.json');
   process.exit(failed ? 1 : 0);
