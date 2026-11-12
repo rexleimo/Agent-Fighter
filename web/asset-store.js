@@ -77,32 +77,48 @@ export function legacyRigUrl(id) {
 }
 
 function loadImage(url, fallback) {
-  if (!url) return Promise.reject(new Error('missing asset url'));
-  const cached = images.get(url);
+  // A missing manifest must not mean "no art". The header promises callers fall
+  // back to the legacy source URLs, so an empty primary url has to take the
+  // fallback branch too - rejecting here made every stage and fighter image
+  // silently disappear and left the procedural placeholder set on screen.
+  const primary = url || null;
+  if (!primary && !fallback) return Promise.reject(new Error('missing asset url'));
+  const cached = images.get(primary);
   if (cached) return Promise.resolve(cached);
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.decoding = 'async';
     img.onload = () => {
-      const done = () => remember(url, img) && resolve(img);
+      const done = () => remember(primary, img) && resolve(img);
       if (typeof img.decode === 'function') img.decode().then(done).catch(done);
       else done();
     };
     img.onerror = () => {
-      if (fallback && fallback !== url) {
-        loadImage(fallback).then(resolve).catch(reject);
+      if (fallback && fallback !== primary) {
+        loadImage(null, fallback).then(resolve).catch(reject);
         return;
       }
-      reject(new Error('asset failed: ' + url));
+      reject(new Error('asset failed: ' + (primary || fallback)));
     };
-    img.src = url;
+    img.src = primary || fallback;
   });
+}
+
+/**
+ * Every art lookup is manifest-driven, so the manifest has to be resolved by the
+ * store itself. Relying on a caller to bootstrap first is not a contract: no
+ * caller ever did, which left state.byId empty and made every variant path null.
+ */
+async function ensureManifest() {
+  if (state.ready) return state.manifest;
+  return loadManifest();
 }
 
 export async function loadStageArt() {
   if (state.stage) return state.stage;
+  await ensureManifest();
   const variant = stageVariant();
-  const img = await loadImage(variant && variant.path, '/assets/art/stage_main.png');
+  const img = await loadImage(variant && variant.path, legacyArtUrl('stage_main'));
   state.stage = img;
   return img;
 }
@@ -111,6 +127,7 @@ export async function loadFighterArt(id, role = 'play') {
   const key = id + ':' + role;
   const cached = images.get(key);
   if (cached) return cached;
+  await ensureManifest();
   const variant = variantFor(id, role);
   const img = await loadImage(variant && variant.path, legacyArtUrl(id));
   remember(key, img);
@@ -119,6 +136,7 @@ export async function loadFighterArt(id, role = 'play') {
 
 export async function loadRigData(id) {
   if (rigData.has(id)) return rigData.get(id);
+  await ensureManifest();
   const asset = assetFor(id);
   if (!asset || !asset.rig || !asset.rig.data) return null;
   try {

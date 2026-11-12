@@ -1,6 +1,31 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useAppState } from '../hooks/useAppState';
 import type { Fighter } from '../lib/types';
+import { loadManifest, variantFor } from '@web/asset-store.js';
+
+/**
+ * Resolves manifest art urls once the manifest is available.
+ *
+ * The gallery used to hardcode `/assets/art/<id>.png`, which is the 1.5 MB
+ * source plate. The manifest already publishes a 33 KB `card-480` WebP per
+ * fighter, so 16 tiles cost ~24 MB instead of ~0.5 MB. The legacy path stays as
+ * an explicit fallback so a missing manifest degrades to the old behaviour
+ * rather than to a broken image.
+ */
+function useArtUrls(ids: string[]) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    loadManifest().then(() => { if (alive) setReady(true); }, () => { if (alive) setReady(true); });
+    return () => { alive = false; };
+  }, []);
+  const urls: Record<string, string> = {};
+  for (const id of ids) {
+    const variant = ready ? variantFor(id, 'card') : null;
+    urls[id] = (variant && variant.path) || `/assets/art/${id}.png`;
+  }
+  return { ready, urls };
+}
 
 const STAT_KEYS: Array<[keyof NonNullable<Fighter['profile']>, string]> = [
   ['reach', '射程'], ['speed', '速度'], ['power', '力量'], ['guard', '防御'],
@@ -90,7 +115,7 @@ function BoxDiagram() {
   return <canvas id="boxDiagram" ref={ref} width={420} height={248} />;
 }
 
-function FighterTile({ fighter }: { fighter: Fighter }) {
+function FighterTile({ fighter, artUrl }: { fighter: Fighter; artUrl: string }) {
   const p = fighter.profile ?? {};
   const style = {
     '--f-base': fighter.palette.base,
@@ -104,7 +129,7 @@ function FighterTile({ fighter }: { fighter: Fighter }) {
       <div className="ft-art-wrap">
         <img
           className="ft-art"
-          src={`/assets/art/${fighter.id}.png`}
+          src={artUrl}
           alt={fighter.name}
           width={240}
           height={320}
@@ -147,6 +172,7 @@ function FighterTile({ fighter }: { fighter: Fighter }) {
 export function FightersPage() {
   const state = useAppState();
   const fighters = state.data?.fighters ?? [];
+  const { urls: artUrls } = useArtUrls(fighters.map((f: Fighter) => f.id));
   const groups: Array<{ id: string; name: string; code: string; motif: string; color: string; members: Fighter[] }> = [];
   for (const f of fighters) {
     let group = groups.find((g) => g.id === (f.team || 'misc'));
@@ -204,7 +230,7 @@ export function FightersPage() {
               <span className="ft-team-count mono">{group.members.length} FIGHTERS</span>
             </div>
             <div className="fighter-team-grid">
-              {group.members.map((f) => <FighterTile key={f.id} fighter={f} />)}
+              {group.members.map((f) => <FighterTile key={f.id} fighter={f} artUrl={artUrls[f.id]} />)}
             </div>
           </section>
         ))}

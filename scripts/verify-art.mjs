@@ -120,26 +120,53 @@ try {
 
   await cdp.send('Page.navigate', { url: BASE + '/?view=live' });
   await sleep(5000);
-  const live = JSON.parse((await cdp.send('Runtime.evaluate', {
+  // What this probe used to read: getImageData over a fixed 260x180 corner, and
+  // the DOM ids `tickLabel` / `decisionList`. The corner sits in the darkest
+  // part of the real artwork (52 buckets against a >90 threshold), and those two
+  // ids were deleted in the React rewrite - so the gate failed on a correctly
+  // rendered page, and never proved the stream was advancing.
+  // Now it measures two facts that genuinely differ, plus real selectors:
+  // the plate was fetched over HTTP (1 url vs 0), and a background-only band
+  // (255 buckets vs 5). The full canvas could not discriminate: HUD, impact FX
+  // and fighters inflate it to 236 even with no art at all.
+  const liveProbe = () => cdp.send('Runtime.evaluate', {
     expression: `JSON.stringify((()=>{
       const res=performance.getEntriesByType('resource').filter(e=>e.name.includes('/assets/'));
       const names=res.map(e=>new URL(e.name).pathname);
       const plays=[...new Set(names.filter(n=>/\\/assets\\/v\\/[a-z0-9-]+\\/play-512\\./.test(n)))];
       const cards=names.filter(n=>/\\/assets\\/v\\/[a-z0-9-]+\\/card-480\\./.test(n));
+      const stageFetch=names.filter(n=>/stage_main|\\/stage-/.test(n));
       const cv=document.getElementById('stage');
-      const d=cv.getContext('2d').getImageData(60,120,260,180).data;
-      const colors=new Set();
-      for(let i=0;i<d.length;i+=16) colors.add((d[i]>>4)+'-'+(d[i+1]>>4)+'-'+(d[i+2]>>4));
-      return { plays, cards, paletteColors:colors.size,
-        tick: document.getElementById('tickLabel')?.textContent || '',
-        decisions: document.getElementById('decisionList')?.children.length || 0 };})())`,
+      const band=cv.getContext('2d').getImageData(300,60,360,150).data;
+      const bc=new Set();
+      for(let i=0;i<band.length;i+=16) bc.add((band[i]>>4)+'-'+(band[i+1]>>4)+'-'+(band[i+2]>>4));
+      const tickText=(document.querySelector('.vs-tick')||{}).textContent||'';
+      return { plays, cards, stageFetch, bandColors:bc.size,
+        tick:tickText.trim(),
+        tickNum:(tickText.match(/TICK\\s*(\\d+)/)||[])[1]||'',
+        decisions:document.querySelectorAll('.event-list .ev').length };})())`,
     returnByValue: true,
-  })).result.value);
+  }).then((r) => {
+    if (!r.result || r.result.value === undefined) {
+      throw new Error('live probe returned no value: ' + JSON.stringify(r.exceptionDetails || r));
+    }
+    return JSON.parse(r.result.value);
+  });
+
+  const live = await liveProbe();
+  await sleep(2500);
+  const live2 = await liveProbe();
   console.log('[Live] ' + JSON.stringify(live));
   ok('Live loads only the active fighters', live.plays.length >= 1 && live.plays.length <= 2, JSON.stringify(live.plays));
   ok('Live does not preload gallery cards', live.cards.length === 0, JSON.stringify(live.cards));
-  ok('Canvas is painting the painted stage/art', live.paletteColors > 90, `取样色数 ${live.paletteColors}`);
-  ok('实时推流仍在跑', live.decisions > 0, live.tick);
+  // Two independent facts, both measured where they can actually differ:
+  // the painted plate was fetched over HTTP (255 vs 5 buckets in a background
+  // band separates art from the flat procedural fallback; the full-canvas
+  // number could not, because HUD and impact FX inflate it either way).
+  ok('舞台贴图真的被请求（不是程序化兜底）', live.stageFetch.length >= 1, JSON.stringify(live.stageFetch));
+  ok('Canvas is painting the painted stage/art', live.bandColors > 60, `背景带取样色数 ${live.bandColors}`);
+  ok('实时推流仍在跑', /^TICK \d+/.test(live.tick) && live2.tickNum !== live.tickNum,
+    live.tick + ' -> ' + live2.tick);
   let shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   fs.writeFileSync(path.join(ROOT, 'docs', 'preview-live.png'), Buffer.from(shot.data, 'base64'));
 
