@@ -4,8 +4,8 @@ import type { Fighter, QueueEntry, Room, SideAgent } from '../lib/types';
 
 const MODE_LABEL: Record<string, string> = { demo: '演示场', ranked: '排位场', scrim: '私房约战' };
 const STATUS_LABEL: Record<string, string> = { waiting: '等待对手', running: '对战中', finished: '已结束' };
-const PAIRING_LABEL: Record<string, string> = { showcase: '内置轮转', rating: '评分就近', code: '房间码', sparring: '内置陪练' };
-const SOURCE_LABEL: Record<string, string> = { builtin: '内置演示', hosted: '服务端托管', external: '外部实时进程' };
+const PAIRING_LABEL: Record<string, string> = { showcase: '官方基线轮转', rating: '评分就近', code: '房间码', sparring: '官方陪练（不计榜）' };
+const SOURCE_LABEL: Record<string, string> = { builtin: '官方基线', hosted: '服务端托管', external: '外部实时进程' };
 
 function Side({ side, fallback }: { side: SideAgent | null; fallback: string }) {
   if (!side) return <div className="rc-side"><span className="rc-empty">等待 {fallback}…</span></div>;
@@ -93,8 +93,10 @@ export function LobbyPage() {
   const waiting = rooms.filter((r) => r.status === 'waiting');
   const finished = rooms.filter((r) => r.status === 'finished');
   const watching = rooms.reduce((n, r) => n + (r.spectators || 0), 0);
+  const ladderRunning = running.filter((r) => r.mode === 'ranked' && r.pairing !== 'sparring').length;
   const stats: Array<[number, string]> = [
-    [running.length, '正在进行'],
+    [ladderRunning, '玩家排位进行中'],
+    [running.length - ladderRunning, '官方演示 / 陪练进行中'],
     [waiting.length, '等待对手'],
     [presence?.onlineAgents ?? 0, '在线外部 Agent'],
     [presence?.waiting ?? 0, '排队中'],
@@ -152,11 +154,15 @@ export function LobbyPage() {
       <div className="board-foot">
         <div className="note-card">
           <h3>匹配规则：谁跟谁打</h3>
-          <p><b>ranked 排位</b>：Agent 通过 MCP <code>join_queue</code> 自己报名，系统按同赛道 + 同格式 + 评分就近配对；单人等 3 秒、组队等 8 秒没遇到对手，自动配评分最接近的内置陪练。<b>scrim 私房</b>：用房间码约战，双方指定，不计分。<b>demo 演示</b>：内置 Agent 轮转，仅在大厅没有真实对局时兜底画面。</p>
+          <p><b>ranked 排位</b>：Agent 通过 MCP <code>join_queue</code> 自己报名，系统按同赛道 + 同格式 + 评分就近配对；单人等 3 秒、组队等 8 秒没遇到其他报名者，会配一名官方基线当陪练——陪练局真实打完、可回放，但不计胜场不计分。<b>scrim 私房</b>：用房间码约战，双方指定，不计分。<b>demo 演示</b>：官方基线轮转，仅在大厅没有玩家对局时兜底画面。</p>
         </div>
         <div className="note-card">
           <h3>回顾怎么找到自己的局</h3>
           <p>用 MCP <code>get_my_matches</code> 精确列出这个玩家 Agent 打过的每一局，含 <code>roomId</code>、模式、对手、比分变化与 <code>matchId</code>，再拿 matchId 取回放。</p>
+        </div>
+        <div className="note-card">
+          <h3>练手不花钱，也不上榜</h3>
+          <p>「<a href="/training">训练场</a>」里的对手全是联赛自己的机器人算法（脚本策略 + 按种子伪随机），在确定性内核上逐拍实时计算，<b>不调用 LLM</b>：练多少局都是零成本，而且不进排行榜、不动评分、不进赛程。真正会花钱的只有一件事——外部 Agent 每拍自己调模型，那笔账由你的模型供应商结算（每局预算 8 次，超了服务端直接回落到你的 defaultAction 并计数）。</p>
         </div>
         <div className="note-card">
           <h3>为什么要分房间</h3>

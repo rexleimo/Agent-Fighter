@@ -18,6 +18,7 @@ import { normalizeUsername } from './player-shared.js';
 import { attachWebSocketServer } from './ws.js';
 import { createMCPHandler } from './mcp.js';
 import { strategyTemplate } from './strategy-dsl.js';
+import { MAX_MODEL_CALLS_PER_MATCH } from './costs.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_DIR = path.join(ROOT, 'web');
@@ -25,7 +26,7 @@ const WEB_DIST = path.join(WEB_DIR, 'dist');
 const WEB_DIST_INDEX = path.join(WEB_DIST, 'index.html');
 // Client-side routes served by the React app. The game assets and the
 // read-only docs/sdk trees below keep their own prefixes.
-const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/guide']);
+const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/guide', '/training']);
 const PORT = Number(process.env.PORT || 8787);
 const league = new League();
 const players = auth ? await getPlayerStore() : null;
@@ -34,9 +35,11 @@ if (auth) await bootstrapAdmin({ auth, players });
 else console.log('[afl] DATABASE_URL is not set: Better Auth is disabled; run pnpm db:up && pnpm db:migrate to enable accounts.');
 const manager = new RoomManager(league);
 const handleMCP = createMCPHandler(league, manager, players);
-// Always-on example of the MCP-only hosted track, so the lobby shows a real
-// ranked room running concurrently with the demo showcase room.
-manager.enqueue({ agent: league.ensureHostedDemo(strategyTemplate()), mode: 'ranked' });
+// The hosted (MCP-only) track stays watchable through the exhibition rotation:
+// the official hosted baseline is registered and joined into the always-on demo
+// rooms, NOT into the ranked queue. Ranked rooms belong to registered players,
+// so the board can never fill up with the league playing itself.
+league.ensureHostedDemo(strategyTemplate());
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -354,11 +357,82 @@ const server = http.createServer(async (req, res) => {
         losses: agent.losses,
         draws: agent.draws,
         matches: agent.matches,
+        practiceMatches: agent.practiceMatches || 0,
+        trainingRuns: agent.trainingRuns || 0,
+        // A player account gets an agent before it has a strategy; the training
+        // ground needs one, so say which state we are in instead of failing raw.
+        hasStrategy: Boolean(agent.hostedStrategy),
+        ruleCount: agent.hostedStrategy ? agent.hostedStrategy.rules.length : 0,
       },
       queue,
       room,
       recentMatches: league.getMyMatches({ token: agent.token, limit: 8 }).matches,
+      training: league.getTrainingHistory(agent.id, { limit: 8 }),
+      cost: playerCost(agent.id),
     });
+    return;
+  }
+  /** What this agent actually consumed, from server-observed counters only. */
+  function playerCost(agentId) {
+    const st = league.getAgentStats(agentId);
+    if (!st) return null;
+    return {
+      declaredModelCalls: st.modelCalls,
+      timeouts: st.timeouts,
+      budgetExceeded: st.budgetExceeded,
+      hostedTicksEvaluated: st.hostedTicksEvaluated,
+      trainingRuns: st.trainingRuns,
+      budgetLimit: MAX_MODEL_CALLS_PER_MATCH,
+      hosted: st.hosted,
+    };
+  }
+  /* ---------------------------------------------------------- cost model */
+  if (p === '/api/costs' && req.method === 'GET') {
+    // The cost model plus what the platform is actually spending right now.
+    json(res, 200, { ...league.costModel(), platformUsage: { replays: league.replayStore() } });
+    return;
+  }
+  if (p === '/api/training/drills' && req.method === 'GET') {
+    json(res, 200, league.listDrills());
+    return;
+  }
+  /* ------------------------------------------------------- training ground
+   * Training is the player's own sandbox: it runs the league bot algorithms on
+   * the deterministic kernel, calls no model, and never reaches recordMatch -
+   * so the ladder, the schedule and the replay store stay untouched.
+   */
+  if (p.startsWith('/api/training/') && req.method === 'POST') {
+    if (!players) { json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' }); return; }
+    let player = await sessionPlayer(req);
+    if (!player) { json(res, 401, { error: 'not logged in' }); return; }
+    player = await ensurePlayerAgent(player);
+    const agent = player.agentId ? league.agentById(player.agentId) : null;
+    if (!agent) { json(res, 404, { error: 'agent not ready' }); return; }
+    const body = await readJson(req);
+    try {
+      if (p === '/api/training/run') {
+        json(res, 200, league.runTrainingFor({ agent, strategy: body.strategy || null, drills: body.drills, seeds: body.seeds, rounds: body.rounds, maxGames: body.maxGames }));
+        return;
+      }
+      if (p === '/api/training/compare') {
+        if (!body.strategyB) { json(res, 400, { error: 'strategyB is required' }); return; }
+        json(res, 200, league.compareTraining({ agent, strategyA: body.strategyA || null, strategyB: body.strategyB, drills: body.drills, seeds: body.seeds, rounds: body.rounds }));
+        return;
+      }
+      json(res, 404, { error: 'unknown training route' });
+    } catch (err) {
+      json(res, 400, { error: String(err && err.message || err) });
+    }
+    return;
+  }
+  if (p === '/api/training/history' && req.method === 'GET') {
+    if (!players) { json(res, 503, { error: 'auth is not configured' }); return; }
+    let player = await sessionPlayer(req);
+    if (!player) { json(res, 401, { error: 'not logged in' }); return; }
+    player = await ensurePlayerAgent(player);
+    const agent = player.agentId ? league.agentById(player.agentId) : null;
+    if (!agent) { json(res, 404, { error: 'agent not ready' }); return; }
+    json(res, 200, league.getTrainingHistory(agent.id, { limit: url.searchParams.get('limit') }));
     return;
   }
   /* ------------------------------------------------------- admin console */
@@ -447,12 +521,13 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/api/state') {
     json(res, 200, {
-      server: { name: 'Agent Fighting League', season: league.season, tickMs: CONFIG.TICK_MS, framesPerTick: CONFIG.FRAMES_PER_TICK, matchTicks: CONFIG.MATCH_TICKS, version: '0.7.0' },
+      server: { name: 'Agent Fighting League', season: league.season, tickMs: CONFIG.TICK_MS, framesPerTick: CONFIG.FRAMES_PER_TICK, matchTicks: CONFIG.MATCH_TICKS, version: '0.9.0' },
       assets: assetsState(),
       match: manager.meta(),
       rooms: manager.listRooms(),
       lobby: manager.state(),
       leaderboard: league.getLeaderboard(),
+      costs: { ...league.costModel(), platformUsage: { replays: league.replayStore() } },
       recentMatches: league.recentMatches(12),
       agents: league.listAgents(),
       fighters: league.listFighters(),

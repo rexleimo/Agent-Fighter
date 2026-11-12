@@ -55,6 +55,21 @@ export function AgentStatusCard({ enabled }: { enabled: boolean }) {
           </div>
         </div>
 
+        {/* Cost is disclosed from server-observed counters, never from a bill. */}
+        <div className="acc-cost">
+          <span className="acc-label">成本</span>
+          {data.cost ? (
+            <>
+              <span>自报模型调用 <b>{data.cost.declaredModelCalls}</b> / 每局预算 {data.cost.budgetLimit}</span>
+              <span>超时回落 <b>{data.cost.timeouts}</b></span>
+              <span>超预算被回落 <b>{data.cost.budgetExceeded}</b></span>
+              {data.cost.hosted && <span>平台逐拍求值 <b>{data.cost.hostedTicksEvaluated}</b> 拍</span>}
+              <Link className="acc-cost-link" to="/training">训练场（免费 · 零模型调用 · 不计榜）</Link>
+            </>
+          ) : <span className="acc-muted">成本数据读取中…</span>}
+          {agent.practiceMatches ? <span className="acc-tag-warn">陪练 {agent.practiceMatches} 局不计榜</span> : null}
+        </div>
+
         <div className="acc-team">
           <div>
             <div className="acc-label">战队</div>
@@ -91,6 +106,7 @@ export function AgentStatusCard({ enabled }: { enabled: boolean }) {
                     {m.result === 'win' ? '胜' : m.result === 'loss' ? '负' : '平'}
                   </span>
                   <span>{m.opponent}</span>
+                  {m.practice && <span className="acc-tag-warn">陪练不计榜</span>}
                   <span className="mono">{m.matchId}</span>
                 </div>
               ))}

@@ -1,14 +1,38 @@
 import { CONFIG, ACTIONS, MOVES } from './rules.js';
+import { isLadderCompetitor } from './league.js';
 import { createMatch, safePolicy, renderState, renderReplay } from './engine.js';
 import { getBuiltinAgent } from './agents.js';
 import { getFighter, DEFAULT_FIGHTER, fighterBrief } from './fighters.js';
 import { parseReplay } from './replay.js';
 import { decide } from './strategy-dsl.js';
+import { MAX_MODEL_CALLS_PER_MATCH } from './costs.js';
 import {
   createTeamState, teamRoundStart, applyRoundResult, applyOrder, isValidOrder,
   teamView, teamResult, createTeamReplay, appendTeamRound, flattenTeamReplay,
   parseTeamReplay, normalizeTeam, TEAM_INTERMISSION_MS,
 } from './team.js';
+
+/** Per-side decision counters. `budgetExceeded` counts ticks whose action was
+ *  dropped because the agent declared more model calls than the match budget. */
+/**
+ * A side decides over the wire when the league cannot compute it locally:
+ * built-ins are league code, and a hosted agent with a submitted strategy is
+ * interpreted inside the room. Everything else receives `observe` and replies
+ * with `act` — those are the only ticks that can cost a player a model call,
+ * and therefore the only ticks the per-match budget applies to.
+ */
+function isRemoteSide(agent) {
+  if (!agent) return false;
+  if (agent.source === 'builtin') return false;
+  return !(agent.source === 'hosted' && agent.hostedStrategy);
+}
+
+function newDecisionCounters() {
+  return {
+    a: { modelCalls: 0, timeouts: 0, decisions: 0, totalMs: 0, budgetExceeded: 0 },
+    b: { modelCalls: 0, timeouts: 0, decisions: 0, totalMs: 0, budgetExceeded: 0 },
+  };
+}
 
 const ACTION_LABEL = {
   idle: '待机', walk_f: '前走', walk_b: '后撤', jump: '跳跃', crouch: '下蹲',
@@ -168,10 +192,7 @@ export class Room {
       matchId, seed, match, a, b,
       pending: { a: null, b: null },
       obs: null,
-      decisions: {
-        a: { modelCalls: 0, timeouts: 0, decisions: 0, totalMs: 0 },
-        b: { modelCalls: 0, timeouts: 0, decisions: 0, totalMs: 0 },
-      },
+      decisions: newDecisionCounters(),
       startedAt: new Date().toISOString(),
       nextTickAt: Date.now() + CONFIG.TICK_MS,
       timer: null,
@@ -221,10 +242,7 @@ export class Room {
       match: null,
       pending: { a: null, b: null },
       obs: null,
-      decisions: {
-        a: { modelCalls: 0, timeouts: 0, decisions: 0, totalMs: 0 },
-        b: { modelCalls: 0, timeouts: 0, decisions: 0, totalMs: 0 },
-      },
+      decisions: newDecisionCounters(),
       startedAt: new Date().toISOString(),
       nextTickAt: Date.now() + CONFIG.TICK_MS,
       timer: null,
@@ -387,8 +405,11 @@ export class Room {
         // Interpreted locally: zero network round-trip, never times out.
         c.pending[side] = safePolicy((o) => decide(agent.hostedStrategy, o).action, obs[side], agent.defaultAction);
       } else {
+        // Anything the league cannot compute locally (external, or hosted with no
+        // strategy submitted yet) decides over the wire.
         const conn = this.agentConns.get(agent.id);
         if (conn) conn.send({ type: 'observe', matchId: c.matchId, tick, deadlineMs: CONFIG.TICK_MS, observation: obs[side] });
+        else c.pending[side] = agent.defaultAction || CONFIG.DEFAULT_ACTION;
       }
     }
     c.nextTickAt = Date.now() + CONFIG.TICK_MS;
@@ -411,12 +432,24 @@ export class Room {
       conn.send({ type: 'act_rejected', reason: 'stale_tick', expectedTick: c.obs.tick, gotTick: msg.tick });
       return;
     }
+    const stat = c.decisions[side];
+    // The per-match model budget is enforced here, not just advertised: an
+    // external agent that declares more calls than the budget has its action
+    // replaced by its own fallback for this tick. Declared calls are still
+    // recorded - the player spent them whether or not the league used them.
+    const declared = Number(msg.modelCalls) || 0;
+    const overBudget = isRemoteSide(agent) && declared > 0 && (stat.modelCalls + declared) > MAX_MODEL_CALLS_PER_MATCH;
+    stat.modelCalls += declared;
+    if (overBudget) {
+      stat.budgetExceeded += 1;
+      c.pending[side] = agent.defaultAction || CONFIG.DEFAULT_ACTION;
+      conn.send({ type: 'act_rejected', reason: 'model_budget_exceeded', matchId: c.matchId, side, budget: MAX_MODEL_CALLS_PER_MATCH, used: stat.modelCalls });
+      return;
+    }
     const action = ACTIONS.includes(msg.action) ? msg.action : agent.defaultAction;
     c.pending[side] = action;
-    const stat = c.decisions[side];
     stat.decisions += 1;
     stat.totalMs += Date.now() - c.obs.openedAt;
-    stat.modelCalls += Number(msg.modelCalls || 0);
   }
 
   resolveTick() {
@@ -485,12 +518,13 @@ export class Room {
       format,
       team: result.team || null,
       decisions: {
-        a: { modelCalls: c.decisions.a.modelCalls, timeouts: c.decisions.a.timeouts, avgDecisionMs: c.decisions.a.decisions ? Math.round(c.decisions.a.totalMs / c.decisions.a.decisions) : 0 },
-        b: { modelCalls: c.decisions.b.modelCalls, timeouts: c.decisions.b.timeouts, avgDecisionMs: c.decisions.b.decisions ? Math.round(c.decisions.b.totalMs / c.decisions.b.decisions) : 0 },
+        a: { ...c.decisions.a, avgDecisionMs: c.decisions.a.decisions ? Math.round(c.decisions.a.totalMs / c.decisions.a.decisions) : 0 },
+        b: { ...c.decisions.b, avgDecisionMs: c.decisions.b.decisions ? Math.round(c.decisions.b.totalMs / c.decisions.b.decisions) : 0 },
       },
       roomId: this.id,
       mode: this.mode,
       ranked: this.ranked,
+      pairing: this.pairing,
       fighters: this.fighters,
     });
     this.renderedReplay = rendered || renderReplay(replay || c.match.replay);
@@ -523,7 +557,9 @@ export class Room {
 function assertCompetitor(agent) {
   if (!agent) throw new Error('agent is required');
   if (agent.playerId) return;
-  if (agent.source === 'builtin' || agent.id === 'demo_hosted') return;
+  if (agent.source === 'builtin' || agent.id === 'demo_hosted') {
+    throw new Error('official baselines do not enter matchmaking: they are sparring partners and showcase fighters only');
+  }
   throw new Error('player login required: anonymous agents cannot enter matches');
 }
 
@@ -727,9 +763,15 @@ export class RoomManager {
   }
 
   nearestSparring(agent) {
+    // Official baselines all hold the same fixed nominal rating, so "nearest
+    // rating" cannot discriminate between them. Rotate instead: every
+    // registrant meets a different official style instead of the same one.
     const pool = Array.from(this.league.agents.values()).filter((x) => x.source === 'builtin');
     if (!pool.length) return null;
-    return pool.sort((x, y) => Math.abs(x.rating - agent.rating) - Math.abs(y.rating - agent.rating))[0];
+    const byRating = pool.sort((x, y) => Math.abs(x.rating - agent.rating) - Math.abs(y.rating - agent.rating));
+    const tied = byRating.filter((x) => Math.abs(x.rating - agent.rating) <= Math.abs(byRating[0].rating - agent.rating));
+    this.sparCursor = ((this.sparCursor || 0) + 1) % Math.max(1, tied.length);
+    return tied[this.sparCursor] || tied[0];
   }
 
   /**
@@ -769,7 +811,13 @@ export class RoomManager {
       for (const w of group) {
         if (used.has(w.agentId)) continue;
         const agent = this.league.agents.get(w.agentId);
-        if (!agent) { used.add(w.agentId); continue; }
+        if (!agent || !isLadderCompetitor(agent)) {
+          // An official baseline in the ranked queue would re-create the old
+          // showcase self-play loop: thousands of ladder rows nobody plays.
+          used.add(w.agentId);
+          this.waiting = this.waiting.filter((x) => x.agentId !== w.agentId);
+          continue;
+        }
         const format = w.format || 'single';
         // Team ladder waits longer for a real opponent before taking a sparring
         // partner: a registered player should meet another registrant first.
@@ -779,7 +827,7 @@ export class RoomManager {
         if (mate) {
           const other = this.league.agents.get(mate.agentId);
           used.add(w.agentId); used.add(mate.agentId);
-          if (other) this.startRoom(this.rankedArena(format), agent, other, { pairing: 'rating' });
+          if (other && isLadderCompetitor(other)) this.startRoom(this.rankedArena(format), agent, other, { pairing: 'rating' });
         } else if (now - w.joinedAt > sparAfterMs) {
           used.add(w.agentId);
           const spar = this.nearestSparring(agent);
@@ -845,7 +893,7 @@ export class RoomManager {
       this.agentRoom.delete(agent.id);
       const conn = this.agentConns.get(agent.id);
       if (conn) conn.meta.roomId = null;
-      if (agent.source === 'hosted' && agent.autoRequeue !== false) {
+      if (agent.source === 'hosted' && agent.autoRequeue !== false && isLadderCompetitor(agent)) {
         setTimeout(() => this.enqueue({ agent, mode: 'ranked', format: room.format, auto: true }), 3000);
       }
     }

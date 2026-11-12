@@ -11,12 +11,14 @@ import { FightersPage } from './pages/FightersPage';
 import { ConnectPage } from './pages/ConnectPage';
 import { LivePage } from './pages/LivePage';
 import { ReplayPage } from './pages/ReplayPage';
+import { TrainingPage } from './pages/TrainingPage';
 
 const VIEW_TO_PATH: Record<string, string> = {
   lobby: '/lobby',
   fighters: '/fighters',
   board: '/board',
   replay: '/replay',
+  training: '/training',
   connect: '/connect',
   account: '/account',
 };
@@ -46,6 +48,7 @@ export function App() {
           <Route path="/fighters" element={<Page id="view-fighters"><FightersPage /></Page>} />
           <Route path="/board" element={<Page id="view-board"><BoardPage /></Page>} />
           <Route path="/replay" element={<Page id="view-replay"><ReplayPage /></Page>} />
+          <Route path="/training" element={<Page id="view-training"><TrainingPage /></Page>} />
           <Route path="/connect" element={<Page id="view-connect"><ConnectPage /></Page>} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/guide" element={<GuidePage />} />

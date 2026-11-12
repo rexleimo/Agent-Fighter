@@ -77,6 +77,24 @@ function conditionMatches(when, obs) {
   return true;
 }
 
+/**
+ * Every rule index whose condition matches this observation, in declaration
+ * order. `decide` only ever returns the first one, so the difference between
+ * this list and the fired index is a shadowed rule - the single most common
+ * reason a hand-written strategy "has the rule but never uses it".
+ */
+export function matchingRules(input, obs) {
+  const s = input.version === DSL_VERSION ? input : validateStrategy(input);
+  const hits = [];
+  for (let i = 0; i < s.rules.length; i += 1) {
+    const r = s.rules[i];
+    if (!conditionMatches(r.when, obs)) continue;
+    if (r.whenAny && !r.whenAny.some((w) => conditionMatches(w, obs))) continue;
+    hits.push(i);
+  }
+  return hits;
+}
+
 export function validateStrategy(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('strategy must be a JSON object');
   const name = String(input.name || 'unnamed').slice(0, MAX_TEXT);

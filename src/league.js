@@ -10,18 +10,52 @@ import { serializeReplay } from './replay.js';
 import { publicFighters, publicTeams, DEFAULT_FIGHTER, isValidFighter } from './fighters.js';
 import { validateStrategy, strategyHash, strategyTemplate, simulateStrategy, describeDsl, DSL_VERSION } from './strategy-dsl.js';
 import { normalizeTeam, TEAM_SIZE, TEAM_HEAL, TEAM_INTERMISSION_MS, TEAM_MAX_ROUNDS } from './team.js';
+import { matchCost, costModel, REPLAY_RETENTION } from './costs.js';
+import { runTraining, compareStrategies, listDrills } from './training.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCALE = 173.7178;
 
-// Built-in pilots need a roster too: they spar in the ranked team queue and
-// their teams show on the leaderboard like any registered player's.
+// Official baselines are the league's own reference fighters: the four built-in
+// rule policies and the hosted strategy demo. They exist to give every visitor
+// a picture and every registrant an opponent. They are NOT competitors: they
+// hold a fixed nominal rating, never appear on the ladder, and never take or
+// give a ladder win.
+export /** How often the replay store is measured against the retention limit. */
+const RETENTION_CHECK_EVERY = 25;
+
+const OFFICIAL_NOMINAL_RATING = 1500;
+export const OFFICIAL_NOMINAL_RD = 350;
+
+/** An agent owned by a registered player account: the only kind the ladder ranks. */
+export function isLadderCompetitor(agent) {
+  if (!agent) return false;
+  if (agent.source === 'builtin' || agent.demo) return false;
+  return Boolean(agent.playerId);
+}
+
+/** The league's own reference opponent. Fixed rating, exhibition only. */
+export function isOfficialBaseline(agent) {
+  return Boolean(agent) && !isLadderCompetitor(agent);
+}
+
+// Official baselines need a declared roster too: they run the always-on 3v3
+// showcase room and stand in as sparring partners in the team queue. Their
+// teams are shown as exhibition entries, never as ladder rows.
 const BUILTIN_TEAMS = {
   brawler: ['ember', 'forge', 'basalt'],
   zoner: ['tide', 'gale', 'quartz'],
   turtle: ['basalt', 'quartz', 'noct'],
   random: ['volt', 'noct', 'gale'],
 };
+
+// Declared roster of the official hosted baseline, used by the 3v3 showcase room.
+const BUILTIN_TEAMS_HOSTED = ['quartz', 'volt', 'ember'];
+
+function nextSeason(season) {
+  const n = Number(String(season || 'S1').replace(/^S/i, '')) || 1;
+  return 'S' + (n + 1);
+}
 
 function cleanTeamName(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -100,12 +134,18 @@ export class League {
     this.agents = new Map();
     this.tokens = new Map();
     this.matches = [];
+    // Replays written since boot / pruned by the retention pass - both published.
+    this.replaysWritten = 0;
+    this.replaysPruned = 0;
+    this._replayStore = null;
     this.queue = [];
     this.locked = new Map(); // agentId -> matchId, strategy versions cannot change mid-match
     this.pairCursor = 0;
     this.season = 'S1';
+    this.ladderStartedAt = null;
     this.load();
     if (this.agents.size === 0) this.seedBuiltins();
+    this.enforceLadderIntegrity();
     let backfilled = false;
     for (const b of BUILTIN_AGENTS) {
       const a = this.agents.get(b.id);
@@ -125,13 +165,51 @@ export class League {
       this.queue = raw.queue || [];
       this.pairCursor = raw.pairCursor || 0;
       this.season = raw.season || 'S1';
+      this.ladderStartedAt = raw.ladderStartedAt || null;
     } catch { /* corrupted file: start clean */ }
+  }
+
+  /**
+   * League files written before the players-only ladder rule carry two kinds of
+   * unusable numbers: official baselines sitting on the ladder with thousands
+   * of self-play matches, and player win counts that mix real opponents with
+   * the official coach. Neither can be repaired from a 200-match log, so the
+   * ladder restarts from zero and the old file is kept next to it.
+   */
+  enforceLadderIntegrity() {
+    const contaminated = (this.matches || []).some((m) => (
+      m.ranked !== false
+      && m.ladder === undefined
+      && (!isLadderCompetitor(this.agents.get(m.a && m.a.id)) || !isLadderCompetitor(this.agents.get(m.b && m.b.id)))
+    )) || Array.from(this.agents.values()).some((a) => isOfficialBaseline(a) && (
+      (a.matches || 0) > 0 || (a.wins || 0) > 0 || (a.history || []).length > 0
+    ));
+    if (!contaminated) return false;
+    const file = path.join(this.dataDir, 'league.json');
+    if (fs.existsSync(file)) {
+      const backup = path.join(this.dataDir, 'league.pre-integrity.json');
+      if (!fs.existsSync(backup)) fs.copyFileSync(file, backup);
+    }
+    for (const a of this.agents.values()) {
+      Object.assign(a, {
+        rating: OFFICIAL_NOMINAL_RATING, rd: OFFICIAL_NOMINAL_RD, sigma: 0.06,
+        wins: 0, losses: 0, draws: 0, matches: 0, practiceMatches: 0,
+        modelCalls: 0, timeouts: 0, avgDecisionMs: 0, history: [],
+      });
+    }
+    this.matches = [];
+    this.season = nextSeason(this.season);
+    this.ladderStartedAt = new Date().toISOString();
+    this.save();
+    console.log('[afl] ladder integrity: pre-players-only records archived to ' + path.join(this.dataDir, 'league.pre-integrity.json') + '; season ' + this.season + ' starts from zero results');
+    return true;
   }
 
   save() {
     const file = path.join(this.dataDir, 'league.json');
     const payload = {
       season: this.season,
+      ladderStartedAt: this.ladderStartedAt,
       pairCursor: this.pairCursor,
       queue: this.queue,
       matches: this.matches.slice(-200),
@@ -151,7 +229,7 @@ export class League {
         rating: 1500,
         rd: 350,
         sigma: 0.06,
-        wins: 0, losses: 0, draws: 0, matches: 0,
+        wins: 0, losses: 0, draws: 0, matches: 0, practiceMatches: 0,
         modelCalls: 0, timeouts: 0, avgDecisionMs: 0,
         history: [],
         createdAt: new Date().toISOString(),
@@ -189,10 +267,12 @@ export class League {
         source: 'hosted',
         defaultAction: s.defaultAction,
         hostedStrategy: s,
-        autoRequeue: true,
+        autoRequeue: false,
         demo: true,
-        rating: 1500, rd: 350, sigma: 0.06,
-        wins: 0, losses: 0, draws: 0, matches: 0,
+        team: BUILTIN_TEAMS_HOSTED.slice(),
+        teamName: '官方托管基队',
+        rating: OFFICIAL_NOMINAL_RATING, rd: OFFICIAL_NOMINAL_RD, sigma: 0.06,
+        wins: 0, losses: 0, draws: 0, matches: 0, practiceMatches: 0,
         modelCalls: 0, timeouts: 0, avgDecisionMs: 0,
         history: [],
         createdAt: new Date().toISOString(),
@@ -201,7 +281,11 @@ export class League {
       this.tokens.set(agent.token, id);
       this.save();
     }
-    agent.autoRequeue = true;
+    // Exhibition only: never requeued into the ranked ladder, never a competitor.
+    agent.autoRequeue = false;
+    agent.demo = true;
+    if (!agent.team) agent.team = BUILTIN_TEAMS_HOSTED.slice();
+    this.save();
     return agent;
   }
 
@@ -228,7 +312,7 @@ export class League {
       source: source === 'hosted' ? 'hosted' : 'external',
       defaultAction: 'block',
       rating: 1500, rd: 350, sigma: 0.06,
-      wins: 0, losses: 0, draws: 0, matches: 0,
+      wins: 0, losses: 0, draws: 0, matches: 0, practiceMatches: 0,
       modelCalls: 0, timeouts: 0, avgDecisionMs: 0,
       history: [],
       createdAt: new Date().toISOString(),
@@ -436,8 +520,10 @@ export class League {
         const delta = side === 'a' ? m.ratingDeltaA : m.ratingDeltaB;
         return {
           matchId: m.matchId, roomId: m.roomId || null, mode: m.mode || 'ranked', ranked: m.ranked !== false,
+          practice: Boolean(m.practice),
           format: m.format || 'single',
           side, opponent: other.name, opponentId: other.id,
+          opponentOfficial: Boolean(m[side === 'a' ? 'b' : 'a'] && m[side === 'a' ? 'b' : 'a'].official),
           result: m.winner === 'draw' ? 'draw' : m.winner === side ? 'win' : 'loss',
           winner: m.winner, reason: m.reason,
           hp: side === 'a' ? m.hpA : m.hpB,
@@ -469,14 +555,19 @@ export class League {
   }
 
   pickNextPair() {
-    // Matchmaking for external/hosted agents belongs to RoomManager. This
-    // rotation only feeds the always-on demo room with built-in agents.
+    // Exhibition rotation. It feeds the always-on demo rooms with official
+    // baselines only; none of these results touch the ladder. The hosted
+    // baseline is part of the rotation so the MCP-only track stays watchable.
+    const hosted = this.agents.has('demo_hosted') ? 'demo_hosted' : null;
     const showcase = [
       ['brawler', 'zoner'], ['zoner', 'random'], ['brawler', 'random'],
       ['brawler', 'zoner'], ['turtle', 'random'], ['brawler', 'random'],
       ['zoner', 'random'], ['brawler', 'turtle'], ['brawler', 'zoner'],
       ['zoner', 'turtle'],
     ];
+    if (hosted) {
+      showcase.push([hosted, 'brawler'], [hosted, 'zoner'], [hosted, 'turtle'], [hosted, 'random']);
+    }
     const pick = showcase[this.pairCursor % showcase.length];
     this.pairCursor += 1;
     let a = this.agents.get(pick[0]);
@@ -489,8 +580,17 @@ export class League {
     return [a, b];
   }
 
-  recordMatch({ matchId, agentA, agentB, result, replay, decisions, roomId = null, mode = 'ranked', ranked = true, fighters = null, format = 'single', team = null }) {
-    const counted = ranked !== false;
+  recordMatch({ matchId, agentA, agentB, result, replay, decisions, roomId = null, mode = 'ranked', ranked = true, fighters = null, format = 'single', team = null, pairing = null }) {
+    // Ladder rule: a result touches the board only when two registered player
+    // agents fought each other in a ranked room. Anything else - the demo
+    // rotation, a scrim, or a match against an official baseline - is a real,
+    // replayable game that buys no win, no rating and no board position.
+    const compA = isLadderCompetitor(agentA);
+    const compB = isLadderCompetitor(agentB);
+    const roomRanked = ranked !== false;
+    const ladder = roomRanked && compA && compB;
+    const practice = roomRanked && !ladder;
+    const counted = ladder;
     const scoreA = result.winner === 'a' ? 1 : result.winner === 'b' ? 0 : 0.5;
     const beforeA = { rating: agentA.rating, rd: agentA.rd, sigma: agentA.sigma };
     const beforeB = { rating: agentB.rating, rd: agentB.rd, sigma: agentB.sigma };
@@ -506,29 +606,66 @@ export class League {
       if (result.winner === 'a') { agentA.wins += 1; agentB.losses += 1; }
       else if (result.winner === 'b') { agentB.wins += 1; agentA.losses += 1; }
       else { agentA.draws += 1; agentB.draws += 1; }
-      if (decisions) {
-        agentA.modelCalls += decisions.a.modelCalls || 0;
-        agentB.modelCalls += decisions.b.modelCalls || 0;
-        agentA.timeouts += decisions.a.timeouts || 0;
-        agentB.timeouts += decisions.b.timeouts || 0;
-      }
       const entry = { matchId, result: result.winner, reason: result.reason, rating: Math.round(agentA.rating) };
       agentA.history = [...(agentA.history || []), entry].slice(-40);
       agentB.history = [...(agentB.history || []), { ...entry, rating: Math.round(agentB.rating) }].slice(-40);
+    } else {
+      // Practice and exhibition games are counted separately so the board can
+      // say where a game came from instead of hiding it.
+      if (roomRanked) {
+        if (compA) agentA.practiceMatches = (agentA.practiceMatches || 0) + 1;
+        if (compB) agentB.practiceMatches = (agentB.practiceMatches || 0) + 1;
+      }
+      if (!compA) agentA.exhibitionMatches = (agentA.exhibitionMatches || 0) + 1;
+      if (!compB) agentB.exhibitionMatches = (agentB.exhibitionMatches || 0) + 1;
     }
+
+    // Cost accounting is unconditional: the compute happened whether or not the
+    // result counts on the board. These are server-observed counters.
+    const spend = (agent, stat) => {
+      if (!stat) return;
+      agent.modelCalls = (agent.modelCalls || 0) + (Number(stat.modelCalls) || 0);
+      agent.timeouts = (agent.timeouts || 0) + (Number(stat.timeouts) || 0);
+      agent.budgetExceeded = (agent.budgetExceeded || 0) + (Number(stat.budgetExceeded) || 0);
+      if (agent.source === 'hosted') {
+        agent.hostedTicksEvaluated = (agent.hostedTicksEvaluated || 0) + (Number(result.ticks) || 0);
+      }
+    };
+    if (decisions) {
+      spend(agentA, decisions.a);
+      spend(agentB, decisions.b);
+    }
+
+    const side = (agent, fighterId, ratingBefore) => ({
+      id: agent.id, name: agent.name, versionHash: agent.versionHash, kind: agent.kind,
+      track: agent.track, source: agent.source, fighterId,
+      ratingBefore,
+      competitor: isLadderCompetitor(agent),
+      official: isOfficialBaseline(agent),
+    });
 
     const match = {
       matchId,
       season: this.season,
       startedAt: result.startedAt,
       endedAt: new Date().toISOString(),
-      a: { id: agentA.id, name: agentA.name, versionHash: agentA.versionHash, kind: agentA.kind, track: agentA.track, source: agentA.source, fighterId: (fighters && fighters.a) || agentA.fighterId || DEFAULT_FIGHTER, ratingBefore: Math.round(beforeA.rating) },
-      b: { id: agentB.id, name: agentB.name, versionHash: agentB.versionHash, kind: agentB.kind, track: agentB.track, source: agentB.source, fighterId: (fighters && fighters.b) || agentB.fighterId || DEFAULT_FIGHTER, ratingBefore: Math.round(beforeB.rating) },
+      a: side(agentA, (fighters && fighters.a) || agentA.fighterId || DEFAULT_FIGHTER, Math.round(beforeA.rating)),
+      b: side(agentB, (fighters && fighters.b) || agentB.fighterId || DEFAULT_FIGHTER, Math.round(beforeB.rating)),
       roomId,
       mode,
+      pairing,
+      cost: matchCost({
+        mode,
+        ranked: counted,
+        practice,
+        sideA: { ...(decisions && decisions.a || {}), hosted: agentA.source === 'hosted', external: agentA.source === 'external' },
+        sideB: { ...(decisions && decisions.b || {}), hosted: agentB.source === 'hosted', external: agentB.source === 'external' },
+        ticks: result.ticks,
+      }),
       format,
       team: team || null,
       ranked: counted,
+      practice,
       fighters: fighters || { a: agentA.fighterId || DEFAULT_FIGHTER, b: agentB.fighterId || DEFAULT_FIGHTER },
       winner: result.winner,
       reason: result.reason,
@@ -547,13 +684,25 @@ export class League {
       ? JSON.stringify(replay) + '\n'
       : serializeReplay(replay);
     fs.writeFileSync(path.join(this.replayDir, matchId + '.jsonl'), replayText, 'utf8');
+    // Replays are the one cost item that grows on disk forever unless someone
+    // prunes them. The published retention is enforced here, in batches, so the
+    // claim in /api/costs is a fact and not an intention.
+    this.replaysWritten += 1;
+    if (this.replaysWritten % RETENTION_CHECK_EVERY === 0) this.pruneReplays();
     this.save();
     return match;
   }
 
+  /**
+   * The public ladder. Rows are registered player agents only: an official
+   * baseline can never hold a board position, so nothing on this table is a
+   * showcase number wearing a ranking. `track` filters within those rows.
+   */
   getLeaderboard({ track } = {}) {
+    const officials = Array.from(this.agents.values()).filter(isOfficialBaseline);
     const rows = Array.from(this.agents.values())
-      .filter((a) => (track === 'rule_only' ? a.track === 'rule_only' : true))
+      .filter(isLadderCompetitor)
+      .filter((a) => (track === 'open' || track === 'rule_only' ? a.track === track : true))
       .map((a) => ({
         rank: 0,
         id: a.id,
@@ -568,22 +717,107 @@ export class League {
         teamName: a.teamName || null,
         rating: Math.round(a.rating),
         rd: Math.round(a.rd),
-        matches: a.matches,
-        wins: a.wins,
-        losses: a.losses,
-        draws: a.draws,
-        winRate: a.matches ? Math.round((a.wins / a.matches) * 100) : 0,
-        modelCallsPerMatch: a.matches ? Math.round(a.modelCalls / a.matches) : 0,
-        timeouts: a.timeouts,
+        matches: a.matches || 0,
+        wins: a.wins || 0,
+        losses: a.losses || 0,
+        draws: a.draws || 0,
+        practiceMatches: a.practiceMatches || 0,
+        trainingRuns: a.trainingRuns || 0,
+        winRate: a.matches ? Math.round((a.wins / a.matches) * 100) : null,
+        cost: {
+          modelCallsPerMatch: a.matches ? Math.round((a.modelCalls || 0) / a.matches) : 0,
+          declaredModelCalls: a.modelCalls || 0,
+          timeouts: a.timeouts || 0,
+          budgetExceeded: a.budgetExceeded || 0,
+          hostedTicksEvaluated: a.hostedTicksEvaluated || 0,
+        },
       }))
       // Wins first: the ladder is "who won the most", rating only breaks ties.
       .sort((x, y) => y.wins - x.wins || y.rating - x.rating);
     rows.forEach((r, i) => { r.rank = i + 1; });
-    return { season: this.season, rows };
+    return {
+      season: this.season,
+      ladderStartedAt: this.ladderStartedAt,
+      rows,
+      scope: 'registered-players',
+      scopeNote: '榜单只统计已注册玩家 Agent 之间的排位战果：官方基线不在榜上，跟官方基线打的陪练局不计胜场不计分。',
+      officials: officials.map((a) => ({
+        id: a.id, name: a.name, source: a.source,
+        rating: OFFICIAL_NOMINAL_RATING, rd: OFFICIAL_NOMINAL_RD,
+        exhibitionMatches: a.exhibitionMatches || 0,
+        // What the league spends to keep these watchable, never billed to anyone.
+        cost: {
+          hostedTicksEvaluated: a.hostedTicksEvaluated || 0,
+          declaredModelCalls: a.modelCalls || 0,
+        },
+      })),
+    };
   }
 
   getMatchResult(matchId) {
     return this.matches.find((m) => m.matchId === matchId) || null;
+  }
+
+  /**
+   * Keep at most `REPLAY_RETENTION` replay files, deleting the oldest first.
+   * Returns what was removed so the number can be published instead of guessed.
+   */
+  pruneReplays({ keep = REPLAY_RETENTION } = {}) {
+    let entries;
+    try {
+      entries = fs.readdirSync(this.replayDir)
+        .filter((f) => f.endsWith('.jsonl'))
+        .map((f) => {
+          const full = path.join(this.replayDir, f);
+          let mtimeMs = 0;
+          try { mtimeMs = fs.statSync(full).mtimeMs; } catch { /* raced away */ }
+          return { full, name: f, id: f.slice(0, -'.jsonl'.length), mtimeMs };
+        });
+    } catch { return { removed: 0, kept: 0, retention: keep, protected: 0 }; }
+    // A match the league still presents must keep its replay, whatever the file
+    // clock says. Without this guard, retention could delete the evidence behind
+    // a live schedule row - a missing replay is exactly the fake data this
+    // project exists to prevent.
+    const referenced = new Set(this.matches.map((m) => m.matchId));
+    const prunable = entries.filter((e) => !referenced.has(e.id));
+    const protectedFiles = entries.length - prunable.length;
+    const over = prunable.length - Math.max(0, keep);
+    if (over <= 0) {
+      return { removed: 0, kept: entries.length, retention: keep, protected: protectedFiles };
+    }
+    const oldest = prunable.sort((a, b) => a.mtimeMs - b.mtimeMs).slice(0, over);
+    let removed = 0;
+    for (const e of oldest) {
+      try { fs.unlinkSync(e.full); removed += 1; } catch { /* next pass retries */ }
+    }
+    this.replaysPruned = (this.replaysPruned || 0) + removed;
+    this._replayStore = null; // the count changed; re-measure on next look
+    if (removed) {
+      console.log(`[afl] replay retention: removed ${removed} oldest of ${entries.length} files (${protectedFiles} still referenced by the schedule), keeping ${keep}`);
+    }
+    return { removed, kept: entries.length - removed, retention: keep, protected: protectedFiles };
+  }
+
+  /**
+   * What the replay store actually costs right now, measured, not estimated.
+   * Measuring means stat-ing every file, so the number is cached: state polls
+   * should not turn a 17k-file directory into per-request disk pressure.
+   */
+  replayStore({ maxAgeMs = 30_000 } = {}) {
+    const now = Date.now();
+    if (this._replayStore && now - this._replayStore.at < maxAgeMs) return this._replayStore.value;
+    let files = 0;
+    let bytes = 0;
+    try {
+      const list = fs.readdirSync(this.replayDir).filter((f) => f.endsWith('.jsonl'));
+      files = list.length;
+      for (const f of list) {
+        try { bytes += fs.statSync(path.join(this.replayDir, f)).size; } catch { /* raced */ }
+      }
+    } catch { /* no store yet */ }
+    const value = { files, bytes, retention: REPLAY_RETENTION, written: this.replaysWritten || 0, pruned: this.replaysPruned || 0 };
+    this._replayStore = { at: now, value };
+    return value;
   }
 
   getReplay(matchId) {
@@ -597,8 +831,13 @@ export class League {
     if (!a) return null;
     return {
       id: a.id, name: a.name, rating: Math.round(a.rating), rd: Math.round(a.rd),
-      matches: a.matches, wins: a.wins, losses: a.losses, draws: a.draws,
+      matches: a.matches || 0, wins: a.wins || 0, losses: a.losses || 0, draws: a.draws || 0,
+      practiceMatches: a.practiceMatches || 0,
+      competitor: isLadderCompetitor(a), official: isOfficialBaseline(a),
       modelCalls: a.modelCalls, timeouts: a.timeouts,
+      budgetExceeded: a.budgetExceeded || 0,
+      hostedTicksEvaluated: a.hostedTicksEvaluated || 0,
+      trainingRuns: a.trainingRuns || 0,
       versionHash: a.versionHash, strategyHash: a.strategyHash || null,
       strategyNote: a.strategyNote || '', defaultAction: a.defaultAction,
       source: a.source, fighterId: a.fighterId || DEFAULT_FIGHTER,
@@ -609,6 +848,75 @@ export class League {
       autoRequeue: a.autoRequeue !== false,
       history: a.history || [],
     };
+  }
+
+  // ------------------------------------------------------------ 训练场 / 成本
+
+  /** The published cost model: what is free, what the player pays, what we pay. */
+  costModel() {
+    return costModel();
+  }
+
+  listDrills() {
+    return listDrills();
+  }
+
+  /**
+   * Run the training ground for one agent. Training never touches the ladder:
+   * it writes a report file under data/training/ and returns it, and it does not
+   * call recordMatch at all - so no wins, no rating, no board row, no queue slot.
+   */
+  runTrainingFor({ agent, strategy = null, drills, seeds, rounds, maxGames, fighterA } = {}) {
+    const chosen = strategy || agent.hostedStrategy;
+    if (!chosen) throw new Error('no strategy to train: submit one with submit_strategy, or pass strategy=...');
+    const report = runTraining({ strategy: chosen, drills, seeds, rounds, maxGames, fighterA: fighterA || agent.fighterId });
+    agent.trainingRuns = (agent.trainingRuns || 0) + 1;
+    agent.trainingStrength = report.strengthIndex;
+    this.saveTrainingRun(agent, report);
+    return report;
+  }
+
+  /**
+   * Same drills, same seeds, two versions. When strategyA is omitted the agent's
+   * currently submitted version is the baseline, which is what "did my last edit
+   * make it stronger" means in practice.
+   */
+  compareTraining({ agent, strategyB, strategyA = null, drills, seeds, rounds } = {}) {
+    const a = strategyA || agent.hostedStrategy;
+    if (!a || !strategyB) throw new Error('compare needs two strategies (and the agent must have one submitted)');
+    return compareStrategies({ strategyA: a, strategyB, drills, seeds, rounds, fighterA: agent.fighterId });
+  }
+
+  trainingDir() {
+    const dir = path.join(this.dataDir, 'training');
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  saveTrainingRun(agent, report) {
+    const file = path.join(this.trainingDir(), agent.id + '.json');
+    let runs = [];
+    try { runs = JSON.parse(fs.readFileSync(file, 'utf8')).runs || []; } catch { /* first run */ }
+    runs.unshift({
+      at: new Date().toISOString(),
+      versionHash: report.versionHash,
+      drills: report.drills,
+      seeds: report.seeds,
+      games: report.games,
+      wins: report.wins,
+      losses: report.losses,
+      draws: report.draws,
+      strengthIndex: report.strengthIndex,
+      findings: report.findings.map((f) => ({ code: f.code, severity: f.severity, message: f.message })),
+    });
+    fs.writeFileSync(file, JSON.stringify({ agentId: agent.id, runs: runs.slice(0, 30) }, null, 2), 'utf8');
+  }
+
+  getTrainingHistory(agentId, { limit = 20 } = {}) {
+    const file = path.join(this.trainingDir(), String(agentId).replace(/[^a-zA-Z0-9_-]/g, '') + '.json');
+    if (!fs.existsSync(file)) return { agentId, runs: [] };
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return { agentId, runs: (raw.runs || []).slice(0, Math.min(Number(limit) || 20, 30)) };
   }
 
   getRules() {
@@ -665,6 +973,7 @@ export class League {
       source: a.source, versionHash: a.versionHash, description: a.description,
       fighterId: a.fighterId || DEFAULT_FIGHTER, team: a.team || null,
       teamName: a.teamName || null, hosted: Boolean(a.hostedStrategy),
+      competitor: isLadderCompetitor(a), official: isOfficialBaseline(a),
     }));
   }
 

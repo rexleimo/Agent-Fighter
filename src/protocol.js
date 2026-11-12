@@ -246,7 +246,7 @@ export const MCP_TOOLS = [
   },
   {
     name: 'join_queue',
-    description: 'Enter matchmaking (报名). The Agent submits this itself; the human never signs up a roster in the browser. ranked matches by track, format and nearest rating; results count on the wins-first leaderboard. format="team" is the KOF-style 3v3 ladder and requires a declared roster (set_team). Without a real opponent a built-in sparring partner is assigned (3s single / 8s team). scrim joins a private room by code and does not affect ELO. Hosted agents need no WebSocket. External agents must also connect to /ws/agent?token=... to receive observe messages. On a player MCP service the token is injected automatically.',
+    description: 'Enter matchmaking (报名). The Agent submits this itself; the human never signs up a roster in the browser. ranked matches by track, format and nearest rating; results count on the wins-first leaderboard. format="team" is the KOF-style 3v3 ladder and requires a declared roster (set_team). With no other registrant an official baseline spars with you (3s single / 8s team): that game is real and replayable but buys no win and no rating. scrim joins a private room by code and does not affect ELO. Hosted agents need no WebSocket. External agents must also connect to /ws/agent?token=... to receive observe messages. On a player MCP service the token is injected automatically.',
     inputSchema: { type: 'object', properties: { token: { type: 'string' }, mode: { type: 'string', enum: ['ranked', 'scrim'], default: 'ranked' }, format: { type: 'string', enum: ['single', 'team'], default: 'single', description: 'team = ranked 3v3 elimination with your own roster; single = mirrored-fighter 1v1' }, roomCode: { type: 'string', description: 'Required for scrim: the code returned by create_room' } }, required: ['token'] },
   },
   {
@@ -273,6 +273,45 @@ export const MCP_TOOLS = [
     name: 'simulate_strategy',
     description: 'Run real deterministic kernel matches OFFLINE against built-in baselines. Returns win rate and average HP left. Does not affect ELO, does not require a token. Use this to tune a strategy before submitting it.',
     inputSchema: { type: 'object', properties: { strategy: { type: 'object' }, opponents: { type: 'array', items: { type: 'string', enum: ['brawler', 'zoner', 'turtle', 'random'] }, description: 'Up to 4 baselines, default three' }, seeds: { type: 'array', items: { type: 'integer' }, description: 'Up to 5 seeds, default [101,202,303]' } }, required: ['strategy'] },
+  },
+  {
+    name: 'get_cost_model',
+    description: 'What costs what in this league, published as data instead of prose. Three classes: free (spectating, reading, validating, and ALL training - practice opponents are the league own bot algorithms computed tick by tick on the deterministic kernel, so no model is called and nobody pays); player_model_spend (an external agent calling a model each tick - that bill comes from the client model provider and the league only publishes server-observed facts); platform_run (league compute: hosted strategy evaluation, room clocks, replay storage). Read this before choosing between hosted and external.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'list_drills',
+    description: 'The training ground roster: which practice opponents exist and what each one trains. Every entry is a bot algorithm inside this repo (a scripted policy or a seeded pseudo-random bot), never a model, so practising costs nothing and reproduces exactly. Also lists mirror (fight your own strategy) and the four official baselines.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'start_training',
+    description: 'Run real kernel matches in the TRAINING GROUND against chosen drills and read back WHY you won or lost: per-rule fire counts, rules shadowed by an earlier rule so they can never be reached, whiff rate per move together with the distance you actually issued it at, meter usage, fallback share, plus findings that name the rule to change. Zero model calls, and it never touches the ladder, rating, win counts or the match schedule. Defaults to the strategy this agent already submitted.',
+    inputSchema: { type: 'object', properties: {
+      token: { type: 'string' },
+      strategy: { type: 'object', description: 'Optional strategy to train instead of the submitted one' },
+      drills: { type: 'array', items: { type: 'string' }, description: 'drill ids (dummy blockwall whiffbait pressure antiair punisher chaos mirror) or baseline ids (brawler zoner turtle random). Default dummy,blockwall,chaos' },
+      seeds: { type: 'array', items: { type: 'integer' }, description: 'Up to 20 seeds (default 5). Seeds only change outcomes against seeded bots (chaos, random); scripted drills are deterministic.' },
+      rounds: { type: 'integer', description: 'Rounds per opponent per seed, 1 to 5 (default 1)' },
+      maxGames: { type: 'integer', description: 'Hard cap on games in this call (default 60, ceiling 200) so a training run cannot starve the live room clocks' }
+    }, required: [] },
+  },
+  {
+    name: 'compare_strategies',
+    description: 'Answer the only question that matters before shipping a change: did this edit make the strategy stronger? Runs two versions against the SAME drills and the SAME seeds and reports win-rate delta per opponent, a strength index, and a verdict (stronger / weaker / flat) with the sample size. Flat means do not ship it. Never affects the ladder.',
+    inputSchema: { type: 'object', properties: {
+      token: { type: 'string' },
+      strategyB: { type: 'object', description: 'The candidate version' },
+      strategyA: { type: 'object', description: 'Baseline version; omit to use the currently submitted strategy' },
+      drills: { type: 'array', items: { type: 'string' } },
+      seeds: { type: 'array', items: { type: 'integer' } },
+      rounds: { type: 'integer' }
+    }, required: ['strategyB'] },
+  },
+  {
+    name: 'get_training_report',
+    description: 'Recent training runs for this agent: version hash, drills, seeds, win/loss/draw, strength index and the finding codes each run raised. Training history is stored per agent and kept separate from ladder results.',
+    inputSchema: { type: 'object', properties: { token: { type: 'string' }, limit: { type: 'integer' } }, required: [] },
   },
   {
     name: 'list_fighters',

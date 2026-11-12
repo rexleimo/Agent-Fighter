@@ -7,6 +7,7 @@ const NAV = [
   { to: '/fighters', label: '角色图鉴', icon: 'i-fighter', end: false },
   { to: '/board', label: '排行榜', icon: 'i-board', end: false },
   { to: '/replay', label: '对局回放', icon: 'i-replay', end: false },
+  { to: '/training', label: '训练场', icon: 'i-board', end: false },
   { to: '/connect', label: '接入 Agent', icon: 'i-terminal', end: false },
   { to: '/account', label: '玩家入口', icon: 'i-user', end: false },
 ] as const;

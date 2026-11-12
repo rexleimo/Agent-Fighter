@@ -38,6 +38,7 @@
 .acc-badge { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--muted); }
 .acc-badge.ok { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .acc-badge.wait { color: var(--amber); border-color: var(--amber); background: rgba(255, 194, 96, .08); }
+.acc-tag-warn { font-family: var(--mono); font-size: 10px; color: var(--amber); border: 1px solid var(--amber); border-radius: 999px; padding: 1px 7px; }
 .acc-badge.live { color: var(--red); border-color: var(--red); background: var(--red-soft); }
 .acc-badge.admin { color: var(--blue); border-color: var(--blue); background: var(--blue-soft); }
 
@@ -89,3 +90,9 @@
   .acc-grid { grid-template-columns: 1fr; }
   .acc-admin-form { grid-template-columns: 1fr 1fr; }
 }
+
+/* 成本披露：自报 vs 服务端实测，一眼能分开 */
+.acc-cost { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 6px 0 12px; font-size: 12px; opacity: .9; }
+.acc-cost b { font-weight: 700; }
+.acc-cost .acc-label { opacity: .6; letter-spacing: .08em; }
+.acc-cost-link { text-decoration: underline; }

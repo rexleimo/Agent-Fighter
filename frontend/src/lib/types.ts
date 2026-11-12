@@ -61,6 +61,9 @@ export type SideAgent = {
   fighter?: FighterBrief;
   source?: string;
   connected?: boolean;
+  official?: boolean;
+  competitor?: boolean;
+  rating?: number;
 };
 
 export type TeamSlot = {
@@ -135,9 +138,124 @@ export type LeaderboardRow = {
   wins: number;
   losses: number;
   draws: number;
-  winRate: number;
+  practiceMatches?: number;
+  trainingRuns?: number;
+  winRate: number | null;
+  cost?: AgentCost;
+};
+
+/** Server-observed spend. `declaredModelCalls` is client-reported, never a bill. */
+export type AgentCost = {
   modelCallsPerMatch?: number;
+  declaredModelCalls?: number;
   timeouts?: number;
+  budgetExceeded?: number;
+  hostedTicksEvaluated?: number;
+};
+
+export type CostClass = {
+  id: string;
+  title: string;
+  payer: string | null;
+  note: string;
+  items: string[];
+};
+
+export type CostModel = {
+  version: string;
+  maxModelCallsPerMatch: number;
+  decisionDeadlineMs: number;
+  replayRetention: number;
+  classes: CostClass[];
+  surfaces: Record<string, string>;
+  surfacesDetailed?: Record<string, { class: string; title: string; payer: string | null }>;
+  matchResources?: { maxMeter: number; exCost: number; superCost: number; note: string };
+  principle: string;
+};
+
+export type DrillList = {
+  drills: Array<{ id: string; name: string; goal: string; skill: string; source: string; llm: boolean }>;
+  mirror?: { id: string; name: string; goal: string; source: string; llm: boolean };
+  baselines: Array<{ id: string; name: string; goal: string; skill: string; source: string; llm: boolean }>;
+  note: string;
+  freeClass?: string;
+};
+
+export type TrainingRow = {
+  opponent: string;
+  opponentId: string;
+  opponentKind: string;
+  name?: string;
+  goal?: string | null;
+  games: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  winRate: number;
+  avgHpLeft: number;
+  avgTicks: number;
+  fallbackShare: number;
+  meterSpent: number;
+  superUsed: number;
+};
+
+export type TrainingFinding = {
+  code: string;
+  severity: 'high' | 'medium' | 'low' | 'info';
+  message: string;
+  hint: string;
+  ruleIndexes?: number[];
+  opponent?: string;
+};
+
+export type TrainingReport = {
+  kind: 'training';
+  countsTowardLadder: false;
+  versionHash: string;
+  strategyName: string;
+  drills: string[];
+  seeds: number[];
+  games: number;
+  gameCap: number;
+  truncated: boolean;
+  outcomeVariety: { distinct: number; games: number; diversified: boolean };
+  wins: number;
+  losses: number;
+  draws: number;
+  strengthIndex: number | null;
+  strengthIndexNote?: string;
+  rows: TrainingRow[];
+  rules: Array<{ ruleIndex: number; action: string; note?: string; fires: number; hits: number; whiffs: number; punished: number; hitRate: number; shadowedBy: number[] }>;
+  actions: Array<{ move: string; attempts: number; hits: number; whiffs: number; whiffRate: number; punished: number; avgDistance: number | null }>;
+  cost: { billingClass: string; llmUsed: boolean; modelCalls: number; opponentEngine: string; note: string };
+  methodology: Record<string, string>;
+  findings: TrainingFinding[];
+};
+
+export type TrainingCompare = {
+  kind: 'training-compare';
+  countsTowardLadder: false;
+  seeds: number[];
+  drills: string[];
+  games: number;
+  versionA: { hash: string; wins: number; strengthIndex: number | null };
+  versionB: { hash: string; wins: number; strengthIndex: number | null };
+  perOpponent: Array<{ opponent: string; aWinRate: number; bWinRate: number; delta: number; games: number }>;
+  strengthDelta: number | null;
+  verdict: 'stronger' | 'weaker' | 'flat' | 'inconclusive';
+  verdictNote: string;
+  sample: { gamesPerVersion: number; opponents: number; seeds: number };
+  changedSeeds: string[];
+  caveat: string;
+};
+
+export type LeaderboardResponse = {
+  season: string;
+  rows: LeaderboardRow[];
+  scope?: string;
+  scopeNote?: string;
+  ladderStartedAt?: string | null;
+  officials?: Array<{ id: string; name: string; source?: string; rating: number; rd: number; exhibitionMatches?: number }>;
 };
 
 export type MatchSummary = {
@@ -146,7 +264,9 @@ export type MatchSummary = {
   mode?: string;
   format?: string;
   ranked?: boolean;
-  a?: { id: string; name: string; [key: string]: unknown };
+  practice?: boolean;
+  pairing?: string | null;
+  a?: { id: string; name: string; official?: boolean; competitor?: boolean; [key: string]: unknown };
   b?: { id: string; name: string; [key: string]: unknown };
   winner?: 'a' | 'b' | 'draw';
   winnerName?: string;
@@ -195,7 +315,7 @@ export type AppState = {
     totalRooms?: number;
     finishedRooms?: number;
   };
-  leaderboard: { season: string; rows: LeaderboardRow[] };
+  leaderboard: LeaderboardResponse & { season: string; rows: LeaderboardRow[] };
   recentMatches: MatchSummary[];
   agents: AgentSummary[];
   fighters: Fighter[];
@@ -240,6 +360,8 @@ export type McpService = {
   url?: string;
 };
 
+export type TrainingHistory = { agentId: string; runs: Array<{ at: string; versionHash: string; drills: string[]; seeds: number[]; games: number; wins: number; losses: number; draws: number; strengthIndex: number | null; findings: Array<{ code: string; severity: string; message: string }> }> };
+
 export type MeResponse = {
   player: PlayerPublic;
   agent: AgentStatus | null;
@@ -258,6 +380,10 @@ export type AgentStatus = {
   losses: number;
   draws: number;
   matches: number;
+  practiceMatches?: number;
+  trainingRuns?: number;
+  hasStrategy?: boolean;
+  ruleCount?: number;
 };
 
 export type MyAgentResponse = {
@@ -271,7 +397,20 @@ export type MyAgentResponse = {
     ratingDelta?: number;
     format?: string;
     endedAt?: string;
+    ranked?: boolean;
+    practice?: boolean;
+    opponentOfficial?: boolean;
   }>;
+  training?: TrainingHistory;
+  cost?: {
+    declaredModelCalls: number;
+    timeouts: number;
+    budgetExceeded: number;
+    hostedTicksEvaluated: number;
+    trainingRuns: number;
+    budgetLimit: number;
+    hosted: boolean;
+  };
 };
 
 export type AdminPlayer = PlayerPublic & {

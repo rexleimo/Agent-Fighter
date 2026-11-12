@@ -20,9 +20,9 @@ const EVENT_LABEL: Record<string, string> = {
   cancel: '取消连段', super_start: '超必杀发动', armor: '霸体吸收', wakeup: '起身',
   move_start: '出招', hitstop: '命中停顿',
 };
-const SOURCE_LABEL: Record<string, string> = { builtin: '内置演示', hosted: '服务端托管', external: '外部实时进程' };
+const SOURCE_LABEL: Record<string, string> = { builtin: '官方基线（内置）', hosted: '服务端托管', external: '外部实时进程' };
 const MODE_LABEL: Record<string, string> = { demo: 'DEMO · 演示场', ranked: 'RANKED · 排位场', scrim: 'SCRIM · 私房' };
-const PAIRING_LABEL: Record<string, string> = { showcase: '内置轮转', rating: '评分就近', code: '房间码', sparring: '内置陪练' };
+const PAIRING_LABEL: Record<string, string> = { showcase: '官方基线轮转', rating: '评分就近', code: '房间码', sparring: '官方陪练' };
 
 const short = (value: unknown, size = 8) => String(value ?? '').slice(0, size);
 const pct = (value: number, max: number) => `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
@@ -30,18 +30,21 @@ const pct = (value: number, max: number) => `${Math.max(0, Math.min(100, (value 
 function RoomBar({ match }: { match: any }) {
   const team = match?.format === 'team';
   const mode = match?.mode ?? 'demo';
+  const sparring = mode === 'ranked' && match?.pairing === 'sparring';
   const tag = team
     ? `TEAM · 组队${match.ranked ? '排位' : '淘汰赛'}${match.code ? ` · ${match.code}` : ''}`
     : `${MODE_LABEL[mode] ?? mode}${match?.code ? ` · ${match.code}` : ''}`;
   const copy = team
     ? (match.ranked
-      ? '3v3 组队排位 · 计入胜场榜 · 评分就近匹配 · 胜者回血 15% · 回合间各一次换人'
+      ? '3v3 组队排位 · 两名已注册玩家 Agent 对打才计胜场 · 胜者回血 15% · 回合间各一次换人'
       : '3v3 组队淘汰 · 不计分 · 胜者回血 15% · 回合间各一次换人机会')
     : mode === 'demo'
-      ? '内置 Agent 轮转，永远有画面。打开「对战大厅」切到任意一场真实对局。'
-      : mode === 'ranked'
-        ? `计入胜场榜 · ${PAIRING_LABEL[match?.pairing] ?? '评分就近'} · 双方镜像角色`
-        : '不计分 · 房间码约战 · 允许不同角色';
+      ? '官方基线演示局：引擎真实打完、可逐拍回放，但不计胜场不计分。打开「对战大厅」切到任意一场玩家对局。'
+      : mode === 'scrim'
+        ? '不计分 · 房间码约战 · 允许不同角色'
+        : sparring
+          ? '排位房的官方基线陪练局：真实对局、真实回放，但不计胜场不计分；想上榜需要另一名已注册 Agent 同时报名。'
+          : `计入胜场榜的玩家排位局 · ${PAIRING_LABEL[match?.pairing] ?? '评分就近'} · 双方镜像角色`;
   return (
     <div className="room-bar">
       <span className={`room-tag mode-${team ? 'team' : mode}`}>{tag}</span>
@@ -61,14 +64,14 @@ function PresenceBar({ state }: { state: any }) {
   let note: string;
   if (match?.mode === 'ranked') {
     note = match.pairing === 'sparring'
-      ? '排位陪练局：报名后暂未遇到其他报名者，系统按评分配内置陪练。引擎、规则与计分和正式排位一致，战果计入胜场榜。'
+      ? '排位房配到官方基线：这一局真实打完、可逐拍回放，但不计胜场不计分——榜单只统计已注册玩家 Agent 之间的战果。'
       : '真实排位对局：两名报名 Agent 按评分就近配对，战果计入胜场榜。';
   } else if (match?.mode === 'scrim') {
     note = '私房约战：凭房间码配对，不计入胜场榜。';
   } else if (online === 0 && waiting === 0) {
-    note = '当前没有外部 Agent 连上，匹配队列也是空的。这一场是内置演示轮转；到「对战大厅」报名参赛即可打真实排位。';
+    note = '当前没有外部 Agent 连上，匹配队列也是空的。这一场是官方基线演示局；到「对战大厅」报名参赛即可打真实排位。';
   } else if (online === 0) {
-    note = `队列里有 ${waiting} 个 Agent 等待配对；超时会配内置陪练，战果仍计入胜场榜。`;
+    note = `队列里有 ${waiting} 个 Agent 等待配对；超时会配官方基线陪练（真实对局，但不计胜场榜）。`;
   } else {
     note = `有 ${online} 个外部 Agent 通过 WebSocket 在线，可在「对战大厅」切换房间观看它们的对局。`;
   }
@@ -89,11 +92,11 @@ function MatchHead({ match }: { match: any }) {
   const b = match?.b;
   const source = (side: any) => SOURCE_LABEL[side?.source] ?? side?.source ?? '—';
   const conn = (side: any) => side?.source === 'external' ? (side.connected ? ' · WS 已连' : ' · WS 未连') : ' · 无需长连接';
-  const fighter = (side: any) => side?.fighter ? `${side.fighter.code} · ${side.fighter.name}` : 'QUARTZ · 晶衡';
+  const fighter = (side: any) => side?.fighter ? `${side.fighter.code} · ${side.fighter.name}` : '—';
   return (
     <div className="match-head">
       <div className="fighter-card side-a">
-        <div className="fc-top"><span className="side-tag">SIDE A</span><span className="fc-rating">ELO {a?.rating ?? 1500}</span></div>
+        <div className="fc-top"><span className="side-tag">SIDE A</span><span className="fc-rating">ELO {a?.rating ?? '—'}</span></div>
         <div className="fc-name">{a?.name ?? '等待连接'}</div>
         <div className="fc-label">{a?.label ?? '—'}</div>
         <div className="fc-meta"><span>{fighter(a)}</span><span className="dot-sep">·</span><span>{source(a)} · {a?.kind ?? '—'}{conn(a)}</span><span className="dot-sep">·</span><span className="mono">v:{short(a?.versionHash, 10) || '—'}</span></div>
@@ -103,10 +106,10 @@ function MatchHead({ match }: { match: any }) {
         <div className="vs-round">{match?.format === 'team' ? `回合 ${match.team?.round ?? 1}` : '第 1 局'}</div>
         <div className="vs-mark">VS</div>
         <div className="vs-sub mono">{match?.matchId ?? '—'}</div>
-        <div className="vs-tick">TICK {String(match?.tick ?? 0).padStart(3, '0')} / {match?.totalTicks ?? 600}</div>
+        <div className="vs-tick">TICK {match?.tick === undefined ? '—' : String(match.tick).padStart(3, '0')} / {match?.totalTicks ?? '—'}</div>
       </div>
       <div className="fighter-card side-b">
-        <div className="fc-top"><span className="fc-rating">ELO {b?.rating ?? 1500}</span><span className="side-tag">SIDE B</span></div>
+        <div className="fc-top"><span className="fc-rating">ELO {b?.rating ?? '—'}</span><span className="side-tag">SIDE B</span></div>
         <div className="fc-name">{b?.name ?? '等待连接'}</div>
         <div className="fc-label">{b?.label ?? '—'}</div>
         <div className="fc-meta"><span className="mono">v:{short(b?.versionHash, 10) || '—'}</span><span className="dot-sep">·</span><span>{b?.kind ?? '—'} · {source(b)}{conn(b)}</span><span className="dot-sep">·</span><span>{fighter(b)}</span></div>
@@ -117,23 +120,23 @@ function MatchHead({ match }: { match: any }) {
 }
 
 function Hud({ frame, match }: { frame: any; match: any }) {
-  const a = frame?.a ?? {};
-  const b = frame?.b ?? {};
+  const a = frame?.a ?? null;
+  const b = frame?.b ?? null;
   return (
     <div className="hud">
       <div className="hud-side">
-        <div className="hud-row"><span className="hud-name">{(match?.a?.name ?? 'SIDE A').toUpperCase().slice(0, 18)}</span><span className="mono hud-hp">{a.hp ?? 1000}</span></div>
-        <div className="bar hp"><i style={{ width: pct(a.hp ?? 1000, 1000) }} /></div>
-        <div className="bar meter"><i style={{ width: pct(a.meter ?? 0, 300) }} /></div>
+        <div className="hud-row"><span className="hud-name">{(match?.a?.name ?? 'SIDE A').toUpperCase().slice(0, 18)}</span><span className="mono hud-hp">{a ? a.hp : '—'}</span></div>
+        <div className="bar hp"><i style={{ width: a ? pct(a.hp ?? 0, 1000) : '0%' }} /></div>
+        <div className="bar meter"><i style={{ width: a ? pct(a.meter ?? 0, 300) : '0%' }} /></div>
       </div>
       <div className="hud-center">
-        <div className="timer mono">{frame?.timer ?? 60}</div>
+        <div className="timer mono">{frame && frame.timer !== undefined ? frame.timer : '—'}</div>
         <div className="timer-cap">回合剩余</div>
       </div>
       <div className="hud-side right">
-        <div className="hud-row"><span className="mono hud-hp">{b.hp ?? 1000}</span><span className="hud-name">{(match?.b?.name ?? 'SIDE B').toUpperCase().slice(0, 18)}</span></div>
-        <div className="bar hp right"><i style={{ width: pct(b.hp ?? 1000, 1000) }} /></div>
-        <div className="bar meter right"><i style={{ width: pct(b.meter ?? 0, 300) }} /></div>
+        <div className="hud-row"><span className="mono hud-hp">{b ? b.hp : '—'}</span><span className="hud-name">{(match?.b?.name ?? 'SIDE B').toUpperCase().slice(0, 18)}</span></div>
+        <div className="bar hp right"><i style={{ width: b ? pct(b.hp ?? 0, 1000) : '0%' }} /></div>
+        <div className="bar meter right"><i style={{ width: b ? pct(b.meter ?? 0, 300) : '0%' }} /></div>
       </div>
     </div>
   );
@@ -241,6 +244,19 @@ function Toolbar({ tools, setTools }: { tools: ToolState; setTools: (next: ToolS
   );
 }
 
+/**
+ * What the screen is actually showing. Only a ranked room pairing two
+ * registrants gets the LIVE treatment; official showcase and sparring rooms
+ * say so, so a picture can never be read as a ladder broadcast.
+ */
+function channelLabel(match: any): string {
+  if (!match) return '等待真实对局';
+  if (match.status === 'finished') return 'MATCH ENDED';
+  if (match.mode === 'ranked') return match.pairing === 'sparring' ? 'PRACTICE · 陪练局（不计榜）' : 'MATCH LIVE';
+  if (match.mode === 'scrim') return 'SCRIM · 私房局';
+  return 'SHOWCASE · 官方演示局';
+}
+
 export function LivePage() {
   const [params] = useSearchParams();
   const roomId = params.get('room');
@@ -276,11 +292,11 @@ export function LivePage() {
           lastResult={state.lastResult}
         />
         <div className="stage-topbar">
-          <span className={`live-badge${match?.status === 'finished' ? ' replay' : ''}`}>
-            <i />{match?.status === 'finished' ? 'MATCH ENDED' : 'MATCH LIVE'}
+          <span className={`live-badge${match?.status === 'finished' || match?.mode !== 'ranked' || match?.pairing === 'sparring' ? ' replay' : ''}`}>
+            <i />{channelLabel(match)}
           </span>
           <span className="mono frame-readout">
-            FRAME {String(frame?.frame ?? 0).padStart(4, '0')} · TICK {String(state.tick).padStart(4, '0')}
+            {frame ? `FRAME ${String(frame.frame ?? 0).padStart(4, '0')} · TICK ${String(state.tick).padStart(4, '0')}` : 'FRAME — · TICK —'}
           </span>
         </div>
         <Toolbar tools={tools} setTools={setTools} />

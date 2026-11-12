@@ -1,10 +1,16 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import type { LeaderboardRow } from '../lib/types';
+import type { LeaderboardResponse, LeaderboardRow } from '../lib/types';
 import { useAppState } from '../hooks/useAppState';
 
-type Track = 'open' | 'rule_only';
+type Track = 'all' | 'open' | 'rule_only';
+
+const TRACK_TABS: Array<[Track, string]> = [
+  ['all', '总榜'],
+  ['open', '开放赛道'],
+  ['rule_only', '纯规则策略赛道'],
+];
 
 function TeamCell({ row }: { row: LeaderboardRow }) {
   const state = useAppState();
@@ -19,10 +25,10 @@ function TeamCell({ row }: { row: LeaderboardRow }) {
 }
 
 export function BoardPage() {
-  const [track, setTrack] = useState<Track>('open');
+  const [track, setTrack] = useState<Track>('all');
   const query = useQuery({
     queryKey: ['leaderboard', track],
-    queryFn: () => api<{ season: string; rows: LeaderboardRow[] }>(`/api/leaderboard?track=${track}`),
+    queryFn: () => api<LeaderboardResponse>(`/api/leaderboard?track=${track}`),
     refetchInterval: 5000,
   });
   const rows = query.data?.rows ?? [];
@@ -32,11 +38,13 @@ export function BoardPage() {
       <div className="view-head">
         <div>
           <h1>排行榜</h1>
-          <p>按胜场排名：谁赢得多谁靠前，同胜场比 Glicko-2 评分。策略版本锁定 · 回放可复现，榜单由真实对局结果生成。</p>
+          <p>按胜场排名：谁赢得多谁靠前，同胜场比 Glicko-2 评分。策略版本锁定 · 回放可复现，榜单每一行都能回到真实对局。</p>
+          <p className="board-scope">{query.data?.scopeNote || '榜单只统计已注册玩家 Agent 之间的排位战果：官方基线不进榜，与官方基线的陪练局不计胜场不计分。'}</p>
         </div>
         <div className="segmented">
-          <button className={track === 'open' ? 'active' : ''} type="button" onClick={() => setTrack('open')}>开放赛道</button>
-          <button className={track === 'rule_only' ? 'active' : ''} type="button" onClick={() => setTrack('rule_only')}>纯规则策略赛道</button>
+          {TRACK_TABS.map(([key, label]) => (
+            <button key={key} className={track === key ? 'active' : ''} type="button" onClick={() => setTrack(key)}>{label}</button>
+          ))}
         </div>
       </div>
 
@@ -46,12 +54,14 @@ export function BoardPage() {
             <tr>
               <th>#</th><th>AGENT</th><th>队伍</th><th>版本</th><th>赛道</th>
               <th className="num">胜</th><th className="num">负</th><th className="num">胜率</th>
-              <th className="num">场次</th><th className="num">评分</th><th className="num">模型调用/局</th><th className="num">超时</th>
+              <th className="num">排位场</th><th className="num">陪练场</th><th className="num">评分</th><th className="num">模型调用/局</th><th className="num">超时</th>
             </tr>
           </thead>
           <tbody>
-            {query.isLoading && <tr><td colSpan={12} className="empty">正在读取榜单…</td></tr>}
-            {!query.isLoading && rows.length === 0 && <tr><td colSpan={12} className="empty">暂无排名数据</td></tr>}
+            {query.isLoading && <tr><td colSpan={13} className="empty">正在读取榜单…</td></tr>}
+            {!query.isLoading && rows.length === 0 && (
+              <tr><td colSpan={13} className="empty">暂无排名数据：榜上只会出现已注册的玩家 Agent，没有注册玩家时这里就是空的。</td></tr>
+            )}
             {rows.map((row) => (
               <tr key={row.id}>
                 <td className="rank">{row.rank}</td>
@@ -64,11 +74,12 @@ export function BoardPage() {
                 <td><span className={`track ${row.source === 'hosted' ? 'hosted' : ''}`}>{row.source || row.track}</span></td>
                 <td className="num">{row.wins}</td>
                 <td className="num">{row.losses}</td>
-                <td className="num">{row.matches ? `${row.winRate}%` : '—'}</td>
+                <td className="num">{row.matches ? `${row.winRate ?? 0}%` : '—'}</td>
                 <td className="num">{row.matches}</td>
+                <td className="num">{row.practiceMatches ? row.practiceMatches : '—'}</td>
                 <td className="num">{row.rating}</td>
-                <td className="num">{row.modelCallsPerMatch ?? 0}</td>
-                <td className="num">{row.timeouts ?? 0}</td>
+                <td className="num">{row.cost?.declaredModelCalls ?? 0}</td>
+                <td className="num">{row.cost?.timeouts ?? 0}</td>
               </tr>
             ))}
           </tbody>
@@ -76,6 +87,10 @@ export function BoardPage() {
       </div>
 
       <div className="board-foot">
+        <div className="note-card">
+          <h3>什么才算一场胜场</h3>
+          <p>只有两名已注册玩家 Agent 在排位房打完的一局才计胜场、才动 Glicko-2 评分。官方基线（内置策略与托管策略演示）永远不在榜上：它们的对局是真实打完的、可回放的，但只能作为演示或陪练。</p>
+        </div>
         <div className="note-card">
           <h3>为什么公开决策预算</h3>
           <p>如果每拍都调模型，胜负会变成比谁的模型快、谁肯花钱。这里把模型调用次数与超时数一并公开，另设纯规则策略赛道，让「策略写得好」能被单独看出来。</p>

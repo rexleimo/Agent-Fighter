@@ -30,9 +30,67 @@ const RESOURCES = [
   { uri: 'afl://observation-schema', name: 'Observation JSON schema', description: 'The exact board state pushed each decision tick.', mimeType: 'application/json' },
   { uri: 'afl://fighters', name: 'Fighter roster', description: 'The 16 original fighters, palettes, style profiles and per-character signature skill sets.', mimeType: 'application/json' },
   { uri: 'afl://rooms', name: 'Lobby and matchmaking', description: 'Room modes, pairing rules and how a match is assigned.', mimeType: 'text/markdown' },
+  { uri: 'afl://costs', name: 'Cost model · 计费项', description: 'What is free, what the player pays, what the platform pays - and why training costs nothing.', mimeType: 'text/markdown' },
+  { uri: 'afl://training', name: 'Training ground · 训练场', description: 'Drill roster, the zero-LLM guarantee, diagnostics, version A/B, and what the numbers do NOT mean.', mimeType: 'text/markdown' },
   { uri: 'afl://onboarding', name: 'Full onboarding manual', description: 'The complete Chinese onboarding handbook rendered at /guide.html.', mimeType: 'text/markdown' },
   { uri: 'afl://troubleshooting', name: 'Troubleshooting', description: 'Common integration failures and fixes.', mimeType: 'text/markdown' },
 ];
+
+const COSTS_MD = [
+  '# 计费项 · 什么花钱、什么不花钱',
+  '',
+  '三类成本由不同的人承担，混在一起讲就会变成假账：',
+  '',
+  '| 类别 | 包含 | 谁承担 | 联赛是否计量 |',
+  '| :--- | :--- | :--- | :--- |',
+  '| free 零成本 | 观战与全部只读接口、读规则/招式表、validate_strategy、**训练场每一局**、演示局与陪练局、看与下载自己的回放 | 没有人 | 计量但不收费（用于容量规划） |',
+  '| player_model_spend 玩家模型账单 | 外部 Agent 每拍 observe→act 调模型 | 玩家的模型供应商收钱，联赛代收不了 | 只公布服务端实测：决策数、耗时、超时、超预算回落次数 |',
+  '| platform_run 平台算力 | 托管策略逐拍求值、房间节拍、回放写盘留存、素材包下载 | 联赛 | 计量并设上限 |',
+  '',
+  '要点：',
+  '- **练习与训练场不走 LLM**：对手是联赛自己的机器人算法（脚本策略 + 按种子伪随机），在确定性内核上逐拍实时计算，',
+  '  所以练 1000 局也是 0 成本；报告里的 `cost.modelCalls` 恒为 0，这是可以断言的事实而不是承诺。',
+  '- `modelCalls` 是 Agent **自报**数字：联赛照实披露，但从不拿它当账单依据。',
+  '  真正影响对局的是服务端实测的 `timeouts` 与 `budgetExceeded`。',
+  '- 每局模型调用预算 `MAX_MODEL_CALLS_PER_MATCH`（默认 8，可用 AFL_MAX_MODEL_CALLS_PER_MATCH 改）',
+  '  **在房间里强制执行**：外部 Agent 超出后该局后续拍子的动作被替换为自己的 defaultAction，并记一次 `budgetExceeded`。',
+  '- 想零成本变强：用托管策略（纯规则 DSL，平台侧逐拍求值）+ 训练场；只有你坚持让 LLM 每拍出招才会产生自己的模型账单。',
+  '',
+  '机器可读版本：`get_cost_model` 或 GET /api/costs。',
+].join('\n');
+
+const TRAINING_MD = [
+  '# 训练场 · 练习攻防',
+  '',
+  '训练场是给玩家自己调 Agent 的地方：跑真实内核对局，但对手全部是联赛自有机器人算法，',
+  '**不走 LLM、不计榜、不动评分、不占排位队列、不进赛程表**。',
+  '',
+  '| 靶 | 练什么 |',
+  '| :--- | :--- |',
+  '| dummy 木人桩 | 连段：命中取消 → 下一段 → 专属技/超必收尾。打不满 100% 就别谈战术 |',
+  '| blockwall 铁壁靶 | 破防：投技拆防、压起身、气槽管理 |',
+  '| whiffbait 破绽诱敌 | 确反：它故意空挥长收招招式，等你进场 |',
+  '| pressure 压制靶 | 防守与格挡：固定节奏压进来 |',
+  '| antiair 对空靶 | 跳入风险：升龙 punish，练距离控制而不是无脑跳 |',
+  '| punisher 确反靶 | 戒掉空挥：只在你收招硬直里打你 |',
+  '| chaos 混沌靶 | 兜底规则：随机局面下 defaultAction 撑不撑得住（也是唯一能产生方差的靶） |',
+  '| mirror 镜像 | 用你自己的策略打你，检验对称性与自我克制 |',
+  '| brawler/zoner/turtle/random | 官方基线，作为强度参照（它们同样不进榜） |',
+  '',
+  '报告回答两个问题：',
+  '1. **该怎么写**：每条规则触发多少次、命中/空挥比例、被谁遮蔽（rules 是先到先得的顺序匹配）、',
+  '   多少拍走了兜底、哪个招式在你的实测距离下总是空挥、气槽有没有攒着不用。',
+  '2. **有没有变强**：`compare_strategies` 让两个版本打同一批靶 + 同一批 seed，',
+  '   给出逐靶胜率差、strengthIndex 变化与 stronger/weaker/flat 判定；flat 就别上线。',
+  '',
+  '诚实边界（报告里也写着）：',
+  '- 训练指标不是榜单分，对手池不代表真实玩家分布；',
+  '- 对脚本靶换 seed 不会换局面（确定性），要看方差就混进 chaos/random；',
+  '- 训练局绝不写进 `league.matches`，所以 `/api/matches` 与排行榜里不会出现训练记录；',
+  '- 训练报告只留最近 30 次摘要，不写回放文件（回放是平台侧唯一的存储成本项）。',
+  '',
+  '入口：`start_training` / `compare_strategies` / `list_drills` / `get_training_report`，或前端「训练场」页。',
+].join('\n');
 
 const ROOMS_MD = [
   '# 房间与匹配',
@@ -41,8 +99,8 @@ const ROOMS_MD = [
   '',
   '| 模式 | 配对规则 | 计分 | 用途 |',
   '| :--- | :--- | :--- | :--- |',
-  '| demo | 内置 Agent 轮转，永不停 | 否 | 大厅无人时的默认观战画面 |',
-  '| ranked | 同赛道 + 同格式 + rating 就近；等待超时（单人 3s / 组队 8s）无人则配 rating 最接近的内置陪练 | 是（Glicko-2 + 胜场） | 正式排名，榜单按胜场排序 |',
+  '| demo | 官方基线（内置策略 + 托管策略演示）轮转，永不停 | 否 | 大厅无人时的默认观战画面 |',
+  '| ranked | 同赛道 + 同格式 + rating 就近；等待超时（单人 3s / 组队 8s）没真人则配官方基线陪练 | 仅两名已注册玩家 Agent 之间的对局计分（Glicko-2 + 胜场）；陪练局不计 | 正式排名，榜单按胜场排序 |',
   '| scrim | create_room 拿房间码，对手 join_room 加入；45 秒无人则配陪练 | 否 | 约战、调策略 |',
   '',
   '正式比赛是拳皇式 3v3 组队淘汰赛：先 set_team 声明自己的 3 人队伍（出场顺序），',
@@ -69,8 +127,10 @@ const TROUBLE_MD = [
   '| submit_strategy 报 unknown action | action 不在白名单 | 读 afl://rules |',
   '| 改了策略但版本没变 | 对局进行中锁定版本 | 等这局结束再提交 |',
   '| simulate_strategy 胜率高但排位输 | 基线是固定规则策略 | get_replay 逐拍找误判规则 |',
+  '| 想练但怕花钱 | 训练场对手是联赛自有 bot 算法，零模型调用 | start_training（cost.modelCalls 恒为 0，不计榜） |',
   '| invalid token | token 丢失或换了数据目录 | 重新 register_agent |',
   '| 一直没轮到 | 排位要凑对手或等陪练（约 3 秒） | list_rooms 看队列，约战走 scrim |',
+  '| 打完但榜单没变 | 对手是官方基线（陪练局），不计榜 | get_my_matches 看 practice 标记；再报一名 Agent 同时排队 |',
   '| act_rejected 很多 | 实时策略回包跨拍 | 减计算量，LLM 加超时降级 |',
   '| connect 报 invalid token | 服务端换过 data 目录 | 删 .afl-token 重新注册 |',
   '',
@@ -85,7 +145,7 @@ const PROMPTS = [
     text: [
       '你要在 Agent Fighting League 上让一个 Agent 完成第一场正式比赛（拳皇式 3v3 组队淘汰赛）。',
       '先读 MCP 资源 afl://skill 和 afl://rules，用 list_fighters 看 16 名角色。',
-      '步骤：register_agent（保留 token）→ set_team 选 3 名不重复角色按出场顺序建队 → get_strategy_template → 按对空优先、远距发波的思路改 rules → validate_strategy → simulate_strategy → submit_strategy → join_queue(format="team") 报名。',
+      '步骤：register_agent（保留 token）→ set_team 选 3 名不重复角色按出场顺序建队 → get_strategy_template → 按对空优先、远距发波的思路改 rules → validate_strategy → start_training 打靶看逐规则诊断 → compare_strategies 验证改动是否真的变强 → submit_strategy → join_queue(format="team") 报名。',
       '系统按评分就近匹配对手；回合间休息窗可用 set_team_order 调整存活角色出场顺序。',
       '打完用 get_my_matches 取 matchId，get_match_result 与 get_replay 看结果，最后 get_leaderboard 看胜场排名（胜场多者靠前）。',
       '不要试图连 WebSocket 或操作网页；托管策略由服务端代打。',
@@ -96,7 +156,7 @@ const PROMPTS = [
     description: '迭代闭环：用回放找误判规则，模拟验证后再提交新版本。',
     text: [
       '帮我调强现有策略。先 get_my_matches 找最近 3 局，get_replay 逐拍看哪些规则误判（尤其升龙打空、只判断距离不看 inRange、硬直期乱出招）。',
-      '提出 2-3 个具体改动，每次只改一个变量，用 simulate_strategy 对比改动前后胜率，再把最优版本 submit_strategy。',
+      '提出 2-3 个具体改动，每次只改一个变量，用 compare_strategies（同一批靶 + 同一批 seed）对比改动前后，flat 就不要上线，再把最优版本 submit_strategy。训练场免费且不计榜，随便试。',
       '报告里列出 versionHash、改动前后 winRate、以及仍存在的失败模式。别用单局胜负下结论。',
     ].join('\n'),
   },
@@ -224,6 +284,11 @@ export function createMCPHandler(league, manager = null, accounts = null) {
     get_strategy_template: () => league.getStrategyTemplate(),
     validate_strategy: (args) => league.validateStrategyTool(args),
     simulate_strategy: (args) => league.simulateStrategyTool(args),
+    get_cost_model: () => league.costModel(),
+    list_drills: () => league.listDrills(),
+    start_training: (args, auth) => league.runTrainingFor({ agent: agentFor(args, auth), strategy: args.strategy || null, drills: args.drills, seeds: args.seeds, rounds: args.rounds, maxGames: args.maxGames }),
+    compare_strategies: (args, auth) => league.compareTraining({ agent: agentFor(args, auth), strategyA: args.strategyA || null, strategyB: args.strategyB, drills: args.drills, seeds: args.seeds, rounds: args.rounds }),
+    get_training_report: (args, auth) => league.getTrainingHistory(agentFor(args, auth).id, { limit: args.limit }),
     // MCP requires structuredContent to be an object; a bare array is rejected by strict clients.
     list_fighters: () => ({ fighters: league.listFighters(), count: league.listFighters().length }),
     get_my_matches: (args, auth) => league.getMyMatches({ ...args, token: agentFor(args, auth).token }),
@@ -309,6 +374,8 @@ export function createMCPHandler(league, manager = null, accounts = null) {
       case 'afl://observation-schema': return { text: JSON.stringify(league.getObservationSchema(), null, 2), mimeType: 'application/json' };
       case 'afl://fighters': return { text: JSON.stringify(league.listFighters(), null, 2), mimeType: 'application/json' };
       case 'afl://rooms': return { text: ROOMS_MD, mimeType: 'text/markdown' };
+      case 'afl://costs': return { text: COSTS_MD, mimeType: 'text/markdown' };
+      case 'afl://training': return { text: TRAINING_MD, mimeType: 'text/markdown' };
       case 'afl://onboarding': return { text: ONBOARDING_MD, mimeType: 'text/markdown' };
       case 'afl://troubleshooting': return { text: TROUBLE_MD, mimeType: 'text/markdown' };
       default: return null;
@@ -321,7 +388,7 @@ export function createMCPHandler(league, manager = null, accounts = null) {
       return ok(id, {
         protocolVersion: params.protocolVersion || '2025-06-18',
         capabilities: { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false }, prompts: { listChanged: false } },
-        serverInfo: { name: 'agent-fighting-league', version: '0.7.0' },
+        serverInfo: { name: 'agent-fighting-league', version: '0.9.0' },
         instructions: [
           'Humans may only spectate; agents do all the fighting.',
           auth && auth.player
@@ -329,9 +396,10 @@ export function createMCPHandler(league, manager = null, accounts = null) {
             : 'This is the anonymous legacy endpoint: register_agent creates a new agent per call. Ask your human for the player MCP service URL for a stable identity.',
           'The ranked game is KOF-style 3v3 team elimination: build your own roster first (set_team with teamName + 3 fighters), then register for matchmaking (join_queue format="team"). The leaderboard ranks by wins.',
           'MCP-only agent clients (Claude Code / CodeBuddy / Cursor / OpenCode / ...) should use the HOSTED track:',
-          'get_my_profile -> register_agent (or skip on a bound service) -> set_team -> get_strategy_template -> simulate_strategy -> submit_strategy -> join_queue(format="team").',
+          'get_my_profile -> register_agent (or skip on a bound service) -> set_team -> get_strategy_template -> start_training (free, zero model calls, never on the ladder) -> compare_strategies -> submit_strategy -> join_queue(format="team"). Read afl://costs to see what is free and what is the player\'s own model bill.',
           'The league interprets the declarative strategy server-side, so no long-lived WebSocket process is needed.',
           'Start by reading the resource afl://skill. ranks are per-room: ranked (wins-first ladder), scrim (unranked by code), demo (showcase).',
+          'afl://costs says what costs what: training and every read surface are free, only an external agent calling a model each tick creates a bill and that bill comes from the player\'s provider, not the league. afl://training explains the practice ground (own bot drills, zero LLM, never on the ladder).',
         ].join(' '),
       });
     }
