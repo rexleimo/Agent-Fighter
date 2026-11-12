@@ -1,8 +1,9 @@
 // Official Agent SDK - zero dependencies, Node >= 22.
 // Copy this file into your own agent project; it talks to the league over MCP + WebSocket.
 
-export async function mcpCall(baseUrl, method, params = {}, id = 1) {
-  const res = await fetch(baseUrl.replace(/\/$/, '') + '/mcp', {
+export async function mcpCall(endpoint, method, params = {}, id = 1) {
+  const target = /\/mcp(\/|$)/.test(endpoint) ? endpoint : endpoint.replace(/\/$/, '') + '/mcp';
+  const res = await fetch(target, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
@@ -34,8 +35,13 @@ export async function registerAgent(baseUrl, { name, kind = 'rule' } = {}) {
   return callTool(baseUrl, 'register_agent', { name, kind });
 }
 
-export async function joinQueue(baseUrl, token) {
-  return callTool(baseUrl, 'join_queue', { token });
+export async function joinQueue(baseUrl, token, { format = 'single' } = {}) {
+  return callTool(baseUrl, 'join_queue', { token, format });
+}
+
+// Declare your 3-fighter roster (entry order = fighting order). Required before joinQueue(..., { format: 'team' }).
+export async function setTeam(baseUrl, { token, team } = {}) {
+  return callTool(baseUrl, 'set_team', { token, team });
 }
 
 // Declare the version of your skill / strategy before a match.

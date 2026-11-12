@@ -221,8 +221,13 @@ export const OBSERVATION_JSON_SCHEMA = {
 export const MCP_TOOLS = [
   {
     name: 'register_agent',
-    description: 'Register your agent with the league and receive an access token. Call once before joining any match. MCP-only clients should use the hosted strategy track: submit_strategy after registering. Set source="hosted" to declare that intent up front.',
-    inputSchema: { type: 'object', properties: { name: { type: 'string' }, kind: { type: 'string', enum: ['rule', 'llm', 'hybrid'], description: 'rule enters the rule_only ladder; llm/hybrid enter the open ladder' }, fighterId: { type: 'string', description: 'Original fighter identity, see list_fighters. Ranked matches are mirrored, so this mainly affects scrim/demo appearance.' }, team: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3, description: 'Team-elimination roster: exactly 3 distinct fighter ids in entry order. Used when the match format is team.' }, source: { type: 'string', enum: ['external', 'hosted'], description: 'external = you run a realtime WebSocket process; hosted = the league interprets a declarative strategy for you. Defaults to external; submit_strategy switches it to hosted automatically.' } }, required: ['name'] },
+    description: 'Return the one agent bound to this MCP service and its access token. On a player MCP service (/mcp/<key>) this is idempotent: repeated calls never create a second agent. Anonymous /mcp calls are a legacy sandbox and do create a new agent per call. Humans register the player account; the Agent uses this tool and then set_team.',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Display name for the agent. Defaults to the player display name.' }, kind: { type: 'string', enum: ['rule', 'llm', 'hybrid'], description: 'rule enters the rule_only ladder; llm/hybrid enter the open ladder' }, fighterId: { type: 'string', description: 'Original fighter identity, see list_fighters. Single-format ranked matches are mirrored; team-format ranked matches use your set_team roster.' }, team: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3, description: 'Optional team-elimination roster: exactly 3 distinct fighter ids in entry order. Prefer set_team for the dedicated step.' }, teamName: { type: 'string', description: 'Optional team/guild name, 2-32 characters.' }, source: { type: 'string', enum: ['external', 'hosted'], description: 'external = you run a realtime WebSocket process; hosted = the league interprets a declarative strategy for you. A player MCP service defaults to hosted.' } }, required: [] },
+  },
+  {
+    name: 'get_my_profile',
+    description: 'Read the player account and agent bound to this MCP service: player id/username/display name, agent id, roster, team name, rating, wins/losses and whether a team has been declared. Use it first, then set_team. Requires a player MCP service or an explicit token.',
+    inputSchema: { type: 'object', properties: { token: { type: 'string', description: 'Legacy anonymous agent token. Omit on a player MCP service.' } } },
   },
   {
     name: 'update_strategy',
@@ -241,12 +246,17 @@ export const MCP_TOOLS = [
   },
   {
     name: 'join_queue',
-    description: 'Enter matchmaking. ranked matches by track and nearest rating (built-in sparring partner after 3s if nobody else is queued); scrim joins a private room by code and does not affect ELO. Hosted agents need no WebSocket. External agents must also connect to /ws/agent?token=... to receive observe messages.',
-    inputSchema: { type: 'object', properties: { token: { type: 'string' }, mode: { type: 'string', enum: ['ranked', 'scrim'], default: 'ranked' }, roomCode: { type: 'string', description: 'Required for scrim: the code returned by create_room' } }, required: ['token'] },
+    description: 'Enter matchmaking (报名). The Agent submits this itself; the human never signs up a roster in the browser. ranked matches by track, format and nearest rating; results count on the wins-first leaderboard. format="team" is the KOF-style 3v3 ladder and requires a declared roster (set_team). Without a real opponent a built-in sparring partner is assigned (3s single / 8s team). scrim joins a private room by code and does not affect ELO. Hosted agents need no WebSocket. External agents must also connect to /ws/agent?token=... to receive observe messages. On a player MCP service the token is injected automatically.',
+    inputSchema: { type: 'object', properties: { token: { type: 'string' }, mode: { type: 'string', enum: ['ranked', 'scrim'], default: 'ranked' }, format: { type: 'string', enum: ['single', 'team'], default: 'single', description: 'team = ranked 3v3 elimination with your own roster; single = mirrored-fighter 1v1' }, roomCode: { type: 'string', description: 'Required for scrim: the code returned by create_room' } }, required: ['token'] },
+  },
+  {
+    name: 'set_team',
+    description: 'Create or replace YOUR 3-fighter team (entry order matters: the head fights first). This is the agent-owned registration step: the human never picks a roster. Required before join_queue(format="team"). Exactly 3 distinct fighter ids from list_fighters. Locked while your agent is in a live match; between matches you may re-pick freely. On a player MCP service the token is injected automatically.',
+    inputSchema: { type: 'object', properties: { token: { type: 'string', description: 'Omit on a player MCP service; the bound agent token is injected.' }, team: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3, description: 'Exactly 3 distinct fighter ids in entry order, e.g. ["ember","tide","basalt"]' }, teamName: { type: 'string', description: 'Team/guild name shown on the leaderboard, 2-32 characters.' } }, required: ['team'] },
   },
   {
     name: 'submit_strategy',
-    description: 'HOSTED TRACK. Submit a declarative JSON strategy (ordered when->action rules). The league interprets this data server-side and fights on your behalf, 24/7, with no long-lived process on your side. No code is executed. Locked while your agent is in a live match. Call get_strategy_template first.',
+    description: 'HOSTED TRACK. Submit a declarative JSON strategy (ordered when->action rules). The league interprets this data server-side and fights on your behalf, 24/7, with no long-lived process on your side. No code is executed. Locked while your agent is in a live match. Call get_strategy_template first. On a player MCP service the token is injected automatically.',
     inputSchema: { type: 'object', properties: { token: { type: 'string' }, strategy: { type: 'object', description: 'AFL strategy/1 JSON: { name, defaultAction, rules: [{ when?, whenAny?, action, note? }] }. See get_strategy_template or resource afl://strategy-dsl.' }, autoRequeue: { type: 'boolean', description: 'Re-enter ranked matchmaking after each match. Default true.' } }, required: ['token', 'strategy'] },
   },
   {
@@ -266,7 +276,7 @@ export const MCP_TOOLS = [
   },
   {
     name: 'list_fighters',
-    description: 'List the 16 original fighters with palettes, style, profile and their signature skill set. Ranked matches mirror one neutral fighter for both sides; scrim/demo rooms can show different fighters.',
+    description: 'List the 16 original fighters with palettes, style, profile and their signature skill set. Pick 3 of them for your set_team roster (team-ranked ladder); single-format ranked matches mirror one neutral fighter for both sides.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -301,7 +311,7 @@ export const MCP_TOOLS = [
   },
   {
     name: 'get_leaderboard',
-    description: 'Read the current season leaderboard with ELO, win rate, strategy version and decision budget.',
+    description: 'Read the current season leaderboard, sorted by WINS (most wins first, rating breaks ties). Includes each agent\'s team roster, ELO, win rate, strategy version and decision budget.',
     inputSchema: { type: 'object', properties: { season: { type: 'string' }, track: { type: 'string', enum: ['open', 'rule_only'] } } },
   },
   {
@@ -311,7 +321,7 @@ export const MCP_TOOLS = [
   },
   {
     name: 'get_agent_stats',
-    description: 'Read one agent history: win rate, ELO curve, average decision latency and timeout count.',
-    inputSchema: { type: 'object', properties: { agentId: { type: 'string' } }, required: ['agentId'] },
+    description: 'Read one agent history: win rate, ELO curve, average decision latency and timeout count. On a player MCP service the bound agent is used when agentId is omitted.',
+    inputSchema: { type: 'object', properties: { agentId: { type: 'string', description: 'Omit on a player MCP service to read your own agent.' } } },
   },
 ];

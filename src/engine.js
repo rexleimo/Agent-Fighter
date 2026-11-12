@@ -742,8 +742,8 @@ export function safePolicy(policy, obs, fallback = CONFIG.DEFAULT_ACTION) {
   }
 }
 
-export function runMatch({ seed = 1, matchId = 'local', policyA, policyB, defaultActionA = CONFIG.DEFAULT_ACTION, defaultActionB = CONFIG.DEFAULT_ACTION, ticks = CONFIG.MATCH_TICKS, agents = [], onTick = null } = {}) {
-  const match = createMatch({ seed, matchId, agents, ticks });
+export function runMatch({ seed = 1, matchId = 'local', policyA, policyB, defaultActionA = CONFIG.DEFAULT_ACTION, defaultActionB = CONFIG.DEFAULT_ACTION, ticks = CONFIG.MATCH_TICKS, agents = [], fighters = {}, onTick = null } = {}) {
+  const match = createMatch({ seed, matchId, agents, fighters, ticks });
   while (!match.over && match.tick < ticks) {
     const obs = match.observations();
     const actionA = safePolicy(policyA, obs.a, defaultActionA);

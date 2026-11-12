@@ -1,14 +1,15 @@
 {
   "name": "agent-fighting-league",
-  "version": "0.4.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "Agent-only fighting league. Humans watch, agents fight.",
   "scripts": {
     "start": "node src/server.js",
-    "verify": "node scripts/verify.js",
+    "verify": "pnpm build:web && node scripts/verify.js",
     "verify:combat": "node scripts/verify-combat.mjs",
     "verify:team": "node scripts/verify-team.mjs",
+    "verify:accounts": "node scripts/verify-accounts.mjs",
     "sheet:moves": "node scripts/move-sheet.mjs",
     "sim": "node scripts/simulate.js",
     "hosted-demo": "node scripts/hosted-demo.mjs",
@@ -24,9 +25,53 @@
     "verify:render": "node scripts/verify-render.mjs",
     "verify:facing": "node scripts/verify-facing.mjs",
     "lab:rig": "node scripts/capture-rig.mjs",
-    "demo:kit": "node scripts/kit-demo.mjs"
+    "demo:kit": "node scripts/kit-demo.mjs",
+    "prestart": "pnpm build:web",
+    "build:web": "tsc -p frontend/tsconfig.json --noEmit && vite build --config frontend/vite.config.ts",
+    "dev:web": "vite --config frontend/vite.config.ts",
+    "test:web": "vitest run --config frontend/vitest.config.ts",
+    "lint:web": "eslint frontend/src",
+    "db:up": "docker run -d --name afl-pg -e POSTGRES_USER=afl -e POSTGRES_PASSWORD=afl_dev_password -e POSTGRES_DB=afl -e PGDATA=/var/lib/postgresql/data/pgdata -p 55433:5432 -v afl-pg-data:/var/lib/postgresql/data postgres:16-alpine",
+    "db:down": "docker rm -f afl-pg",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "db:reset": "docker rm -f afl-pg; docker volume rm afl-pg-data"
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.7.20",
+    "@hookform/resolvers": "^7.0.5",
+    "@tanstack/react-query": "^5.107.1",
+    "better-auth": "^1.7.20",
+    "dotenv": "^18.0.10",
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-hook-form": "^7.91.0",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.18.5",
+    "remark-gfm": "^4.0.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^10.14.0",
+    "jsdom": "^31.0.0",
+    "prettier": "^3.9.10",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.2",
+    "vite": "^8.3.7",
+    "vitest": "^5.1.0"
   }
 }

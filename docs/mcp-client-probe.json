@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-11-07T09:46:44.643Z",
-  "base": "http://127.0.0.1:8792",
+  "generatedAt": "2026-11-11T11:52:17.935Z",
+  "base": "http://127.0.0.1:8787",
   "client": "official @modelcontextprotocol/sdk Client + StreamableHTTPClientTransport",
   "checks": [
     {
@@ -11,17 +11,17 @@
     {
       "name": "M2 标准 tools/list + resources/list + prompts/list 可用",
       "ok": true,
-      "detail": "tools=18 resources=9 prompts=4"
+      "detail": "tools=20 resources=9 prompts=4"
     },
     {
       "name": "M3 resources/read + prompts/get 返回真实内容",
       "ok": true,
-      "detail": "skillBytes=9497 rulesMoves=13"
+      "detail": "skillBytes=11840 rulesMoves=13"
     },
     {
       "name": "M4 tools/call register_agent 签发真实 token",
       "ok": true,
-      "detail": "agentId=usr_698cf65093 token=ag_19d55…"
+      "detail": "agentId=usr_17c141ed34 token=ag_d554b…"
     },
     {
       "name": "M5 get_rules 返回 19 动作 + 权威判定框数据",
@@ -41,42 +41,42 @@
     {
       "name": "M8 join_queue 真的进入排位队列并开出房间",
       "ok": true,
-      "detail": "queuePosition=1 roomId=r_mw67yi9s_3 opponent=Iron Wall"
+      "detail": "queuePosition=1 roomId=r_mwc266do_3 opponent=Blue Wave"
     },
     {
       "name": "M9 托管策略真的打完一整局并写入战绩",
       "ok": true,
-      "detail": "matchId=r_mw67yi9s_3_mw67yi9s_1 ticks=538 result=win reason=ko"
+      "detail": "matchId=r_mwc266do_3_mwc27d0e_10 ticks=219 result=draw reason=ko"
     },
     {
       "name": "M10 WebSocket 观战收到服务端实拍 tick（非前端造数）",
       "ok": true,
-      "detail": "demoTicks=148 rankedTicks=538"
+      "detail": "demoTicks=200 rankedTicks=218"
     },
     {
       "name": "M11 默认观战页血量真实变化、有技能动作（内置策略，非外部 AI）",
       "ok": true,
-      "detail": "hp {\"hpA\":782,\"hpB\":962} -> {\"hpA\":226,\"hpB\":321} skillActions=71"
+      "detail": "hp {\"hpA\":1000,\"hpB\":1000} -> {\"hpA\":18,\"hpB\":0} skillActions=95"
     },
     {
       "name": "M12 回放状态哈希链逐拍一致（确定性内核，非随机数）",
       "ok": true,
-      "detail": "ticks=538 mismatches=0 seed=2388734727 events=252"
+      "detail": "ticks=219 mismatches=0 seed=2219602392 events=177"
     },
     {
       "name": "M13 回放里出现技能 / 血量下降 / 明确胜负",
       "ok": true,
-      "detail": "skills={\"fireball\":13,\"dash\":21,\"super\":4} hpSum 2000->310"
+      "detail": "skills={\"fireball\":62,\"super\":2} hpSum 2000->0 winner=draw"
     },
     {
       "name": "M14 观战页 WS 帧 == 回放离线重算帧（页面数字可复现）",
       "ok": true,
-      "detail": "compared=538 identical=538"
+      "detail": "compared=218 identical=218"
     },
     {
       "name": "M15 战绩计入 Glicko-2 积分与榜单",
       "ok": true,
-      "detail": "matches=1 rating=1662 wins=1 losses=0 draws=0"
+      "detail": "matches=1 rating=1500 wins=0 losses=0 draws=1"
     }
   ],
   "evidence": {
@@ -106,6 +106,7 @@
         "get_rules",
         "get_observation_schema",
         "join_queue",
+        "set_team",
         "submit_strategy",
         "get_strategy_template",
         "validate_strategy",
@@ -113,6 +114,7 @@
         "list_fighters",
         "create_room",
         "join_room",
+        "set_team_order",
         "list_rooms",
         "get_my_matches",
         "get_match_result",
@@ -148,8 +150,8 @@
           "losses": 0,
           "draws": 0,
           "winRate": 100,
-          "avgHpLeft": 492,
-          "avgTicks": 90
+          "avgHpLeft": 696,
+          "avgTicks": 126
         },
         {
           "opponent": "zoner",
@@ -158,7 +160,7 @@
           "draws": 3,
           "winRate": 0,
           "avgHpLeft": 0,
-          "avgTicks": 167
+          "avgTicks": 219
         },
         {
           "opponent": "turtle",
@@ -166,81 +168,76 @@
           "losses": 0,
           "draws": 0,
           "winRate": 100,
-          "avgHpLeft": 310,
-          "avgTicks": 538
+          "avgHpLeft": 852,
+          "avgTicks": 600
         }
       ],
       "note": "离线模拟，不是排行榜数据"
     },
     "spectate": {
-      "demoRoomTicks": 148,
+      "demoRoomTicks": 200,
       "demoHelloPresence": {
         "onlineAgents": 0,
         "waiting": 0,
-        "spectators": 1,
+        "spectators": 2,
         "totalRooms": 3,
-        "finishedRooms": 0,
+        "finishedRooms": 1,
         "queue": []
       },
-      "rankedRoomTicks": 538
+      "rankedRoomTicks": 218
     },
     "demoRoom": {
       "actions": {
-        "dp": 12,
-        "hp": 11,
-        "hk": 14,
-        "lp": 37,
-        "lk": 8,
-        "ex": 13,
-        "crouch": 7,
-        "throw": 12,
-        "block": 120,
+        "dash": 13,
+        "crouch": 13,
+        "walk_f": 73,
         "walk_b": 9,
-        "dash": 7,
-        "jump": 5,
-        "mp": 7,
-        "super": 10,
         "special": 13,
-        "mk": 4,
-        "fireball": 4,
-        "walk_f": 3
+        "block": 131,
+        "throw": 16,
+        "super": 17,
+        "lp": 21,
+        "lk": 12,
+        "mk": 11,
+        "mp": 14,
+        "fireball": 11,
+        "dp": 15,
+        "ex": 10,
+        "jump": 9,
+        "hk": 6,
+        "hp": 6
       },
       "firstHp": {
-        "hpA": 782,
-        "hpB": 962
+        "hpA": 1000,
+        "hpB": 1000
       },
       "lastHp": {
-        "hpA": 226,
-        "hpB": 321
+        "hpA": 18,
+        "hpB": 0
       },
       "hpChanged": true,
-      "skillActions": 71
+      "skillActions": 95
     },
     "match": {
-      "matchId": "r_mw67yi9s_3_mw67yi9s_1",
-      "result": "win",
+      "matchId": "r_mwc266do_3_mwc27d0e_10",
+      "result": "draw",
       "reason": "ko",
-      "winner": "a",
-      "hpA": 310,
+      "winner": "draw",
+      "hpA": 0,
       "hpB": 0,
-      "ticks": 538,
-      "seed": 2388734727,
+      "ticks": 219,
+      "seed": 2219602392,
       "stateHashMismatches": 0,
       "actionCounts": {
-        "fireball": 13,
-        "dash": 21,
-        "block": 703,
-        "mp": 292,
-        "super": 4,
-        "lp": 5,
-        "hp": 38
+        "fireball": 62,
+        "block": 374,
+        "super": 2
       },
       "skillActions": {
-        "fireball": 13,
-        "dash": 21,
-        "super": 4
+        "fireball": 62,
+        "super": 2
       },
-      "events": 252,
+      "events": 177,
       "hpStart": {
         "tick": 0,
         "hpA": 1000,
@@ -249,43 +246,23 @@
         "meterB": 0
       },
       "hpEnd": {
-        "tick": 537,
-        "hpA": 310,
+        "tick": 218,
+        "hpA": 0,
         "hpB": 0,
-        "meterA": 300,
-        "meterB": 0
+        "meterA": 264,
+        "meterB": 64
       },
-      "ratingDelta": 162.3
+      "ratingDelta": 0
     },
     "frameParity": {
-      "compared": 538,
-      "identical": 538,
+      "compared": 218,
+      "identical": 218,
       "firstDiff": null
     },
     "ranking": {
       "leaderboardTop": [
         {
           "rank": 1,
-          "id": "usr_698cf65093",
-          "name": "Independent MCP Probe",
-          "label": "我的 Agent",
-          "kind": "rule",
-          "track": "rule_only",
-          "source": "hosted",
-          "versionHash": "d80b2807e6f6",
-          "fighterId": "quartz",
-          "rating": 1662,
-          "rd": 290,
-          "matches": 1,
-          "wins": 1,
-          "losses": 0,
-          "draws": 0,
-          "winRate": 100,
-          "modelCallsPerMatch": 0,
-          "timeouts": 0
-        },
-        {
-          "rank": 2,
           "id": "demo_hosted",
           "name": "Hosted Baseline",
           "label": "托管策略基线",
@@ -294,13 +271,35 @@
           "source": "hosted",
           "versionHash": "d80b2807e6f6",
           "fighterId": "quartz",
-          "rating": 1594,
-          "rd": 87,
-          "matches": 21,
+          "team": null,
+          "rating": 1595,
+          "rd": 127,
+          "matches": 10,
           "wins": 1,
           "losses": 0,
-          "draws": 20,
-          "winRate": 5,
+          "draws": 9,
+          "winRate": 10,
+          "modelCallsPerMatch": 0,
+          "timeouts": 0
+        },
+        {
+          "rank": 2,
+          "id": "usr_f6a8108f82",
+          "name": "Independent MCP Probe",
+          "label": "我的 Agent",
+          "kind": "rule",
+          "track": "rule_only",
+          "source": "hosted",
+          "versionHash": "d80b2807e6f6",
+          "fighterId": "quartz",
+          "team": null,
+          "rating": 1593,
+          "rd": 128,
+          "matches": 9,
+          "wins": 0,
+          "losses": 0,
+          "draws": 9,
+          "winRate": 0,
           "modelCallsPerMatch": 0,
           "timeouts": 0
         },
@@ -312,28 +311,33 @@
           "kind": "rule",
           "track": "rule_only",
           "source": "builtin",
-          "versionHash": "ccd199ccfb77",
+          "versionHash": "d7815792e3da",
           "fighterId": "quartz",
-          "rating": 1593,
-          "rd": 87,
-          "matches": 20,
+          "team": [
+            "tide",
+            "gale",
+            "quartz"
+          ],
+          "rating": 1500,
+          "rd": 290,
+          "matches": 1,
           "wins": 0,
           "losses": 0,
-          "draws": 20,
+          "draws": 1,
           "winRate": 0,
           "modelCallsPerMatch": 0,
           "timeouts": 0
         }
       ],
       "stats": {
-        "id": "usr_698cf65093",
+        "id": "usr_17c141ed34",
         "name": "Independent MCP Probe",
-        "rating": 1662,
+        "rating": 1500,
         "rd": 290,
         "matches": 1,
-        "wins": 1,
+        "wins": 0,
         "losses": 0,
-        "draws": 0,
+        "draws": 1,
         "modelCalls": 0,
         "timeouts": 0,
         "versionHash": "d80b2807e6f6",
@@ -342,22 +346,23 @@
         "defaultAction": "block",
         "source": "hosted",
         "fighterId": "quartz",
+        "team": null,
         "hosted": true,
         "strategyName": "anti-air-zoner",
         "ruleCount": 10,
         "autoRequeue": true,
         "history": [
           {
-            "matchId": "r_mw67yi9s_3_mw67yi9s_1",
-            "result": "a",
+            "matchId": "r_mwc266do_3_mwc27d0e_10",
+            "result": "draw",
             "reason": "ko",
-            "rating": 1662
+            "rating": 1500
           }
         ]
       }
     }
   },
-  "sdkRoot": "D:/Temp/afl-mcp-probe/node_modules",
+  "sdkRoot": "/tmp/afl-mcp-probe/node_modules",
   "sdkVersion": "1.32.2",
   "summary": {
     "total": 15,

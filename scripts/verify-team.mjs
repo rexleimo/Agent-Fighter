@@ -5,7 +5,8 @@
  * the 15% heal math, draw double-elimination, alive-pool-only reordering and
  * full offline match replayability. Part 2 boots a real server with 8ms ticks
  * and drives a complete team scrim through MCP + two live WebSocket pilots +
- * a spectator, including the intermission order exchange on both channels.
+ * a spectator, then the REAL ranked loop: web signup (/api/enter) -> roster
+ * lock mid-match -> matchmaking pairs the two registrants -> wins-first board.
  *
  * Run standalone: node scripts/verify-team.mjs   (also wired as C23 in verify.js)
  */
@@ -397,28 +398,108 @@ async function verifyLive() {
       return 'rounds=' + envelope.rounds.length + ' replayOk renderedTicks=' + rendered.ticks.length;
     });
 
-    await runCheck('T12 浏览器展览入口 /api/team-exhibition：自定义双方队伍即开打', async () => {
-      const res = await fetch(BASE + '/api/team-exhibition', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamA: ['gale', 'forge', 'tide'], teamB: ['noct', 'volt', 'ember'] }),
+    let signup = null;
+    await runCheck('T12 网页报名 /api/enter：注册+建队+托管策略+报名，匹配器真实配对计分组队赛', async () => {
+      const post = (body) => fetch(BASE + '/api/enter', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-      assert.equal(res.status, 200);
-      const ex = await res.json();
-      assert.equal(ex.format, 'team');
-      assert.ok(ex.roomId && ex.watchUrl);
-      const rooms = await call('list_rooms');
-      const found = rooms.rooms.find((r) => r.roomId === ex.roomId);
-      assert.ok(found && found.format === 'team' && found.status === 'running');
-      assert.deepEqual(found.team.a.order.map((x) => x.fighterId), ['gale', 'forge', 'tide']);
-      let bad = false;
-      const badRes = await fetch(BASE + '/api/team-exhibition', {
+      assert.equal((await post({ name: 'Bad Dup', team: ['gale', 'gale', 'tide'] })).status, 400, 'duplicate roster rejected');
+      assert.equal((await post({ name: 'No Team' })).status, 400, 'missing roster rejected before registration');
+
+      const rx = await post({ name: 'Web Signup X', team: ['gale', 'forge', 'tide'] });
+      assert.equal(rx.status, 200);
+      const x = await rx.json();
+      // Y deliberately fields a do-nothing strategy so the match has a decisive
+      // winner and the wins-first assertions below actually exercise the win path.
+      const ry = await post({ name: 'Web Signup Y', team: ['noct', 'volt', 'ember'], strategy: { name: 'idle-sandbox', defaultAction: 'idle', rules: [{ action: 'idle' }] } });
+      assert.equal(ry.status, 200);
+      const y = await ry.json();
+      assert.ok(x.agentId && x.token && x.joined && x.strategy, 'signup returns agent+token+strategy+queue');
+      assert.deepEqual(x.team, ['gale', 'forge', 'tide']);
+
+      // The matchmaker must pair the two REAL registrants with each other.
+      let room = null;
+      for (let i = 0; i < 100 && !room; i += 1) {
+        const rooms = await call('list_rooms');
+        room = rooms.rooms.find((r) => r.mode === 'ranked' && r.format === 'team'
+          && (r.status === 'running' || r.status === 'intermission') && r.a && r.b
+          && [r.a.id, r.b.id].includes(x.agentId) && [r.a.id, r.b.id].includes(y.agentId));
+        if (!room) await delay(100);
+      }
+      assert.ok(room, 'matchmaker paired the two signup agents');
+      assert.equal(room.pairing, 'rating');
+      assert.equal(room.ranked, true);
+      const rosters = [room.team.a.order.map((e) => e.fighterId), room.team.b.order.map((e) => e.fighterId)];
+      assert.ok(rosters.some((r) => JSON.stringify(r) === JSON.stringify(x.team)), 'side rosters come from signup');
+      assert.ok(rosters.some((r) => JSON.stringify(r) === JSON.stringify(y.team)), 'side rosters come from signup');
+
+      // Roster is locked while the match is live.
+      let lockedErr = null;
+      try { await call('set_team', { token: x.token, team: ['ember', 'tide', 'basalt'] }); }
+      catch (err) { lockedErr = err.message; }
+      assert.ok(lockedErr && /locked during match/.test(lockedErr), 'roster locked mid-match: ' + lockedErr);
+
+      let row = null;
+      for (let i = 0; i < 600 && !row; i += 1) {
+        const mine = await call('get_my_matches', { token: x.token });
+        if (mine.matches.length) { row = mine.matches[0]; break; }
+        await delay(200);
+      }
+      assert.ok(row, 'ranked team match did not finish within 120s');
+      const mine = await call('get_my_matches', { token: x.token });
+      assert.equal(mine.matches.length, 1, 'one team match = one recorded result, not per-round');
+      assert.equal(row.ranked, true);
+      assert.equal(row.format, 'team');
+      assert.equal(row.result, 'win', 'template strategy must beat the idle sandbox');
+      assert.ok(row.ratingDelta > 0, 'ranked win moves rating up');
+      signup = { x, y, row };
+      return 'room=' + room.roomId + ' result=' + row.result + ' delta=' + row.ratingDelta;
+    });
+
+    await runCheck('T13 胜场榜：wins 优先排序、同胜场比评分、自建队伍进榜', async () => {
+      assert.ok(signup, 'T12 must produce a ranked result first');
+      const board = await call('get_leaderboard');
+      const rows = board.rows;
+      const rx = rows.find((r) => r.id === signup.x.agentId);
+      const ry = rows.find((r) => r.id === signup.y.agentId);
+      assert.ok(rx && ry, 'both signup agents on the board');
+      assert.deepEqual(rx.team, signup.x.team, 'roster shown on the board');
+      assert.deepEqual(ry.team, signup.y.team);
+      // X beat the idle sandbox, so X must have wins and outrank Y. (>= not ===:
+      // autoRequeue may already have produced another win by the time we read.)
+      assert.ok(rx.wins >= 1, 'winner has wins');
+      assert.equal(ry.wins, 0, 'idle sandbox never wins');
+      assert.ok(rows.indexOf(rx) < rows.indexOf(ry), 'more wins ranks higher');
+      for (let i = 1; i < rows.length; i += 1) {
+        const a = rows[i - 1]; const b = rows[i];
+        assert.ok(a.wins > b.wins || (a.wins === b.wins && a.rating >= b.rating), 'wins-first order broken at row ' + i);
+      }
+      return 'rows=' + rows.length + ' top=' + rows[0].name + ' wins=' + rows[0].wins;
+    });
+
+    await runCheck('T14 set_team：无队伍报名被拒、非法队伍被拒、建队后报名成功、局间可换队', async () => {
+      const reg = await call('register_agent', { name: 'Roster Rules', kind: 'rule' });
+      let noRoster = null;
+      try { await call('join_queue', { token: reg.token, format: 'team' }); } catch (err) { noRoster = err.message; }
+      assert.ok(noRoster && /roster/.test(noRoster), 'team queue without roster rejected: ' + noRoster);
+      for (const bad of [['quartz', 'volt'], ['quartz', 'quartz', 'volt'], ['quartz', 'volt', 'snk-bogus']]) {
+        let msg = null;
+        try { await call('set_team', { token: reg.token, team: bad }); } catch (err) { msg = err.message; }
+        assert.ok(msg, 'bad roster rejected: ' + JSON.stringify(bad));
+      }
+      const ok = await call('set_team', { token: reg.token, team: ['ember', 'tide', 'basalt'] });
+      assert.deepEqual(ok.team, ['ember', 'tide', 'basalt']);
+      const q = await call('join_queue', { token: reg.token, format: 'team' });
+      assert.ok(q.joined, 'queued after set_team');
+      const re = await call('set_team', { token: reg.token, team: ['basalt', 'tide', 'ember'] });
+      assert.deepEqual(re.team, ['basalt', 'tide', 'ember'], 're-pick allowed between matches');
+      const web = await fetch(BASE + '/api/team', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamA: ['gale', 'gale', 'tide'], teamB: TEAM_B }),
+        body: JSON.stringify({ token: reg.token, team: ['tide', 'ember', 'basalt'] }),
       });
-      bad = badRes.status === 400;
-      assert.ok(bad, 'duplicate team rejected with 400');
-      return 'room=' + ex.roomId;
+      assert.equal(web.status, 200);
+      assert.deepEqual((await web.json()).team, ['tide', 'ember', 'basalt'], 'web /api/team mirrors set_team');
+      return 'validation+rePickOk';
     });
 
     pilotA.ws.close();

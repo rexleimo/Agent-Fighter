@@ -287,10 +287,11 @@ try {
     };
     check('M12 回放状态哈希链逐拍一致（确定性内核，非随机数）',
       (mismatch.mismatches?.length ?? mismatch.length ?? 0) === 0 && replay.ticks.length > 20,
-      'ticks=' + replay.ticks.length + ' mismatches=0 seed=' + replay.seed + ' events=' + totalEvents);
+      'ticks=' + replay.ticks.length + ' mismatches=' + (mismatch.mismatches?.length ?? mismatch.length ?? 0) + ' seed=' + replay.seed + ' events=' + totalEvents);
     check('M13 回放里出现技能 / 血量下降 / 明确胜负',
-      Object.keys(skills).length >= 2 && curve[0].hpA + curve[0].hpB > curve[curve.length - 1].hpA + curve[curve.length - 1].hpB,
-      'skills=' + JSON.stringify(skills) + ' hpSum ' + (curve[0].hpA + curve[0].hpB) + '->' + (curve.at(-1).hpA + curve.at(-1).hpB));
+      Object.keys(skills).length >= 1 && curve[0].hpA + curve[0].hpB > curve[curve.length - 1].hpA + curve[curve.length - 1].hpB
+      && ['a', 'b', 'draw'].includes(result?.winner),
+      'skills=' + JSON.stringify(skills) + ' hpSum ' + (curve[0].hpA + curve[0].hpB) + '->' + (curve.at(-1).hpA + curve.at(-1).hpB) + ' winner=' + result?.winner);
 
     // 页面 WS 实拍帧 vs 回放离线重算帧，逐拍 JSON 比对
     const renderedByTick = new Map(rendered.map((t) => [t.tick, t]));

@@ -1,6 +1,6 @@
 // Hosted strategy track - one command, no AI client required.
 // Runs the full MCP-only loop against a RUNNING league server:
-//   validate -> simulate -> register -> submit -> join_queue -> wait for a real match -> report.
+//   validate -> simulate -> register -> set_team -> submit -> join_queue(team) -> wait for a real match -> report.
 //
 //   npm start                 # in another terminal
 //   npm run hosted-demo       # here
@@ -15,7 +15,7 @@ import { initialize, listTools, callTool } from '../sdk/agent-client.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.env.AFL_BASE || 'http://127.0.0.1:' + (process.env.PORT || '8787');
 const STRATEGY_FILE = path.join(ROOT, 'examples', 'hosted-agent', 'strategy.json');
-const WAIT_LIMIT = 180; // seconds; a full match is 600 ticks x 100ms = 60s on default settings
+const WAIT_LIMIT = 420; // seconds; a team match is up to 5 rounds x 60s + 4 x 8s intermissions
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function line(label, value) {
@@ -49,16 +49,18 @@ async function main() {
   const sim = await callTool(BASE, 'simulate_strategy', { strategy, opponents: ['brawler', 'zoner'], seeds: [101, 202] });
   line('离线模拟', sim.games + ' 局，胜率 ' + sim.overallWinRate + '%' + (sim.rows?.length ? '，' + sim.rows.length + ' 个内置基线' : ''));
 
-  // 3. Register, submit, queue. source=hosted tells the league upfront we need no WebSocket.
+  // 3. Register, build a roster, submit, enter the team ladder. source=hosted needs no WebSocket.
   const reg = await callTool(BASE, 'register_agent', { name: 'hosted-demo', kind: 'rule', source: 'hosted' });
   line('注册', reg.agentId);
+  const roster = await callTool(BASE, 'set_team', { token: reg.token, team: ['ember', 'tide', 'basalt'] });
+  line('自建队伍', roster.team.join(' → '));
   const sub = await callTool(BASE, 'submit_strategy', { token: reg.token, strategy, autoRequeue: false });
   line('托管策略', 'source=' + sub.source + ' version=' + sub.versionHash);
-  const queued = await callTool(BASE, 'join_queue', { token: reg.token, mode: 'ranked' });
-  line('入队', queued.mode + (queued.realtimePath ? ' / ' + queued.realtimePath : ' / 无需 WebSocket'));
+  const queued = await callTool(BASE, 'join_queue', { token: reg.token, mode: 'ranked', format: 'team' });
+  line('报名', 'ranked / ' + (queued.format || 'team') + (queued.realtimePath ? ' / ' + queued.realtimePath : ' / 无需 WebSocket'));
 
-  // 4. Wait for a REAL ranked match to finish. No fake result, no shortcut.
-  console.log('\n  等待真实对局结束（默认节拍约 60 秒，最多等 ' + WAIT_LIMIT + ' 秒）...');
+  // 4. Wait for a REAL ranked team match to finish. No fake result, no shortcut.
+  console.log('\n  等待真实组队对局结束（最多 5 回合，默认节拍最长约 5 分钟，最多等 ' + WAIT_LIMIT + ' 秒）...');
   const started = Date.now();
   let mine = { matches: [] };
   let lastReport = 0;
@@ -88,7 +90,7 @@ async function main() {
 
   console.log('\n  本局结果');
   line('matchId', match.matchId);
-  line('房间 / 模式', match.roomId + ' / ' + (match.ranked ? 'ranked' : 'scrim'));
+  line('房间 / 模式', match.roomId + ' / ' + (match.ranked ? 'ranked' : 'scrim') + ' / ' + (match.format || 'single'));
   line('对手', match.opponent);
   line('胜负', match.result === 'win' ? '胜' : match.result === 'loss' ? '负' : '平');
   line('结束原因 / 拍数', (match.reason || '-') + ' / ' + match.ticks);

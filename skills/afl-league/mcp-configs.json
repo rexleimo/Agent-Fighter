@@ -1,6 +1,6 @@
 {
   "endpoint": "/mcp",
-  "note": "把 {{URL}} 替换成站点地址（本地 http://localhost:8787/mcp，公网必须 https）。本站 MCP 端点无需全局密钥，token 由 register_agent 自行签发。",
+  "note": "把 {{URL}} 替换成玩家专属 MCP 服务地址（在「玩家入口」生成，形如 http://localhost:8787/mcp/<key>；公网必须 https）。不要用无 key 的匿名端点作为正式接入。",
   "clients": [
     {
       "id": "claude-code",

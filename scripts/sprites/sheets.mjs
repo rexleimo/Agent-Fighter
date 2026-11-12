@@ -142,6 +142,16 @@ export const SHEET_IDS = Object.keys(SHEETS);
  * sha    shortHash of the source sheet at the moment it was read. Re-generating
  *        a sheet changes it, and the bake then refuses to trust the entry until
  *        someone reads the new drawings.
+ *
+ * ember/kick was re-sha'd on 2026-11-12 by a ROW-level redraw, not a whole-sheet
+ * re-roll: `scripts/sprites/redraw-row.mjs` replaced row 4 (the fireball) and
+ * left rows 0-2 byte-identical, so the cells 5/6/9/10 overrides from the earlier
+ * two-pass read still describe the drawings they were read against. The row it
+ * replaced was the one frame in the cast that no flip could fix — the model drew
+ * the wind-up with the head and chest turned away from the charge, so mirroring
+ * the cell only moved the backwards half. That is why the redraw is scoped to
+ * one row: every fighter's kick cell 12 was rendered in shipped orientation and
+ * read first, and ember was the only one drawn that way.
  */
 export const FACING = Object.freeze({
   'abyss/base': { faces: -1, flip: [], sha: '97ef991d13c5' },
@@ -167,7 +177,7 @@ export const FACING = Object.freeze({
   'ember/base': { faces: -1, flip: [], sha: '0d307e6d6ab9' },
   'ember/react': { faces: -1, flip: [], sha: '8f13c0867d49' },
   'ember/punch': { faces: -1, flip: [10], sha: '80639e3b5eb6' },
-  'ember/kick': { faces: -1, flip: [5, 6, 9, 10], sha: '898d9e38ebc8' },
+  'ember/kick': { faces: -1, flip: [5, 6, 9, 10], sha: '72ad6fe73761' },
   'ember/skill': { faces: 1, flip: [], sha: '3edc5412a089' },
   'forge/base': { faces: 1, flip: [], sha: '1efe63b80b2b' },
   'forge/react': { faces: -1, flip: [], sha: '45f215c7cc6a' },
@@ -372,7 +382,12 @@ const BODY_PROMPTS = {
     + 'Frames 1-4: a light front kick with the front leg — knee up, foot snapping out, foot connecting, leg retracting. '
     + 'Frames 5-8: a medium roundhouse kick at mid height — windup, leg swinging, full extension impact, recover. '
     + 'Frames 9-12: a heavy high kick aimed at head height — big windup, leg rising, foot at maximum height impact, recover. '
-    + 'Frames 13-16: casting an energy projectile — frame 13 both hands charged back at the hip glowing with energy, frame 14 hands thrusting forward, frame 15 a glowing energy orb leaving the palms, frame 16 recovering to guard.',
+    + 'Frames 13-16: casting an energy projectile — frame 13 both hands cupped low IN FRONT of the body at the '
+    + 'waist, glowing with energy, with the head, chest, hips and hands all turned the SAME way as the other '
+    + 'frames: toward the left. Do NOT coil the torso or turn the face away from the left to sell the wind-up: '
+    + 'a wind-up is a lower, tighter stance, not a body facing the other way. '
+    + 'Frame 14 hands thrusting forward to the left, frame 15 a glowing energy orb leaving the palms to the left, '
+    + 'frame 16 recovering to guard.',
 };
 
 /**

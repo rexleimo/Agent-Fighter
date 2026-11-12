@@ -27,10 +27,32 @@ export function appendTick(replay, record) {
 }
 
 export function serializeReplay(replay) {
-  return replay.ticks.map((t) => JSON.stringify(t)).join('\n') + (replay.ticks.length ? '\n' : '');
+  // The header carries the fighters and round-start hp/meter: kits change
+  // frame data, so a tick tape alone cannot reproduce the state-hash chain.
+  const header = {
+    format: replay.format || 'afl-replay/1',
+    matchId: replay.matchId,
+    seed: replay.seed,
+    rulesVersion: replay.rulesVersion,
+    agents: replay.agents || [],
+    fighters: replay.fighters || null,
+    start: replay.start || null,
+  };
+  return JSON.stringify(header) + '\n'
+    + replay.ticks.map((t) => JSON.stringify(t)).join('\n') + (replay.ticks.length ? '\n' : '');
 }
 
 export function parseReplay(text, matchId = 'local') {
-  const ticks = text.split('\n').filter(Boolean).map((line) => JSON.parse(line));
-  return { format: 'afl-replay/1', matchId, seed: ticks[0] ? ticks[0].seed : 1, ticks };
+  const lines = text.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  const head = lines.length && typeof lines[0].tick !== 'number' ? lines.shift() : null;
+  return {
+    format: (head && head.format) || 'afl-replay/1',
+    matchId: (head && head.matchId) || matchId,
+    seed: head ? head.seed : (lines[0] ? lines[0].seed : 1),
+    rulesVersion: head ? head.rulesVersion : undefined,
+    agents: (head && head.agents) || [],
+    fighters: (head && head.fighters) || undefined,
+    start: (head && head.start) || undefined,
+    ticks: lines,
+  };
 }

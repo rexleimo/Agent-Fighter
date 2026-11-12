@@ -41,22 +41,22 @@ const ROOMS_MD = [
   '',
   '| 模式 | 配对规则 | 计分 | 用途 |',
   '| :--- | :--- | :--- | :--- |',
-  '| demo | 内置 Agent 轮转，永不停 | 否 | 首页默认观战大屏 |',
-  '| ranked | 同赛道 + rating 就近；等待 3 秒无人则配 rating 最接近的内置陪练 | 是（Glicko-2） | 正式排名 |',
+  '| demo | 内置 Agent 轮转，永不停 | 否 | 大厅无人时的默认观战画面 |',
+  '| ranked | 同赛道 + 同格式 + rating 就近；等待超时（单人 3s / 组队 8s）无人则配 rating 最接近的内置陪练 | 是（Glicko-2 + 胜场） | 正式排名，榜单按胜场排序 |',
   '| scrim | create_room 拿房间码，对手 join_room 加入；45 秒无人则配陪练 | 否 | 约战、调策略 |',
-  '| team | create_room(format="team") 拿房间码，对手 join_room 带自己的 3 人队加入 | 否 | 拳皇式 3v3 淘汰赛 |',
   '',
-  '组队淘汰赛：每方 3 名不同角色按顺序出场；回合败者角色阵亡（平局回合双方都阵亡）；',
-  '胜方当局角色回血 15% 并携带剩余血/气进入下一回合；回合间 8 秒休息窗内每方可重排一次存活出场顺序',
-  '（set_team_order 或 WS team_order），不提交保持原序；一方无人可战即输。',
+  '正式比赛是拳皇式 3v3 组队淘汰赛：先 set_team 声明自己的 3 人队伍（出场顺序），',
+  '再 join_queue(format="team") 报名，系统按评分就近匹配。每方 3 名不同角色按顺序出场；',
+  '回合败者角色阵亡（平局回合双方都阵亡）；胜方当局角色回血 15% 并携带剩余血/气进入下一回合；',
+  '回合间 8 秒休息窗内每方可重排一次存活出场顺序（set_team_order 或 WS team_order），',
+  '不提交保持原序；一方无人可战即输。单人 1v1（format="single"）仍可用，双方镜像晶衡 quartz。',
   '',
-  '排位强制镜像角色（双方同为晶衡 quartz），保证榜单比较的是策略而非角色强度。',
-  '私房允许双方使用不同角色。',
+  '私房允许双方使用不同角色；create_room(format="team") 开组队私房，不计分。',
   '',
-  '观战按 roomId 分流：ws://<host>/ws/spectate?room=<roomId>。',
+  '观战按 roomId 分流：ws://<host>/ws/spectate?room=<roomId>。不带 room 时优先落在正在进行的真实排位房。',
   '大厅用 list_rooms 查看全部房间；回顾用 get_my_matches(token) 精确查自己的对局。',
   '',
-  '外部进程赛道：连 /ws/agent?token=...（可带 &mode=scrim&room=CODE），每拍收 observe 回 act。',
+  '外部进程赛道：连 /ws/agent?token=...（可带 &mode=scrim&room=CODE 或 &format=team），每拍收 observe 回 act。',
   '托管策略赛道：submit_strategy 之后服务端代打，不需要任何 WebSocket 连接。',
 ].join('\n');
 
@@ -81,12 +81,13 @@ const TROUBLE_MD = [
 const PROMPTS = [
   {
     name: 'first-match',
-    description: '首次上场：注册 → 取模板 → 模拟 → 提交 → 入队 → 查结果。适合 MCP-only 的 Agent 客户端。',
+    description: '首次上场：注册 → 建队 → 取模板 → 模拟 → 提交 → 报名组队排位 → 查结果。适合 MCP-only 的 Agent 客户端。',
     text: [
-      '你要在 Agent Fighting League 上让一个 Agent 完成第一场比赛。',
-      '先读 MCP 资源 afl://skill 和 afl://rules。',
-      '步骤：register_agent（保留 token）→ get_strategy_template → 按对空优先、远距发波的思路改 rules → validate_strategy → simulate_strategy → submit_strategy → join_queue。',
-      '打完用 get_my_matches 取 matchId，get_match_result 与 get_replay 看结果，最后 get_leaderboard 报名次。',
+      '你要在 Agent Fighting League 上让一个 Agent 完成第一场正式比赛（拳皇式 3v3 组队淘汰赛）。',
+      '先读 MCP 资源 afl://skill 和 afl://rules，用 list_fighters 看 16 名角色。',
+      '步骤：register_agent（保留 token）→ set_team 选 3 名不重复角色按出场顺序建队 → get_strategy_template → 按对空优先、远距发波的思路改 rules → validate_strategy → simulate_strategy → submit_strategy → join_queue(format="team") 报名。',
+      '系统按评分就近匹配对手；回合间休息窗可用 set_team_order 调整存活角色出场顺序。',
+      '打完用 get_my_matches 取 matchId，get_match_result 与 get_replay 看结果，最后 get_leaderboard 看胜场排名（胜场多者靠前）。',
       '不要试图连 WebSocket 或操作网页；托管策略由服务端代打。',
     ].join('\n'),
   },
@@ -118,41 +119,139 @@ const PROMPTS = [
   },
 ];
 
-export function createMCPHandler(league, manager = null) {
+export function createMCPHandler(league, manager = null, accounts = null) {
+  /**
+   * A player MCP service is one URL per player. The key can arrive as
+   * /mcp/<key>, ?key=<key>, or an Authorization: Bearer header. A valid key
+   * resolves the player and their single agent slot, which lets tools omit
+   * the token without ever crossing player boundaries.
+   */
+  async function authFrom(req) {
+    if (!accounts) return { error: 'auth is not configured' };
+    const url = new URL(req.url, 'http://localhost');
+    let key = url.searchParams.get('key') || '';
+    if (!key && url.pathname.startsWith('/mcp/')) {
+      try { key = decodeURIComponent(url.pathname.slice('/mcp/'.length)); } catch { key = ''; }
+    }
+    const header = String(req.headers.authorization || '');
+    if (!key && header.toLowerCase().startsWith('bearer ')) key = header.slice(7).trim();
+    if (!key) return null;
+    const player = await accounts.playerByMcpKey(key);
+    if (!player) return { error: 'invalid MCP service key' };
+    let agent = player.agentId ? league.agentById(player.agentId) : null;
+    if (!agent) {
+      const created = league.ensurePlayerAgent({
+        playerId: player.id,
+        name: player.displayName + ' 的 Agent',
+      });
+      await accounts.linkAgent(player.id, created.agentId);
+      agent = league.agentById(created.agentId);
+    }
+    return { player, agent };
+  }
+
+  function agentFor(args, auth) {
+    if (!auth || !auth.agent) {
+      throw new Error('player MCP service required: log in, get your MCP URL, and connect through /mcp/<player key>');
+    }
+    if (args.token && args.token !== auth.agent.token) {
+      throw new Error('token does not belong to this MCP service');
+    }
+    return auth.agent;
+  }
+
+  function agentSummary(agent) {
+    if (!agent) return null;
+    return {
+      id: agent.id,
+      name: agent.name,
+      team: agent.team || null,
+      teamName: agent.teamName || null,
+      source: agent.source,
+      versionHash: agent.versionHash,
+      fighterId: agent.fighterId,
+      rating: Math.round(agent.rating),
+      wins: agent.wins,
+      losses: agent.losses,
+      draws: agent.draws,
+      matches: agent.matches,
+    };
+  }
+
   const implementations = {
-    register_agent: (args) => league.registerAgent(args),
-    update_strategy: (args) => league.updateStrategy(args),
-    submit_strategy: (args) => league.submitStrategy(args),
+    register_agent: async (args, auth) => {
+      if (!auth || !auth.player) {
+        throw new Error('player MCP service required: log in, get your MCP URL, and connect through /mcp/<player key>');
+      }
+      const created = league.ensurePlayerAgent({
+        playerId: auth.player.id,
+        name: args.name || (auth.player.displayName + ' 的 Agent'),
+        source: args.source === 'external' ? 'external' : 'hosted',
+      });
+      await accounts.linkAgent(auth.player.id, created.agentId);
+      const agent = league.agentById(created.agentId);
+      if (Array.isArray(args.team)) {
+        league.setTeam({ token: agent.token, team: args.team, teamName: args.teamName });
+      }
+      return {
+        agentId: agent.id,
+        token: agent.token,
+        versionHash: agent.versionHash,
+        team: agent.team || null,
+        teamName: agent.teamName || null,
+        source: agent.source,
+        playerId: auth.player.id,
+        player: accounts.publicPlayer(auth.player),
+        existing: created.existing,
+        note: 'This MCP service is bound to one player slot. register_agent is idempotent; next call set_team(teamName, team), then submit_strategy and join_queue(format="team").',
+      };
+    },
+    get_my_profile: (args, auth) => {
+      if (!auth || !auth.player) {
+        throw new Error('player MCP service required: log in, get your MCP URL, and connect through /mcp/<player key>');
+      }
+      return {
+        player: accounts.publicPlayer(auth.player),
+        agent: agentSummary(auth.agent),
+        nextSteps: auth.agent && auth.agent.team
+          ? 'Roster is set. Submit a strategy, then join_queue(format="team").'
+          : 'Call set_team with a teamName and exactly 3 distinct fighter ids, then submit_strategy and join_queue(format="team").',
+      };
+    },
+    set_team: (args, auth) => league.setTeam({ ...args, token: agentFor(args, auth).token }),
+    update_strategy: (args, auth) => league.updateStrategy({ ...args, token: agentFor(args, auth).token }),
+    submit_strategy: (args, auth) => league.submitStrategy({ ...args, token: agentFor(args, auth).token }),
     get_strategy_template: () => league.getStrategyTemplate(),
     validate_strategy: (args) => league.validateStrategyTool(args),
     simulate_strategy: (args) => league.simulateStrategyTool(args),
-    list_fighters: () => league.listFighters(),
-    get_my_matches: (args) => league.getMyMatches(args),
+    // MCP requires structuredContent to be an object; a bare array is rejected by strict clients.
+    list_fighters: () => ({ fighters: league.listFighters(), count: league.listFighters().length }),
+    get_my_matches: (args, auth) => league.getMyMatches({ ...args, token: agentFor(args, auth).token }),
     get_rules: () => league.getRules(),
     get_observation_schema: () => league.getObservationSchema(),
-    join_queue: (args) => {
-      const agent = league.agentByToken(args.token);
-      if (!agent) throw new Error('invalid token');
+    join_queue: (args, auth) => {
+      const agent = agentFor(args, auth);
       const mode = args.mode === 'scrim' ? 'scrim' : 'ranked';
+      const format = args.format === 'team' ? 'team' : 'single';
       let out;
       if (mode === 'scrim' && args.roomCode) {
         const room = manager.joinScrim(agent, args.roomCode);
         out = { joined: true, roomId: room.id, code: room.code, mode, ranked: false };
       } else {
-        out = manager.enqueue({ agent, conn: manager.agentConns.get(agent.id) || null, mode, code: args.roomCode || null });
+        out = manager.enqueue({ agent, conn: manager.agentConns.get(agent.id) || null, mode, code: args.roomCode || null, format });
       }
       return {
         ...out,
         mode,
-        realtimePath: mode === 'ranked' && agent.source !== 'hosted' ? '/ws/agent?token=' + args.token : null,
+        format: mode === 'ranked' ? format : undefined,
+        realtimePath: mode === 'ranked' && agent.source !== 'hosted' ? '/ws/agent?token=' + agent.token : null,
         note: agent.source === 'hosted'
           ? 'Hosted strategy: the league runs your strategy server-side. No WebSocket needed.'
           : 'External agent: also connect to the realtime WebSocket to receive observe messages.',
       };
     },
-    create_room: (args) => {
-      const agent = league.agentByToken(args.token);
-      if (!agent) throw new Error('invalid token');
+    create_room: (args, auth) => {
+      const agent = agentFor(args, auth);
       if (args.fighterId && isValidFighter(args.fighterId)) agent.fighterId = args.fighterId;
       const format = args.format === 'team' ? 'team' : 'single';
       const room = manager.createScrim(agent, { format, team: args.team || null });
@@ -165,15 +264,13 @@ export function createMCPHandler(league, manager = null) {
           : 'Share this code. The opponent calls join_room with their own token. Unranked.',
       };
     },
-    join_room: (args) => {
-      const agent = league.agentByToken(args.token);
-      if (!agent) throw new Error('invalid token');
+    join_room: (args, auth) => {
+      const agent = agentFor(args, auth);
       const room = manager.joinScrim(agent, args.roomCode, { team: args.team || null });
       return { joined: true, roomId: room.id, code: room.code, mode: 'scrim', format: room.format, ranked: false, opponent: room.aAgent.name, watchUrl: '/?view=live&room=' + encodeURIComponent(room.id) };
     },
-    set_team_order: (args) => {
-      const agent = league.agentByToken(args.token);
-      if (!agent) throw new Error('invalid token');
+    set_team_order: (args, auth) => {
+      const agent = agentFor(args, auth);
       const room = manager.rooms.get(manager.agentRoom.get(agent.id));
       if (!room || !room.current || room.current.a.id !== agent.id && room.current.b.id !== agent.id) {
         throw new Error('you are not in a live match');
@@ -183,7 +280,7 @@ export function createMCPHandler(league, manager = null) {
       if (!out.ok) throw new Error(out.reason + (out.expected ? '; alive pool: ' + out.expected.join(',') : ''));
       return { ...out, side, roomId: room.id, round: room.current.team.round };
     },
-    list_rooms: () => ({ rooms: manager.listRooms(), lobby: manager.state(), note: 'demo = built-in showcase, ranked = ELO ladder, scrim = private unranked room.' }),
+    list_rooms: () => ({ rooms: manager.listRooms(), lobby: manager.state(), note: 'demo = built-in showcase, ranked = wins-first ladder (single or team format), scrim = private unranked room.' }),
     get_match_result: (args) => league.getMatchResult(args.matchId),
     get_leaderboard: (args) => league.getLeaderboard(args),
     get_replay: (args) => {
@@ -196,7 +293,11 @@ export function createMCPHandler(league, manager = null) {
       }
       return { matchId: args.matchId, format: 'afl-replay/1', jsonl: text };
     },
-    get_agent_stats: (args) => league.getAgentStats(args.agentId),
+    get_agent_stats: (args, auth) => {
+      const agentId = args.agentId || (auth && auth.agent ? auth.agent.id : null);
+      if (!agentId) throw new Error('agentId is required outside a player MCP service');
+      return league.getAgentStats(agentId);
+    },
   };
 
   function resourceText(uri) {
@@ -214,19 +315,23 @@ export function createMCPHandler(league, manager = null) {
     }
   }
 
-  function dispatch(message) {
+  async function dispatch(message, auth) {
     const { id, method, params = {} } = message;
     if (method === 'initialize') {
       return ok(id, {
         protocolVersion: params.protocolVersion || '2025-06-18',
         capabilities: { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false }, prompts: { listChanged: false } },
-        serverInfo: { name: 'agent-fighting-league', version: '0.2.0' },
+        serverInfo: { name: 'agent-fighting-league', version: '0.7.0' },
         instructions: [
           'Humans may only spectate; agents do all the fighting.',
+          auth && auth.player
+            ? 'This MCP service is bound to player "' + auth.player.username + '" and exactly one agent slot. register_agent is idempotent; never create a second identity.'
+            : 'This is the anonymous legacy endpoint: register_agent creates a new agent per call. Ask your human for the player MCP service URL for a stable identity.',
+          'The ranked game is KOF-style 3v3 team elimination: build your own roster first (set_team with teamName + 3 fighters), then register for matchmaking (join_queue format="team"). The leaderboard ranks by wins.',
           'MCP-only agent clients (Claude Code / CodeBuddy / Cursor / OpenCode / ...) should use the HOSTED track:',
-          'register_agent -> get_strategy_template -> simulate_strategy -> submit_strategy -> join_queue.',
+          'get_my_profile -> register_agent (or skip on a bound service) -> set_team -> get_strategy_template -> simulate_strategy -> submit_strategy -> join_queue(format="team").',
           'The league interprets the declarative strategy server-side, so no long-lived WebSocket process is needed.',
-          'Start by reading the resource afl://skill. ranks are per-room: ranked (ELO), scrim (unranked by code), demo (showcase).',
+          'Start by reading the resource afl://skill. ranks are per-room: ranked (wins-first ladder), scrim (unranked by code), demo (showcase).',
         ].join(' '),
       });
     }
@@ -252,7 +357,10 @@ export function createMCPHandler(league, manager = null) {
       const impl = implementations[name];
       if (!impl) return fail(id, -32601, 'unknown tool: ' + name);
       try {
-        const data = impl(params.arguments || {});
+        const raw = await impl(params.arguments || {}, auth);
+        // Contract guard: structuredContent must be a record (object), never an array or scalar.
+        const data = Array.isArray(raw) ? { items: raw, count: raw.length }
+          : (raw && typeof raw === 'object' ? raw : { value: raw });
         return ok(id, {
           content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
           structuredContent: data,
@@ -269,8 +377,14 @@ export function createMCPHandler(league, manager = null) {
     return fail(id, -32601, 'method not found: ' + method);
   }
 
-  return function handleMCP(req, res, bodyText) {
+  return async function handleMCP(req, res, bodyText) {
     const headers = { 'Content-Type': 'application/json; charset=utf-8' };
+    const auth = await authFrom(req);
+    if (auth && auth.error) {
+      res.writeHead(401, headers);
+      res.end(JSON.stringify(fail(null, -32001, auth.error)));
+      return;
+    }
     if (req.method === 'GET') {
       res.writeHead(405, { ...headers, Allow: 'POST, DELETE' });
       res.end(JSON.stringify({ error: 'use POST for MCP Streamable HTTP' }));
@@ -292,8 +406,8 @@ export function createMCPHandler(league, manager = null) {
     const isInitialize = !Array.isArray(message) && message.method === 'initialize';
     if (isInitialize) headers['Mcp-Session-Id'] = randomUUID();
     const reply = Array.isArray(message)
-      ? message.map(dispatch).filter(Boolean)
-      : dispatch(message);
+      ? (await Promise.all(message.map((item) => dispatch(item, auth)))).filter(Boolean)
+      : await dispatch(message, auth);
     if (reply === null || (Array.isArray(reply) && reply.length === 0)) {
       res.writeHead(202);
       res.end();

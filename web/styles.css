@@ -20,6 +20,9 @@
 }
 
 * { box-sizing: border-box; }
+/* Author display rules (e.g. .team-intermission's flex) outrank the UA's
+   [hidden] default, so hidden overlays would stay painted over the stage. */
+[hidden] { display: none !important; }
 html, body { margin: 0; padding: 0; }
 body {
   background: var(--bg);
@@ -197,6 +200,11 @@ tbody tr:hover { background: var(--surface-2); }
 .tag { font-size: 10px; padding: 1px 6px; border: 1px solid var(--line); color: var(--muted); border-radius: 3px; }
 .tag.rule { color: var(--accent); border-color: rgba(53,214,164,.28); }
 .rating-strong { color: var(--text); font-size: 14px; }
+.wins-strong { color: var(--accent); font-size: 14px; font-weight: 600; }
+.team-cell { min-width: 110px; }
+.team-codes { font-family: var(--mono); font-size: 10px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.team-codes i { width: 6px; height: 6px; border-radius: 2px; display: inline-block; }
+.team-none { font-size: 10px; color: var(--dim); }
 .winrate { color: var(--accent); }
 .board-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
 .note-card { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 15px 17px; }

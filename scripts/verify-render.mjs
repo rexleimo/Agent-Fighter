@@ -155,11 +155,11 @@ for (const entry of index.fighters) {
 // fighter is drawn off the top of the canvas, which is the 错位 the reports are
 // about. Read the extents from the shipped frames, not from a nominal square.
 {
-  const appSrc = fs.readFileSync(path.join(root, 'web/app.js'), 'utf8');
-  const html = fs.readFileSync(path.join(root, 'web/index.html'), 'utf8');
+  const appSrc = fs.readFileSync(path.join(root, 'frontend/src/game/stage.js'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'frontend/src/components/live/StageCanvas.tsx'), 'utf8');
   const ground = Number(appSrc.match(/const GROUND = (\d+);/)[1]);
   const spriteH = Number(appSrc.match(/const H = (\d+);/)[1]);
-  const stageH = Number(html.match(/<canvas id="stage" width="\d+" height="(\d+)">/)[1]);
+  const stageH = Number(html.match(/height=\{(\d+)\}/)[1]);
   let rise = 0, drop = 0;
   for (const entry of index.fighters) {
     const anim = JSON.parse(fs.readFileSync(path.join(root, 'web' + entry.anim), 'utf8'));

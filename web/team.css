@@ -63,8 +63,40 @@
 .rc-format { font-family: var(--mono); font-size: 10px; padding: 2px 8px; border: 1px solid rgba(255, 194, 96, .4); color: var(--amber); background: rgba(255, 194, 96, .08); border-radius: 3px; }
 .room-tag.mode-team { color: var(--amber); border-color: rgba(255, 194, 96, .35); background: rgba(255, 194, 96, .07); }
 
-/* ---------- exhibition picker ---------- */
+/* ---------- tournament signup ---------- */
 .team-exhibition { margin-bottom: 16px; }
+.su-form { padding: 14px; }
+.su-form .te-pool { grid-template-columns: repeat(8, 1fr); }
+.su-name-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.su-name-row label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.su-name-row input { flex: 1; max-width: 320px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; color: var(--text); padding: 7px 10px; font-size: 13px; }
+.su-name-row input:focus { outline: none; border-color: var(--accent); }
+.su-entry { padding: 14px; }
+.su-row { display: flex; align-items: baseline; gap: 10px; }
+.su-row b { font-size: 15px; }
+.su-id { font-size: 11px; color: var(--dim); }
+.su-team { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+.su-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 5px; border: 1px solid var(--slot-color, var(--line)); background: var(--surface-3); font-size: 11px; }
+.su-status { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.su-status.live { color: var(--accent); }
+.su-actions { display: flex; gap: 10px; align-items: center; }
+.su-actions .primary-btn { margin: 0; }
+.su-token-row { margin-top: 12px; font-size: 11px; color: var(--dim); line-height: 1.7; }
+.su-token-row .mono { color: var(--muted); user-select: all; }
+
+/* ---------- signup queue ---------- */
+.lobby-queue { margin-bottom: 16px; padding: 12px 14px; }
+.lq-head { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.lq-list { display: flex; flex-direction: column; gap: 6px; }
+.lq-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.lq-row b { font-weight: 500; }
+.lq-format { font-size: 10px; color: var(--amber); border: 1px solid rgba(255, 194, 96, .4); border-radius: 3px; padding: 1px 6px; white-space: nowrap; }
+.lq-team { display: inline-flex; gap: 4px; }
+.lq-fighter { font-family: var(--mono); font-size: 10px; color: var(--slot-color, var(--muted)); border: 1px solid var(--line-soft); border-radius: 3px; padding: 1px 5px; }
+.lq-rating { color: var(--muted); font-size: 11px; }
+.lq-wait { margin-left: auto; color: var(--dim); font-size: 11px; white-space: nowrap; }
+
+/* ---------- team picker chips ---------- */
 .te-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 14px; }
 .te-side { border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface-2); padding: 12px; min-width: 0; }
 .te-side-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -102,4 +134,7 @@
   .ts-vs { display: none; }
   .te-sides { grid-template-columns: 1fr; }
   .te-pool { grid-template-columns: repeat(4, 1fr); }
+  .su-form .te-pool { grid-template-columns: repeat(4, 1fr); }
+  .lq-row { flex-wrap: wrap; }
+  .lq-wait { margin-left: 0; }
 }

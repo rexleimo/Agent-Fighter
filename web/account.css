@@ -1,0 +1,91 @@
+/* Player account / MCP assignment. Tokens come from styles.css :root. */
+
+#accountApp { max-width: 1180px; }
+
+.acc-loading,
+.acc-auth { padding: 18px 20px; }
+
+.acc-auth { max-width: 560px; }
+.acc-tabs { display: flex; gap: 4px; margin: 14px 0 16px; border-bottom: 1px solid var(--line); }
+.acc-tab {
+  border: 0; background: transparent; color: var(--muted); padding: 8px 14px;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.acc-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+.acc-form { display: flex; flex-direction: column; gap: 12px; }
+.acc-form .field { display: flex; flex-direction: column; gap: 5px; }
+.acc-form .field span { font-size: 11px; color: var(--muted); }
+.acc-form input,
+.acc-admin-form input {
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
+  padding: 9px 11px; color: var(--text); outline: none;
+}
+.acc-form input:focus,
+.acc-admin-form input:focus { border-color: var(--accent); }
+
+.acc-note { color: var(--dim); font-size: 11px; line-height: 1.75; margin-top: 14px; }
+.acc-note b { color: var(--muted); font-weight: 500; }
+.acc-error { margin-top: 12px; padding: 8px 11px; border: 1px solid var(--red); border-radius: 6px; background: var(--red-soft); color: var(--red); font-size: 12px; }
+.acc-muted { color: var(--muted); }
+.acc-label { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; color: var(--dim); text-transform: uppercase; margin: 14px 0 6px; }
+
+.acc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 14px; align-items: start; }
+.acc-card { padding: 16px 18px; }
+.acc-wide,
+.acc-admin { grid-column: 1 / -1; }
+.acc-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.acc-badge { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--muted); }
+.acc-badge.ok { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.acc-badge.wait { color: var(--amber); border-color: var(--amber); background: rgba(255, 194, 96, .08); }
+.acc-badge.live { color: var(--red); border-color: var(--red); background: var(--red-soft); }
+.acc-badge.admin { color: var(--blue); border-color: var(--blue); background: var(--blue-soft); }
+
+.acc-profile .acc-player-name { font-size: 20px; font-weight: 500; margin: 2px 0 4px; }
+.acc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+.acc-url { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; }
+.acc-url code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; color: var(--accent); }
+.acc-code { background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); margin: 10px 0; }
+.acc-copy { color: var(--muted); font-size: 12px; }
+.acc-copy code { color: var(--accent); font-family: var(--mono); }
+
+.acc-agent-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.acc-agent-name { font-size: 16px; font-weight: 500; }
+.acc-record { font-size: 12px; color: var(--muted); }
+.acc-record b { color: var(--text); font-weight: 500; }
+.acc-team { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line-soft); margin-top: 12px; padding-top: 10px; }
+.acc-team-name { font-weight: 500; }
+.acc-roster { display: flex; gap: 6px; flex-wrap: wrap; }
+.acc-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; font-size: 11px; color: var(--muted); }
+.acc-chip b { color: var(--accent); font-family: var(--mono); font-weight: 500; }
+.acc-queue { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.acc-room { display: inline-flex; align-items: center; gap: 8px; }
+.acc-room code { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.acc-matches { display: flex; flex-direction: column; gap: 4px; }
+.acc-match { display: grid; grid-template-columns: 32px 1fr auto; gap: 8px; font-size: 11px; padding: 4px 0; border-bottom: 1px solid var(--line-soft); }
+.acc-match .win { color: var(--accent); }
+.acc-match .loss { color: var(--red); }
+.acc-match .mono { color: var(--dim); }
+
+.acc-admin-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.acc-admin-form button { white-space: nowrap; }
+.acc-table-wrap { overflow-x: auto; }
+.acc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.acc-table th { text-align: left; font-weight: 500; color: var(--dim); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.acc-table td { padding: 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.acc-row-actions { white-space: nowrap; }
+.acc-row-actions .mini-btn + .mini-btn { margin-left: 6px; }
+.acc-ellipsis { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.player-entry {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 16px; margin-bottom: 12px;
+}
+.player-entry b { color: var(--accent); font-weight: 500; }
+.player-entry span { color: var(--muted); font-size: 12px; }
+
+@media (max-width: 900px) {
+  .acc-grid { grid-template-columns: 1fr; }
+  .acc-admin-form { grid-template-columns: 1fr 1fr; }
+}

@@ -19,6 +19,7 @@ const arg = (name, fallback) => {
   return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : fallback;
 };
 const BASE = (arg('base', process.env.AFL_BASE || 'http://localhost:8787')).replace(/\/+$/, '');
+const MCP = (arg('mcp', process.env.AFL_MCP_URL || '')).replace(/\/+$/, '');
 const WS = arg('ws', BASE.replace(/^http/, 'ws') + '/ws/agent');
 const NAME = arg('name', 'Starter Agent');
 const NOTE = arg('note', 'starter strategy v1');
@@ -34,17 +35,23 @@ function strategyHash() {
 }
 
 async function main() {
+  if (!MCP) {
+    console.error('缺少玩家 MCP 服务地址。请先在「玩家入口」登录并生成 MCP 链接，然后：');
+    console.error('  AFL_MCP_URL=http://localhost:8787/mcp/<key> npm start');
+    process.exit(1);
+  }
   console.log('联赛地址  ' + BASE);
+  console.log('MCP 服务  ' + MCP);
   console.log('实时通道  ' + WS);
   console.log('策略指纹  ' + strategyHash().slice(0, 16) + '…  (strategy.mjs + strategy.config.json 的 sha256)');
   console.log('');
 
-  await initialize(BASE);
+  await initialize(MCP);
   let token = arg('token', process.env.AFL_TOKEN || (fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() : ''));
   let agentId = null;
 
   if (!token) {
-    const reg = await registerAgent(BASE, { name: NAME, kind: 'rule' });
+    const reg = await registerAgent(MCP, { name: NAME, kind: 'rule' });
     token = reg.token;
     agentId = reg.agentId;
     fs.writeFileSync(TOKEN_FILE, token, 'utf8');
@@ -54,7 +61,7 @@ async function main() {
   }
 
   try {
-    const ver = await updateStrategy(BASE, {
+    const ver = await updateStrategy(MCP, {
       token, note: NOTE, strategyHash: strategyHash(), defaultAction: 'block',
     });
     console.log('策略版本  ' + ver.versionHash + '  · 已锁定到本局回放');
@@ -63,7 +70,7 @@ async function main() {
     console.log('策略版本  沿用当前版本（' + e.message + '）');
   }
 
-  await joinQueue(BASE, token);
+  await joinQueue(MCP, token);
   console.log('已入队    等待匹配。当前若正在打演示局，最多需要等它结束（约 60 秒）。\n');
 
   let ticks = 0;

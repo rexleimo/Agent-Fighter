@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { CONFIG, ACTIONS } from '../src/rules.js';
 import { createInitialState, step, stateHash, runMatch, replayMatch, renderReplay } from '../src/engine.js';
 import { BUILTIN_AGENTS } from '../src/agents.js';
+import { FIGHTERS } from '../src/fighters.js';
+import { serializeReplay, parseReplay } from '../src/replay.js';
 import { initialize, listTools, callTool, registerAgent, joinQueue, AgentClient, templatePolicy } from '../sdk/agent-client.mjs';
 import { simulateReplay } from '../src/simulator.js';
 
@@ -74,19 +76,28 @@ function verifyDeterminism() {
 }
 
 // C2 - 60 real matches over different seeds, every replay must fully re-simulate
+// both in-memory AND through the wire format (serialize -> parse), so a replay
+// downloaded via MCP / REST stays reproducible.
 function verifyReplays() {
   let failures = 0;
+  let wireFailures = 0;
   let totalTicks = 0;
   const A = BUILTIN_AGENTS;
   for (let i = 0; i < 60; i += 1) {
     const a = A[i % A.length];
     const b = A[(i + 1 + (i % 2)) % A.length];
-    const r = runMatch({ seed: 9000 + i * 131, policyA: a.policy, policyB: b.policy, agents: [a, b], matchId: 'v_' + i });
+    const r = runMatch({
+      seed: 9000 + i * 131, policyA: a.policy, policyB: b.policy, agents: [a, b], matchId: 'v_' + i,
+      fighters: { a: FIGHTERS[i % FIGHTERS.length].id, b: FIGHTERS[(i + 5) % FIGHTERS.length].id },
+    });
     const v = replayMatch(r.replay);
     if (!v.ok) failures += 1;
+    const wire = replayMatch(parseReplay(serializeReplay(r.replay), 'v_' + i));
+    if (!wire.ok) wireFailures += 1;
     totalTicks += r.replay.ticks.length;
   }
-  check('C2 回放可复现：60 局不同 seed 全部逐拍重演一致', failures === 0, 'failures=' + failures + ' totalTicks=' + totalTicks);
+  check('C2 回放可复现：60 局不同 seed 逐拍重演一致（内存 + 序列化往返）', failures === 0 && wireFailures === 0,
+    'failures=' + failures + ' wireFailures=' + wireFailures + ' totalTicks=' + totalTicks);
 }
 
 // C3 - spectator frames produced live must equal frames rebuilt from the replay
@@ -125,7 +136,7 @@ async function verifyEndToEnd() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'afl-verify-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), AFL_TICK_MS: '8', AFL_DATA_DIR: tmp },
+    env: { ...process.env, PORT: String(PORT), AFL_TICK_MS: '8', AFL_DATA_DIR: tmp, DATABASE_URL: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let serverLog = '';
@@ -331,7 +342,8 @@ async function verifyEndToEnd() {
       'runningRooms=' + running.length + ' ticksA=' + t1.length + ' ticksB=' + t2.length + ' isolated=' + isolated);
 
     // C22 - fighter roster in the data chain + DSL rejects unsafe input
-    const fighters = await callTool(BASE, 'list_fighters');
+    const fightersRes = await callTool(BASE, 'list_fighters');
+    const fighters = fightersRes.fighters;
     const fHttp = await (await fetch(BASE + '/api/fighters')).json();
     const board2 = await callTool(BASE, 'get_leaderboard', {});
     let badAction = false; let badPath = false; let badComparator = false;
@@ -344,8 +356,8 @@ async function verifyEndToEnd() {
       && fighters.every((f) => f.team && f.teamName && f.teamColor)
       && fighters.every((f) => f.id && f.palette && f.gear && f.signature);
     check('C22 16 位原创角色 / 4 支队伍进入数据链路，DSL 拒绝非法动作 / 原型字段 / 未知比较器',
-      rosterOk && Boolean(fHttp.fighters[0].build) && board2.rows.every((r) => r.fighterId) && badAction && badPath && badComparator,
-      'fighters=' + fighters.length + ' teams=' + teams.length + ' build=' + Boolean(fHttp.fighters[0].build) + ' reject=' + [badAction, badPath, badComparator].join('/'));
+      rosterOk && Boolean(fHttp.fighters[0].build) && board2.rows.every((r) => r.fighterId) && badAction && badPath && badComparator && fightersRes.count === fighters.length,
+      'fighters=' + fighters.length + ' count=' + fightersRes.count + ' teams=' + teams.length + ' build=' + Boolean(fHttp.fighters[0].build) + ' reject=' + [badAction, badPath, badComparator].join('/'));
   } finally {
     child.kill('SIGTERM');
     await delay(150);
@@ -358,11 +370,12 @@ verifyDeterminism();
 verifyReplays();
 verifySpectatorFrames();
 await verifyEndToEnd();
-// C23 - team elimination mode has its own gate: pure state-machine math plus a
-// live 3v3 scrim driven over MCP + WebSocket (see scripts/verify-team.mjs).
-const teamGate = spawnSync(process.execPath, ['scripts/verify-team.mjs'], { cwd: ROOT, encoding: 'utf8', timeout: 150000 });
+// C23 - team elimination mode has its own gate: pure state-machine math, a
+// live 3v3 scrim over MCP + WebSocket, and the real ranked signup loop
+// (/api/enter -> matchmaking -> wins-first board). See scripts/verify-team.mjs.
+const teamGate = spawnSync(process.execPath, ['scripts/verify-team.mjs'], { cwd: ROOT, encoding: 'utf8', timeout: 300000, env: { ...process.env, DATABASE_URL: '' } });
 const teamSummary = (teamGate.stdout || '').split('\n').filter((l) => /team checks passed/.test(l)).join(' ').trim();
-check('C23 组队淘汰赛门禁（T1-T12：回血/淘汰/换人/回放重演/双通道全流程）', teamGate.status === 0,
+check('C23 组队赛门禁（T1-T14：回血/淘汰/换人/回放重演/双通道私房/报名匹配/胜场榜）', teamGate.status === 0,
   teamSummary || String(teamGate.stderr || teamGate.stdout || 'no output').slice(-200));
 const passed = results.filter((r) => r.ok).length;
 console.log('\n=== ' + passed + '/' + results.length + ' checks passed ===\n');

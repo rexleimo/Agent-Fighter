@@ -520,6 +520,13 @@ export class Room {
  *             a built-in sparring partner with the closest rating is assigned
  *  - scrim  : explicit room code, unranked, for tuning and rematches
  */
+function assertCompetitor(agent) {
+  if (!agent) throw new Error('agent is required');
+  if (agent.playerId) return;
+  if (agent.source === 'builtin' || agent.id === 'demo_hosted') return;
+  throw new Error('player login required: anonymous agents cannot enter matches');
+}
+
 export class RoomManager {
   constructor(league) {
     this.league = league;
@@ -584,7 +591,7 @@ export class RoomManager {
   }
 
   spectate(conn, roomId) {
-    const room = this.rooms.get(roomId) || this.demo;
+    const room = this.rooms.get(roomId) || this.defaultRoom();
     room.spectators.add(conn);
     conn.meta.roomId = room.id;
     conn.send(this.snapshot(room));
@@ -592,7 +599,17 @@ export class RoomManager {
     return room;
   }
 
-  joinAgent(conn, agent, { mode = 'ranked', code = null } = {}) {
+  // With no explicit room, spectators land on a REAL ranked match (team first)
+  // whenever one is running; the built-in demo is only the empty-lobby fallback.
+  defaultRoom() {
+    const running = Array.from(this.rooms.values())
+      .filter((r) => r.mode === 'ranked' && r.status === 'running' && r.current)
+      .sort((x, y) => ((y.format === 'team') - (x.format === 'team'))
+        || (new Date(y.current.startedAt) - new Date(x.current.startedAt)));
+    return running[0] || this.demo;
+  }
+
+  joinAgent(conn, agent, { mode = 'ranked', code = null, format = 'single' } = {}) {
     this.agentConns.set(agent.id, conn);
     conn.meta.roomId = null;
     conn.send({
@@ -623,14 +640,25 @@ export class RoomManager {
       // scrim code). Keep that entry and just attach the live connection.
       const existing = this.waiting.find((w) => w.agentId === agent.id);
       if (existing) existing.conn = conn;
-      else this.enqueue({ agent, conn, mode, code });
+      else {
+        try {
+          this.enqueue({ agent, conn, mode, code, format });
+        } catch (err) {
+          conn.send({ type: 'error', code: 'queue_rejected', message: err.message });
+          conn.close();
+        }
+      }
     }
   }
 
-  enqueue({ agent, conn = null, mode = 'ranked', code = null, auto = false }) {
+  enqueue({ agent, conn = null, mode = 'ranked', code = null, auto = false, format = 'single' }) {
+    assertCompetitor(agent);
+    if (mode === 'ranked' && format === 'team' && !agent.team) {
+      throw new Error('team format requires a roster: declare 3 fighters via set_team (or register_agent team=...) first');
+    }
     this.waiting = this.waiting.filter((w) => w.agentId !== agent.id);
     const entry = {
-      agentId: agent.id, mode, code, conn, auto,
+      agentId: agent.id, mode, code, conn, auto, format,
       joinedAt: Date.now(),
       track: agent.track || 'open',
       rating: agent.rating || 1500,
@@ -660,6 +688,7 @@ export class RoomManager {
   }
 
   createScrim(agent, { format = 'single', team = null } = {}) {
+    assertCompetitor(agent);
     const teams = format === 'team' ? { a: normalizeTeam(team || agent.team), b: null } : null;
     const room = this.createRoom({ mode: 'scrim', code: this.newCode(), ranked: false, pairing: 'code', format, teams });
     room.aAgent = agent;
@@ -671,6 +700,7 @@ export class RoomManager {
   }
 
   joinScrim(agent, code, { team = null, conn = null } = {}) {
+    assertCompetitor(agent);
     const room = Array.from(this.rooms.values()).find((r) => r.mode === 'scrim' && r.code === code && r.status === 'waiting');
     if (!room) throw new Error('room not found or already started: ' + code);
     if (!room.aAgent || room.aAgent.id === agent.id) throw new Error('cannot join your own room');
@@ -678,18 +708,6 @@ export class RoomManager {
       room.teams = { a: room.teams.a, b: normalizeTeam(team || agent.team) };
     }
     this.startRoom(room, room.aAgent, agent, { pairing: 'code' });
-    return room;
-  }
-
-  /** Browser exhibition: a human picks both teams, built-in agents pilot them. */
-  createExhibition({ teamA, teamB }) {
-    const pool = Array.from(this.league.agents.values()).filter((x) => x.source === 'builtin');
-    if (pool.length < 2) throw new Error('no built-in pilots available');
-    const room = this.createRoom({
-      mode: 'scrim', code: this.newCode(), ranked: false, pairing: 'exhibition',
-      format: 'team', teams: { a: normalizeTeam(teamA), b: normalizeTeam(teamB) },
-    });
-    this.startRoom(room, pool[0], pool[1], { pairing: 'exhibition' });
     return room;
   }
 
@@ -722,18 +740,18 @@ export class RoomManager {
    * reused, because the room is the watch target and the next match in it
    * is announced with match_start.
    */
-  idleRoom(mode) {
+  idleRoom(mode, format = 'single') {
     let watched = null;
     for (const room of this.rooms.values()) {
-      if (room.mode !== mode || room.status !== 'finished') continue;
+      if (room.mode !== mode || room.format !== format || room.status !== 'finished') continue;
       if (room.spectators.size === 0) return room;
       watched = watched || room;
     }
     return watched;
   }
 
-  rankedArena() {
-    return this.idleRoom('ranked') || this.createRoom({ mode: 'ranked', ranked: true, pairing: 'rating' });
+  rankedArena(format = 'single') {
+    return this.idleRoom('ranked', format) || this.createRoom({ mode: 'ranked', ranked: true, pairing: 'rating', format });
   }
 
   matchmake() {
@@ -742,8 +760,9 @@ export class RoomManager {
     const used = new Set();
     const byTrack = new Map();
     for (const w of ranked) {
-      if (!byTrack.has(w.track)) byTrack.set(w.track, []);
-      byTrack.get(w.track).push(w);
+      const key = w.track + '|' + (w.format || 'single');
+      if (!byTrack.has(key)) byTrack.set(key, []);
+      byTrack.get(key).push(w);
     }
     for (const group of byTrack.values()) {
       group.sort((a, b) => a.joinedAt - b.joinedAt);
@@ -751,16 +770,20 @@ export class RoomManager {
         if (used.has(w.agentId)) continue;
         const agent = this.league.agents.get(w.agentId);
         if (!agent) { used.add(w.agentId); continue; }
+        const format = w.format || 'single';
+        // Team ladder waits longer for a real opponent before taking a sparring
+        // partner: a registered player should meet another registrant first.
+        const sparAfterMs = format === 'team' ? 8000 : 3000;
         const mate = group.find((o) => o.agentId !== w.agentId && !used.has(o.agentId)
           && (Math.abs(o.rating - w.rating) <= 400 || now - Math.min(w.joinedAt, o.joinedAt) > 3000));
         if (mate) {
           const other = this.league.agents.get(mate.agentId);
           used.add(w.agentId); used.add(mate.agentId);
-          if (other) this.startRoom(this.rankedArena(), agent, other, { pairing: 'rating' });
-        } else if (now - w.joinedAt > 3000) {
+          if (other) this.startRoom(this.rankedArena(format), agent, other, { pairing: 'rating' });
+        } else if (now - w.joinedAt > sparAfterMs) {
           used.add(w.agentId);
           const spar = this.nearestSparring(agent);
-          if (spar) this.startRoom(this.rankedArena(), agent, spar, { pairing: 'sparring' });
+          if (spar) this.startRoom(this.rankedArena(format), agent, spar, { pairing: 'sparring' });
         }
       }
     }
@@ -823,7 +846,7 @@ export class RoomManager {
       const conn = this.agentConns.get(agent.id);
       if (conn) conn.meta.roomId = null;
       if (agent.source === 'hosted' && agent.autoRequeue !== false) {
-        setTimeout(() => this.enqueue({ agent, mode: 'ranked', auto: true }), 3000);
+        setTimeout(() => this.enqueue({ agent, mode: 'ranked', format: room.format, auto: true }), 3000);
       }
     }
     this.broadcastRooms();
@@ -857,7 +880,7 @@ export class RoomManager {
     return rendered;
   }
 
-  meta() { return this.demo.meta(); }
+  meta() { return this.defaultRoom().meta(); }
 
   // Who is ACTUALLY connected to the league right now. Exposed in every
   // spectator hello / rooms broadcast so the UI can never imply that a
@@ -870,12 +893,19 @@ export class RoomManager {
       spectators: all.reduce((n, r) => n + r.spectators.size, 0),
       totalRooms: all.length,
       finishedRooms: all.filter((r) => r.status === 'finished').length,
-      queue: this.waiting.map((w) => ({
-        agentId: w.agentId,
-        mode: w.mode,
-        source: w.source,
-        waitingMs: Date.now() - w.joinedAt,
-      })),
+      queue: this.waiting.map((w) => {
+        const a = this.league.agents.get(w.agentId);
+        return {
+          agentId: w.agentId,
+          name: a ? a.name : w.agentId,
+          team: a && a.team ? a.team.slice() : null,
+          mode: w.mode,
+          format: w.format || 'single',
+          source: w.source,
+          rating: a ? Math.round(a.rating) : w.rating,
+          waitingMs: Date.now() - w.joinedAt,
+        };
+      }),
     };
   }
 

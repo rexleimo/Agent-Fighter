@@ -27,6 +27,7 @@ const arg = (name, fallback) => {
   return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : fallback;
 };
 const BASE = (arg('base', process.env.AFL_BASE || 'http://localhost:8787')).replace(/\/+$/, '');
+const MCP = (arg('mcp', process.env.AFL_MCP_URL || '')).replace(/\/+$/, '');
 const WS = arg('ws', BASE.replace(/^http/, 'ws') + '/ws/agent');
 const LLM_BASE = (process.env.AFL_LLM_BASE || 'https://api.openai.com/v1').replace(/\/+$/, '');
 const LLM_KEY = process.env.AFL_LLM_KEY || '';
@@ -114,18 +115,18 @@ async function main() {
     console.log('[llm] 模型 ' + LLM_MODEL + ' @ ' + LLM_BASE + ' · 超时 ' + LLM_TIMEOUT_MS + 'ms · 每 ' + ASK_EVERY + ' 拍或局势变化时询问\n');
   }
 
-  await initialize(BASE);
+  await initialize(MCP);
   let token = arg('token', process.env.AFL_TOKEN || (fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() : ''));
   if (!token) {
-    const reg = await registerAgent(BASE, { name: arg('name', 'LLM Agent'), kind: LLM_KEY ? 'hybrid' : 'rule' });
+    const reg = await registerAgent(MCP, { name: arg('name', 'LLM Agent'), kind: LLM_KEY ? 'hybrid' : 'rule' });
     token = reg.token;
     fs.writeFileSync(TOKEN_FILE, token, 'utf8');
     console.log('[llm] 已注册 ' + reg.agentId);
   }
   try {
-    await updateStrategy(BASE, { token, note: 'llm hybrid: ask on key states, rule fallback', defaultAction: 'block' });
+    await updateStrategy(MCP, { token, note: 'llm hybrid: ask on key states, rule fallback', defaultAction: 'block' });
   } catch (e) { console.log('[llm] 版本沿用当前值（' + e.message + '）'); }
-  await joinQueue(BASE, token);
+  await joinQueue(MCP, token);
 
   const client = new AgentClient({
     url: WS, token, policy, defaultAction: 'block',

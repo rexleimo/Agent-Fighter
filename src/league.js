@@ -14,6 +14,23 @@ import { normalizeTeam, TEAM_SIZE, TEAM_HEAL, TEAM_INTERMISSION_MS, TEAM_MAX_ROU
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCALE = 173.7178;
 
+// Built-in pilots need a roster too: they spar in the ranked team queue and
+// their teams show on the leaderboard like any registered player's.
+const BUILTIN_TEAMS = {
+  brawler: ['ember', 'forge', 'basalt'],
+  zoner: ['tide', 'gale', 'quartz'],
+  turtle: ['basalt', 'quartz', 'noct'],
+  random: ['volt', 'noct', 'gale'],
+};
+
+function cleanTeamName(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string') throw new Error('teamName must be a string');
+  const name = value.replace(/[\u0000-\u001f\u007f]/g, '').trim().replace(/\s+/g, ' ');
+  if (name.length < 2 || name.length > 32) throw new Error('teamName must be 2-32 characters');
+  return name;
+}
+
 function g(phi) {
   return 1 / Math.sqrt(1 + (3 * phi * phi) / (Math.PI * Math.PI));
 }
@@ -89,6 +106,12 @@ export class League {
     this.season = 'S1';
     this.load();
     if (this.agents.size === 0) this.seedBuiltins();
+    let backfilled = false;
+    for (const b of BUILTIN_AGENTS) {
+      const a = this.agents.get(b.id);
+      if (a && !a.team) { a.team = (BUILTIN_TEAMS[b.id] || ['quartz', 'volt', 'noct']).slice(); backfilled = true; }
+    }
+    if (backfilled) this.save();
   }
 
   load() {
@@ -182,8 +205,9 @@ export class League {
     return agent;
   }
 
-  registerAgent({ name, kind = 'rule', fighterId = DEFAULT_FIGHTER, source = 'external', team = null } = {}) {
+  registerAgent({ name, kind = 'rule', fighterId = DEFAULT_FIGHTER, source = 'external', team = null, teamName = null, playerId = null } = {}) {
     if (!name || typeof name !== 'string') throw new Error('name is required');
+    if (!playerId) throw new Error('player login required: agents are created from a player account');
     const roster = team === null || team === undefined ? null : normalizeTeam(team);
     const id = 'usr_' + randomBytes(5).toString('hex');
     const token = 'ag_' + randomBytes(16).toString('hex');
@@ -197,6 +221,8 @@ export class League {
       description: source === 'hosted' ? '托管策略：由联赛服务端解释声明式规则' : '用户自带策略，通过 WebSocket 实时接入',
       fighterId: isValidFighter(fighterId) ? fighterId : DEFAULT_FIGHTER,
       team: roster,
+      teamName: cleanTeamName(teamName),
+      playerId: playerId || null,
       versionHash,
       token,
       source: source === 'hosted' ? 'hosted' : 'external',
@@ -216,6 +242,79 @@ export class League {
   agentByToken(token) {
     const id = this.tokens.get(token);
     return id ? this.agents.get(id) : null;
+  }
+
+  agentById(agentId) {
+    return this.agents.get(agentId) || null;
+  }
+
+  agentByPlayerId(playerId) {
+    if (!playerId) return null;
+    for (const agent of this.agents.values()) {
+      if (agent.playerId === playerId) return agent;
+    }
+    return null;
+  }
+
+  /**
+   * The one agent slot owned by a player account. Repeated calls return the
+   * same identity and token, so an MCP service URL cannot silently create a
+   * new agent every time the client reconnects.
+   */
+  ensurePlayerAgent({ playerId, name, source = 'hosted' } = {}) {
+    if (!playerId) throw new Error('playerId is required');
+    const existing = this.agentByPlayerId(playerId);
+    if (existing) {
+      let changed = false;
+      const nextName = name ? String(name).slice(0, 48) : null;
+      if (nextName && existing.name !== nextName) { existing.name = nextName; changed = true; }
+      const nextSource = source === 'external' ? 'external' : 'hosted';
+      if (existing.source !== nextSource) { existing.source = nextSource; changed = true; }
+      if (changed) this.save();
+      return {
+        agentId: existing.id,
+        token: existing.token,
+        versionHash: existing.versionHash,
+        team: existing.team || null,
+        teamName: existing.teamName || null,
+        source: existing.source,
+        playerId,
+        existing: true,
+      };
+    }
+    const created = this.registerAgent({
+      name,
+      kind: 'rule',
+      source: source === 'external' ? 'external' : 'hosted',
+      playerId,
+    });
+    return {
+      ...created,
+      team: null,
+      teamName: null,
+      source: source === 'external' ? 'external' : 'hosted',
+      playerId,
+      existing: false,
+    };
+  }
+
+  /** Declare or replace your 3-fighter roster. Required before join_queue(format='team'). */
+  setTeam({ token, team, teamName } = {}) {
+    const agent = this.agentByToken(token);
+    if (!agent) throw new Error('invalid token');
+    if (this.locked.has(agent.id)) {
+      throw new Error('team is locked during match ' + this.locked.get(agent.id));
+    }
+    const nextName = cleanTeamName(teamName);
+    if (nextName !== null) agent.teamName = nextName;
+    agent.team = normalizeTeam(team);
+    this.save();
+    return {
+      agentId: agent.id,
+      team: agent.team.slice(),
+      teamName: agent.teamName || null,
+      note: 'Roster saved in entry order. Call join_queue with format="team" to enter ranked team matchmaking.',
+    };
   }
 
   updateStrategy({ token, note = '', defaultAction, strategyHash } = {}) {
@@ -337,6 +436,7 @@ export class League {
         const delta = side === 'a' ? m.ratingDeltaA : m.ratingDeltaB;
         return {
           matchId: m.matchId, roomId: m.roomId || null, mode: m.mode || 'ranked', ranked: m.ranked !== false,
+          format: m.format || 'single',
           side, opponent: other.name, opponentId: other.id,
           result: m.winner === 'draw' ? 'draw' : m.winner === side ? 'win' : 'loss',
           winner: m.winner, reason: m.reason,
@@ -464,6 +564,8 @@ export class League {
         source: a.source,
         versionHash: a.versionHash,
         fighterId: a.fighterId || DEFAULT_FIGHTER,
+        team: a.team || null,
+        teamName: a.teamName || null,
         rating: Math.round(a.rating),
         rd: Math.round(a.rd),
         matches: a.matches,
@@ -474,7 +576,8 @@ export class League {
         modelCallsPerMatch: a.matches ? Math.round(a.modelCalls / a.matches) : 0,
         timeouts: a.timeouts,
       }))
-      .sort((x, y) => y.rating - x.rating || y.wins - x.wins);
+      // Wins first: the ladder is "who won the most", rating only breaks ties.
+      .sort((x, y) => y.wins - x.wins || y.rating - x.rating);
     rows.forEach((r, i) => { r.rank = i + 1; });
     return { season: this.season, rows };
   }
@@ -499,6 +602,7 @@ export class League {
       versionHash: a.versionHash, strategyHash: a.strategyHash || null,
       strategyNote: a.strategyNote || '', defaultAction: a.defaultAction,
       source: a.source, fighterId: a.fighterId || DEFAULT_FIGHTER,
+      team: a.team || null,
       hosted: Boolean(a.hostedStrategy),
       strategyName: a.hostedStrategy ? a.hostedStrategy.name : null,
       ruleCount: a.hostedStrategy ? a.hostedStrategy.rules.length : 0,
@@ -543,7 +647,8 @@ export class League {
           'A round ends on KO or time up (higher hp wins). The round loser\'s fighter is eliminated; a drawn round eliminates both current fighters.',
           'The round winner\'s fighter recovers ' + TEAM_HEAL + ' hp (capped at ' + CONFIG.MAX_HP + ') and keeps its remaining hp and meter into the next round; benched fighters freeze.',
           'Between rounds each side may reorder its alive pool ONCE (head enters next); silence keeps the order. External agents reply team_order over WS, anyone can call set_team_order during the window.',
-          'A side with no alive fighter loses the match; both empty at once is a draw. Team matches are unranked.',
+          'A side with no alive fighter loses the match; both empty at once is a draw.',
+          'Ranked team: declare a roster with set_team (or register_agent team=...), then join_queue(format="team"). Matchmaking pairs same-track agents by nearest rating; results count on the wins-first leaderboard. Scrim/exhibition team rooms stay unranked.',
         ],
       },
       note: 'One decision tick = 6 render frames at 60fps. Hits are resolved by AABB overlap of skeleton-anchored hitboxes against skeleton-derived hurtboxes, NOT by a distance check. Standing block loses to low, crouch block loses to high/overhead, throws are unblockable. Cancel a landed move inside frameData.cancelInto. The kernel never waits: a late act falls back to defaultAction.',
@@ -558,7 +663,8 @@ export class League {
     return Array.from(this.agents.values()).map((a) => ({
       id: a.id, name: a.name, label: a.label, kind: a.kind, track: a.track,
       source: a.source, versionHash: a.versionHash, description: a.description,
-      fighterId: a.fighterId || DEFAULT_FIGHTER, hosted: Boolean(a.hostedStrategy),
+      fighterId: a.fighterId || DEFAULT_FIGHTER, team: a.team || null,
+      teamName: a.teamName || null, hosted: Boolean(a.hostedStrategy),
     }));
   }
 

@@ -10,16 +10,30 @@ import {
 import { CONFIG } from './rules.js';
 import { League } from './league.js';
 import { RoomManager } from './rooms.js';
+import { toNodeHandler, fromNodeHeaders } from 'better-auth/node';
+import { auth } from './auth.js';
+import { bootstrapAdmin } from './auth-bootstrap.js';
+import { getPlayerStore } from './players.js';
+import { normalizeUsername } from './player-shared.js';
 import { attachWebSocketServer } from './ws.js';
 import { createMCPHandler } from './mcp.js';
 import { strategyTemplate } from './strategy-dsl.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_DIR = path.join(ROOT, 'web');
+const WEB_DIST = path.join(WEB_DIR, 'dist');
+const WEB_DIST_INDEX = path.join(WEB_DIST, 'index.html');
+// Client-side routes served by the React app. The game assets and the
+// read-only docs/sdk trees below keep their own prefixes.
+const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/guide']);
 const PORT = Number(process.env.PORT || 8787);
 const league = new League();
+const players = auth ? await getPlayerStore() : null;
+const handleAuth = auth ? toNodeHandler(auth) : null;
+if (auth) await bootstrapAdmin({ auth, players });
+else console.log('[afl] DATABASE_URL is not set: Better Auth is disabled; run pnpm db:up && pnpm db:migrate to enable accounts.');
 const manager = new RoomManager(league);
-const handleMCP = createMCPHandler(league, manager);
+const handleMCP = createMCPHandler(league, manager, players);
 // Always-on example of the MCP-only hosted track, so the lobby shows a real
 // ranked room running concurrently with the demo showcase room.
 manager.enqueue({ agent: league.ensureHostedDemo(strategyTemplate()), mode: 'ranked' });
@@ -55,6 +69,67 @@ function readBody(req) {
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => resolve(body));
   });
+}
+
+async function readJson(req) {
+  try { return JSON.parse(await readBody(req) || '{}'); } catch { return {}; }
+}
+
+function isSecureRequest(req) {
+  return Boolean(req.socket && req.socket.encrypted)
+    || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
+}
+
+async function sessionPlayer(req) {
+  if (!auth || !players) return null;
+  const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+  if (!session?.user) return null;
+  return players.playerByUserId(session.user.id);
+}
+
+function requestOrigin(req) {
+  const proto = isSecureRequest(req) ? 'https' : 'http';
+  return proto + '://' + (req.headers.host || ('localhost:' + PORT));
+}
+
+async function ensurePlayerAgent(player) {
+  if (player.agentId) return player;
+  const created = league.ensurePlayerAgent({
+    playerId: player.id,
+    name: (player.displayName || player.username) + ' 的 Agent',
+  });
+  return players.linkAgent(player.id, created.agentId);
+}
+
+function playerView(req, player) {
+  const agent = player.agentId ? league.agentById(player.agentId) : null;
+  const publicPlayer = players.publicPlayer(player, { includeMcpKey: true });
+  const mcp = player.mcpKey
+    ? {
+      assigned: true,
+      issuedAt: player.mcpIssuedAt,
+      key: player.mcpKey,
+      path: '/mcp/' + player.mcpKey,
+      url: requestOrigin(req) + '/mcp/' + player.mcpKey,
+    }
+    : { assigned: false };
+  return {
+    player: { ...publicPlayer, mcp: { assigned: mcp.assigned, issuedAt: mcp.issuedAt } },
+    agent: agent ? {
+      id: agent.id,
+      name: agent.name,
+      team: agent.team || null,
+      teamName: agent.teamName || null,
+      source: agent.source,
+      versionHash: agent.versionHash,
+      rating: Math.round(agent.rating),
+      wins: agent.wins,
+      losses: agent.losses,
+      draws: agent.draws,
+      matches: agent.matches,
+    } : null,
+    mcp,
+  };
 }
 
 // Public, read-only subtrees served from the project root. Everything else
@@ -147,8 +222,12 @@ function serveFile(req, res, file, { cache = 'no-cache' } = {}) {
 }
 
 function serveIndex(req, res) {
-  const file = path.join(WEB_DIR, 'index.html');
-  if (!fs.existsSync(file)) { notFound(res); return; }
+  const file = WEB_DIST_INDEX;
+  if (!fs.existsSync(file)) {
+    res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end('web/dist is missing. Run `pnpm build:web` (or `npm start`, which builds first).');
+    return;
+  }
   const html = fs.readFileSync(file, 'utf8').replace('<!--ASSET_PRELOAD-->', criticalPreloadTags());
   const buf = Buffer.from(html);
   const etag = '"' + crypto.createHash('sha1').update(buf).digest('hex') + '"';
@@ -177,7 +256,17 @@ function serveStatic(req, res, pathname) {
     notFound(res);
     return;
   }
-  if (pathname === '/' || pathname === '/index.html') {
+  if (pathname.startsWith('/app/')) {
+    const appRoot = path.join(WEB_DIST, 'app');
+    const file = path.resolve(appRoot, pathname.slice('/app/'.length));
+    if (!file.startsWith(appRoot + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      notFound(res);
+      return;
+    }
+    serveFile(req, res, file, { cache: IMMUTABLE });
+    return;
+  }
+  if (pathname === '/' || pathname === '/index.html' || SPA_ROUTES.has(pathname)) {
     serveIndex(req, res);
     return;
   }
@@ -196,14 +285,156 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
 
-  if (p === '/mcp') {
+  if (p.startsWith('/api/auth/')) {
+    if (!handleAuth) {
+      json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' });
+      return;
+    }
+    await handleAuth(req, res);
+    return;
+  }
+  // 匿名 /mcp 只在未配置玩家账号库时作为本地开发沙箱开放（旧验收脚本依赖它）；
+  // 一旦启用账号，MCP 必须走 /mcp/<player key>，见 docs/player-accounts.md。
+  if (p === '/mcp' && players) {
+    json(res, 401, { error: 'player MCP service required: log in, get your MCP URL, and use /mcp/<player key>' });
+    return;
+  }
+  if (p === '/mcp' || p.startsWith('/mcp/')) {
     const body = await readBody(req);
-    handleMCP(req, res, body);
+    handleMCP(req, res, body).catch((err) => {
+      console.error('[afl] MCP handler failed:', err);
+      if (!res.headersSent) json(res, 500, { error: 'MCP handler failed' });
+      else res.end();
+    });
     return;
   }
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS' });
     res.end();
+    return;
+  }
+  /* ------------------------------------------------- player session */
+  if (p === '/api/me' && req.method === 'GET') {
+    if (!players) { json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' }); return; }
+    let player = await sessionPlayer(req);
+    if (!player) { json(res, 401, { error: 'not logged in' }); return; }
+    player = await ensurePlayerAgent(player);
+    json(res, 200, playerView(req, player));
+    return;
+  }
+  if (p === '/api/me/mcp' && req.method === 'POST') {
+    if (!players) { json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' }); return; }
+    let player = await sessionPlayer(req);
+    if (!player) { json(res, 401, { error: 'not logged in' }); return; }
+    player = await ensurePlayerAgent(player);
+    const issued = await players.issueMcp(player.id);
+    json(res, 200, { mcp: { ...issued, url: requestOrigin(req) + issued.path } });
+    return;
+  }
+  if (p === '/api/me/agent' && req.method === 'GET') {
+    if (!players) { json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' }); return; }
+    let player = await sessionPlayer(req);
+    if (!player) { json(res, 401, { error: 'not logged in' }); return; }
+    player = await ensurePlayerAgent(player);
+    const agent = player.agentId ? league.agentById(player.agentId) : null;
+    if (!agent) { json(res, 404, { error: 'agent not ready' }); return; }
+    const presence = manager.presence();
+    const queue = presence.queue.find((w) => w.agentId === agent.id) || null;
+    const room = manager.listRooms().find((r) => (r.a && r.a.id === agent.id) || (r.b && r.b.id === agent.id)) || null;
+    json(res, 200, {
+      agent: {
+        id: agent.id,
+        name: agent.name,
+        team: agent.team || null,
+        teamName: agent.teamName || null,
+        source: agent.source,
+        versionHash: agent.versionHash,
+        rating: Math.round(agent.rating),
+        wins: agent.wins,
+        losses: agent.losses,
+        draws: agent.draws,
+        matches: agent.matches,
+      },
+      queue,
+      room,
+      recentMatches: league.getMyMatches({ token: agent.token, limit: 8 }).matches,
+    });
+    return;
+  }
+  /* ------------------------------------------------------- admin console */
+  if (p === '/api/admin/players' && req.method === 'GET') {
+    if (!players) { json(res, 503, { error: 'auth is not configured' }); return; }
+    const current = await sessionPlayer(req);
+    if (!current) { json(res, 401, { error: 'not logged in' }); return; }
+    if (current.role !== 'admin') { json(res, 403, { error: 'admin only' }); return; }
+    const rows = (await players.listPlayers({ includeMcpKey: true })).map((row) => {
+      const agent = row.agentId ? league.agentById(row.agentId) : null;
+      return {
+        ...row,
+        mcp: row.mcp.assigned
+          ? { ...row.mcp, url: requestOrigin(req) + row.mcp.path }
+          : row.mcp,
+        agent: agent ? {
+          id: agent.id,
+          name: agent.name,
+          team: agent.team || null,
+          teamName: agent.teamName || null,
+          rating: Math.round(agent.rating),
+          wins: agent.wins,
+          losses: agent.losses,
+          matches: agent.matches,
+        } : null,
+      };
+    });
+    json(res, 200, { players: rows });
+    return;
+  }
+  if (p === '/api/admin/players' && req.method === 'POST') {
+    if (!players) { json(res, 503, { error: 'auth is not configured' }); return; }
+    const current = await sessionPlayer(req);
+    if (!current) { json(res, 401, { error: 'not logged in' }); return; }
+    if (current.role !== 'admin') { json(res, 403, { error: 'admin only' }); return; }
+    const args = await readJson(req);
+    try {
+      const username = normalizeUsername(args.username);
+      const password = String(args.password || '');
+      if (password.length < 8) throw new Error('password must be at least 8 characters');
+      const displayName = String(args.displayName || '').trim() || username;
+      const email = String(args.email || `${username}@players.local`);
+      const result = await auth.api.signUpEmail({
+        body: { email, password, name: displayName, username },
+      });
+      let profile = await players.playerByUserId(result.user.id);
+      if (!profile) {
+        profile = await players.createProfile({
+          userId: result.user.id,
+          username,
+          displayName,
+          role: 'player',
+        });
+      }
+      profile = await ensurePlayerAgent(profile);
+      json(res, 200, { player: players.publicPlayer(profile, { includeMcpKey: true }) });
+    } catch (err) {
+      json(res, 400, { error: err.message });
+    }
+    return;
+  }
+  if (p.startsWith('/api/admin/players/') && p.endsWith('/mcp') && req.method === 'POST') {
+    if (!players) { json(res, 503, { error: 'auth is not configured' }); return; }
+    const current = await sessionPlayer(req);
+    if (!current) { json(res, 401, { error: 'not logged in' }); return; }
+    if (current.role !== 'admin') { json(res, 403, { error: 'admin only' }); return; }
+    const playerId = decodeURIComponent(p.slice('/api/admin/players/'.length, -'/mcp'.length));
+    let player = await players.playerById(playerId);
+    if (!player) { json(res, 404, { error: 'player not found' }); return; }
+    player = await ensurePlayerAgent(player);
+    const issued = await players.issueMcp(player.id);
+    const refreshed = await players.playerById(player.id);
+    json(res, 200, {
+      player: players.publicPlayer(refreshed, { includeMcpKey: true }),
+      mcp: { ...issued, url: requestOrigin(req) + issued.path },
+    });
     return;
   }
   // One URL an AI agent client can read to learn the entire game.
@@ -216,7 +447,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/api/state') {
     json(res, 200, {
-      server: { name: 'Agent Fighting League', season: league.season, tickMs: CONFIG.TICK_MS, framesPerTick: CONFIG.FRAMES_PER_TICK, matchTicks: CONFIG.MATCH_TICKS, version: '0.2.0' },
+      server: { name: 'Agent Fighting League', season: league.season, tickMs: CONFIG.TICK_MS, framesPerTick: CONFIG.FRAMES_PER_TICK, matchTicks: CONFIG.MATCH_TICKS, version: '0.7.0' },
       assets: assetsState(),
       match: manager.meta(),
       rooms: manager.listRooms(),
@@ -276,32 +507,6 @@ const server = http.createServer(async (req, res) => {
     res.end(text);
     return;
   }
-  if (p === '/api/team-exhibition' && req.method === 'POST') {
-    let args = {};
-    try { args = JSON.parse(await readBody(req) || '{}'); } catch { /* defaults */ }
-    try {
-      const room = manager.createExhibition({ teamA: args.teamA, teamB: args.teamB });
-      json(res, 200, {
-        roomId: room.id, code: room.code, format: 'team', team: room.teams,
-        watchUrl: '/?view=live&room=' + encodeURIComponent(room.id),
-        note: 'Exhibition: built-in agents pilot the teams you picked. Unranked.',
-      });
-    } catch (err) {
-      json(res, 400, { error: err.message });
-    }
-    return;
-  }
-  if (p === '/api/token' && req.method === 'POST') {
-    let args = {};
-    try { args = JSON.parse(await readBody(req) || '{}'); } catch { /* defaults */ }
-    try {
-      const created = league.registerAgent({ name: args.name || 'My Agent', kind: args.kind || 'rule', fighterId: args.fighterId, source: 'external' });
-      json(res, 200, { ...created, wsUrl: '/ws/agent?token=' + created.token, httpOrigin: 'http://localhost:' + PORT, note: 'Connect a realtime process, or use MCP submit_strategy for the hosted track.' });
-    } catch (err) {
-      json(res, 400, { error: err.message });
-    }
-    return;
-  }
   serveStatic(req, res, p);
 });
 
@@ -315,7 +520,12 @@ attachWebSocketServer(server, {
       const token = url.searchParams.get('token');
       const agent = league.agentByToken(token);
       if (!agent) {
-        conn.send({ type: 'error', code: 'invalid_token', message: 'Register first via MCP register_agent or /api/token' });
+        conn.send({ type: 'error', code: 'invalid_token', message: 'Invalid token. Connect through a player MCP service.' });
+        conn.close();
+        return;
+      }
+      if (!agent.playerId) {
+        conn.send({ type: 'error', code: 'player_login_required', message: 'Player login required: anonymous agents cannot enter matches.' });
         conn.close();
         return;
       }
@@ -324,6 +534,7 @@ attachWebSocketServer(server, {
       manager.joinAgent(conn, agent, {
         mode: url.searchParams.get('mode') || 'ranked',
         code: url.searchParams.get('room'),
+        format: url.searchParams.get('format') === 'team' ? 'team' : 'single',
       });
       return;
     }
@@ -333,7 +544,9 @@ attachWebSocketServer(server, {
 
 server.listen(PORT, () => {
   console.log('[afl] server listening on http://localhost:' + PORT);
-  console.log('[afl] MCP endpoint        POST http://localhost:' + PORT + '/mcp');
+  if (auth) console.log('[afl] Better Auth         POST /api/auth/*  (sign-up/email, sign-in/username, sign-out)');
+  console.log('[afl] per-player MCP     POST /mcp/<key>  (assign in 玩家入口)');
+  console.log('[afl] ' + (auth ? 'legacy MCP         POST /mcp  (closed: player accounts active)' : 'legacy MCP         POST /mcp  (anonymous dev sandbox)'));
   console.log('[afl] Agent skill         GET  http://localhost:' + PORT + '/SKILL.md');
   console.log('[afl] spectator websocket ws://localhost:' + PORT + '/ws/spectate?room=<roomId>');
   console.log('[afl] agent websocket     ws://localhost:' + PORT + '/ws/agent?token=...');
