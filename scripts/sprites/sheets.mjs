@@ -379,6 +379,9 @@ const BODY_PROMPTS = {
     + 'Frames 9-12: a heavy haymaker — big windup with torso twisted back, powerful lunging punch with full body weight, impact follow-through, recover. '
     + 'Frames 13-16: a rising dragon uppercut — frame 13 crouch with fist low, frame 14 launching upward with fist raised overhead, frame 15 airborne at the apex, frame 16 falling back down.',
   kick: PREAMBLE
+    + 'CRITICAL for every kick frame: the head, face, chest and hips turn the SAME way as the kicking foot. '
+    + 'A kick is the leg reaching at the target, never the torso twisting away from it — a frame whose foot '
+    + 'points left while the face looks right is a failed frame. '
     + 'Frames 1-4: a light front kick with the front leg — knee up, foot snapping out, foot connecting, leg retracting. '
     + 'Frames 5-8: a medium roundhouse kick at mid height — windup, leg swinging, full extension impact, recover. '
     + 'Frames 9-12: a heavy high kick aimed at head height — big windup, leg rising, foot at maximum height impact, recover. '

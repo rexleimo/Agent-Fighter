@@ -15,8 +15,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { FIGHTERS } from '../src/fighters.js';
-import { hashFile, shortHash } from './lib/imageops.mjs';
+import { hashFile, shortHash, readPNG, cropRGBA } from './lib/imageops.mjs';
 import {
   CELL_COUNT, SHEET_IDS, FACING, facingReview, shipsFlipped,
 } from './sprites/sheets.mjs';
@@ -89,6 +91,88 @@ console.log(`  note    overridden cells: ${flip.reduce((n, key) => n + FACING[ke
 let threw = false;
 try { facingReview('abyss', 'nope'); } catch { threw = true; }
 ok('an unadjudicated sheet cannot be baked', threw);
+
+// 7. The cell-level redraw tool. It exists so a single bad frame can be
+//    replaced without re-rolling the sheet, and its entire promise is that the
+//    cells you did not name stay byte-identical - that is what keeps the rest
+//    of the ledger valid. That promise, and the --write path itself, were
+//    unverified: --write referenced a variable the cell refactor deleted, so
+//    every dry run succeeded while every real write threw ReferenceError.
+//    Run it against a throwaway copy so no source art and no paid call is used.
+{
+  const id = 'ember';
+  const sheetId = 'kick';
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'afl-redraw-'));
+  const fakeSource = path.join(tmp, 'sprites');
+  fs.mkdirSync(path.join(fakeSource, id), { recursive: true });
+  for (const s of SHEET_IDS) {
+    const f = path.join(SOURCE, id, s + '.png');
+    if (fs.existsSync(f)) fs.copyFileSync(f, path.join(fakeSource, id, s + '.png'));
+  }
+  const target = path.join(fakeSource, id, sheetId + '.png');
+  const before = readPNG(target);
+  const env = { ...process.env, AFL_SPRITE_SOURCE: fakeSource };
+  const cw = Math.floor(before.width / 4);
+  const ch = Math.floor(before.height / 4);
+  const cellBytes = (file, c) => {
+    const img = readPNG(file);
+    return cropRGBA(img, (c % 4) * cw, Math.floor(c / 4) * ch, cw, ch).rgba;
+  };
+  // A different sheet of the same fighter stands in for a fresh drawing.
+  const standIn = path.join(fakeSource, id, 'base.png');
+  const named = [5, 12];
+  const out = path.join(tmp, 'spliced.png');
+  const run = (args) => execFileSync(process.execPath,
+    [path.join(ROOT, 'scripts', 'sprites', 'redraw-row.mjs'), ...args],
+    { encoding: 'utf8', env });
+
+  let spliceLog = '';
+  let splicedOk = true;
+  try {
+    spliceLog = run(['--fighter', id, '--sheet', sheetId, '--cells', named.join(','),
+      '--from', standIn, '--out', out]);
+  } catch (e) { splicedOk = false; spliceLog = String(e.stderr || e.message); }
+  ok('逐格重绘能跑通（不付费、不碰源图）', splicedOk && fs.existsSync(out), spliceLog.split('\n').find((l) => /Error/i.test(l)) || '');
+
+  if (splicedOk && fs.existsSync(out)) {
+    const changed = [];
+    const kept = [];
+    for (let c = 0; c < 16; c += 1) {
+      (cellBytes(target, c).equals(cellBytes(out, c)) ? kept : changed).push(c);
+    }
+    ok('只有点名的格被替换', changed.length === named.length && named.every((c) => changed.includes(c)),
+      `点名 ${named.join(',')} / 实际改变 ${changed.join(',') || '无'}`);
+    ok('其余格逐字节不变（所以它们的台账条目仍然有效）', kept.length === 16 - named.length,
+      `${kept.length}/16 格保持原样`);
+  }
+
+  // The write path is the one that was broken, so run it for real - against
+  // the copy, never the repository.
+  let wrote = false;
+  let writeDetail = '';
+  try {
+    const log = run(['--fighter', id, '--sheet', sheetId, '--cells', '12', '--from', standIn, '--write']);
+    wrote = fs.existsSync(target) && !/Error/.test(log);
+    const predicted = (log.match(/new sheet sha would be ([0-9a-f]+)/) || [])[1];
+    const actual = shortHash(hashFile(target));
+    writeDetail = `预告 ${predicted} / 实写 ${actual}`;
+    ok('--write 真的落盘，且落盘 sha 与 dry-run 预告一致', wrote && predicted === actual, writeDetail);
+  } catch (e) {
+    ok('--write 真的落盘，且落盘 sha 与 dry-run 预告一致', false,
+      String(e.stderr || e.message).split('\n').find((l) => /Error/.test(l)) || 'threw');
+  }
+
+  // Replacing a cell that the ledger says to mirror means the override now
+  // describes a drawing nobody read. The tool has to say so out loud.
+  const flipCell = (FACING[`${id}/${sheetId}`] || {}).flip?.[0];
+  if (Number.isInteger(flipCell)) {
+    const warnLog = run(['--fighter', id, '--sheet', sheetId, '--cells', String(flipCell),
+      '--from', standIn, '--out', path.join(tmp, 'w.png')]);
+    ok('替换被 flip 覆盖的格时警告台账条目已失效', /WARN replaced flipped cell/.test(warnLog),
+      `cell ${flipCell} 在 FACING['${id}/${sheetId}'].flip 里`);
+  }
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
 
 process.exitCode = failures.length ? 1 : 0;
 console.log(failures.length ? `facing ledger: ${failures.length} failure(s)` : 'facing ledger: clean');
