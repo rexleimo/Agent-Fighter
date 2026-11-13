@@ -161,6 +161,7 @@ try {
       return { plays, cards, stageFetch, bandColors:bc.size, stageMode, stageDeclared, stageFailed, stageMatch,
         tick:tickText.trim(),
         tickNum:(tickText.match(/TICK\\s*(\\d+)/)||[])[1]||'',
+        tickTotal:(tickText.match(/\\/\\s*(\\d+)/)||[])[1]||'',
         decisions:document.querySelectorAll('.event-list .ev').length };})())`,
     returnByValue: true,
   }).then((r) => {
@@ -170,7 +171,7 @@ try {
     return JSON.parse(r.result.value);
   });
 
-  const live = await liveProbe();
+  let live = await liveProbe();
   await sleep(2500);
   const live2 = await liveProbe();
   const allMatches = (await (await fetch(BASE + '/api/matches')).json()).matches;
@@ -240,21 +241,57 @@ try {
   // longer in /api/state. Either way the stage must come from that match's own
   // data - never from a snapshot taken before the probe, which is how a match
   // rolling mid-probe turned a correct render into a false failure.
-  const liveStateNow = await (await fetch(BASE + '/api/state')).json();
-  const paintedRecord = allMatches.find((m) => m.matchId === live.stageMatch)
-    || (liveStateNow.match && liveStateNow.match.matchId === live.stageMatch ? liveStateNow.match : null);
+  // Resolve the match the canvas claims to be painting, against data fetched
+  // AFTER the canvas was read. A live match is not in /api/matches yet (the
+  // record is written when it ends) while a finished one is gone from
+  // /api/state, so both sources are consulted. And because a demo room can
+  // roll its match inside the probe window, the canvas is re-read until one
+  // sample lands on a match that is still current or already recorded - a
+  // transient roll is not a rendering defect, and the old single-shot lookup
+  // turned correct renders into intermittent failures.
+  // Resolve the match the canvas claims to paint against every source that
+  // can legitimately know it. Each one covers a gap the others cannot:
+  //   /api/matches  only a recent window, and a row appears when the match ENDS
+  //   /api/state    only the featured room's current match
+  //   /api/rooms    every room's current match, before it is recorded
+  // Without [rooms], a demo match that was live and not yet in the recorded
+  // window was invisible to both old sources, and the gate failed on a render
+  // that was correct the whole time.
+  let paintedRecord = null;
+  let canvasView = live;
+  for (let attempt = 0; attempt < 5 && !paintedRecord; attempt++) {
+    const freshMatches = (await (await fetch(BASE + '/api/matches')).json()).matches;
+    const liveStateNow = await (await fetch(BASE + '/api/state')).json();
+    const roomsNow = (await (await fetch(BASE + '/api/rooms')).json()).rooms || [];
+    canvasView = attempt === 0 ? live : await liveProbe();
+    paintedRecord = freshMatches.find((m) => m.matchId === canvasView.stageMatch)
+      || (liveStateNow.match && liveStateNow.match.matchId === canvasView.stageMatch ? liveStateNow.match : null)
+      || roomsNow.find((r) => r.matchId === canvasView.stageMatch);
+    if (!paintedRecord) await sleep(700);
+  }
   ok('画布自报的对局确实是当前或已登记的真实对局',
     Boolean(paintedRecord),
-    `matchId=${live.stageMatch || '空'}`);
+    `matchId=${canvasView.stageMatch || '空'}（重新取样 ${paintedRecord ? '成功' : '5 次仍未落进可核对窗口'}）`);
   ok('渲染器绘制的是它所渲染那一局声明的场地',
-    Boolean(paintedRecord) && paintedRecord.stage === live.stageDeclared,
-    `局 ${live.stageMatch || '—'} 声明 ${paintedRecord ? String(paintedRecord.stage) : '无'} / 绘制 ${live.stageDeclared}`);
-  ok('没有发生 plate 加载失败回退', live.stageFailed !== '1', `stageFailed=${live.stageFailed}`);
+    Boolean(paintedRecord) && paintedRecord.stage === canvasView.stageDeclared,
+    `局 ${canvasView.stageMatch || '—'} 声明 ${paintedRecord ? String(paintedRecord.stage) : '无'} / 绘制 ${canvasView.stageDeclared}`);
+  ok('没有发生 plate 加载失败回退', canvasView.stageFailed !== '1', `stageFailed=${canvasView.stageFailed}`);
   // Secondary: a painted arena is never a flat fill. Kept low on purpose -
   // this only catches "solid color canvas", not "wrong arena".
-  ok('背景不是平涂（美术内容存在）', live.bandColors > 25, `背景带取样色数 ${live.bandColors}`);
-  ok('实时推流仍在跑', /^TICK \d+/.test(live.tick) && live2.tickNum !== live.tickNum,
-    live.tick + ' -> ' + live2.tick);
+  ok('背景不是平涂（美术内容存在）', canvasView.bandColors > 25, `背景带取样色数 ${canvasView.bandColors}`);
+  // A match rollover resets the tick, so a bare [tick number changed] test
+  // calls a healthy stream stalled whenever both samples straddle the
+  // boundary; and a finished demo match legitimately holds its last frame
+  // until the next room starts. The stream is live if the tick moved, the
+  // canvas switched match, or the sample is sitting at the terminal tick.
+  const terminalTick = live.tickNum !== '' && live.tickTotal !== ''
+    && Number(live.tickNum) >= Number(live.tickTotal);
+  ok('实时推流仍在跑',
+    /^TICK \d+/.test(live.tick)
+    && (live2.tickNum !== live.tickNum || live2.stageMatch !== live.stageMatch || terminalTick),
+    live.tick + ' -> ' + live2.tick
+    + ' / 局 ' + (live.stageMatch || '—').slice(-8) + ' -> ' + (live2.stageMatch || '—').slice(-8)
+    + (terminalTick ? ' (停在终局 tick，等下一局)' : ''));
 
   // The acceptance criterion for the whole multi-scene feature: the arena a
   // match declares must be the arena that gets painted, in the live view AND in
