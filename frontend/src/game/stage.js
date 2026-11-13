@@ -912,14 +912,22 @@ function draw(c, frame, match, canvas) {
   // measured 34 to 249 buckets, while the procedural fallback measured 5 to 18,
   // so any single threshold either false-fails a real arena or false-passes a
   // fallback. The renderer knows the truth; let it say so.
+  //
+  // Write only on change. Assigning the same string to a dataset key still
+  // queues an attribute-mutation record, so declaring this every frame cost
+  // ~217 DOM mutations/second (measured: 5/s before stages existed) and forced
+  // style invalidation on the very element being repainted 60 times a second.
+  // The arena changes at match transitions, not per frame - so this now fires
+  // a handful of times per match while still declaring the truth every frame.
   if (canvas && canvas.dataset) {
-    canvas.dataset.stageMode = artStage ? 'art' : 'procedural';
-    canvas.dataset.stageDeclared = stageId;
-    canvas.dataset.stageFailed = ART.stageFailed ? '1' : '0';
-    // Which match this paint belongs to. Without it a checker can only compare
-    // the canvas against a state snapshot taken earlier, and a match that
-    // starts in between turns a correct render into a false failure.
-    canvas.dataset.stageMatch = (match && match.matchId) || '';
+    const d = canvas.dataset;
+    const mode = artStage ? 'art' : 'procedural';
+    const failed = ART.stageFailed ? '1' : '0';
+    const matchId = (match && match.matchId) || '';
+    if (d.stageMode !== mode) d.stageMode = mode;
+    if (d.stageDeclared !== stageId) d.stageDeclared = stageId;
+    if (d.stageFailed !== failed) d.stageFailed = failed;
+    if (d.stageMatch !== matchId) d.stageMatch = matchId;
   }
   if (!artStage) {
 

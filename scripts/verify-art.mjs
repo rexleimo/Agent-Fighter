@@ -175,6 +175,45 @@ try {
   const live2 = await liveProbe();
   const allMatches = (await (await fetch(BASE + '/api/matches')).json()).matches;
   const wantStage = state.match && state.match.stage;
+
+  // Per-frame DOM writes are a cost class the pixel and fetch checks cannot
+  // see: assigning the same string to a dataset key still queues an
+  // attribute-mutation record, and doing that on the element being repainted
+  // 60x/second forces style invalidation every frame. The stage self-report
+  // was measured at 217 attribute mutations/s (5/s before stages existed) and
+  // cost ~1.7fps; writing only on change brought it back to 4/s. Budget keeps
+  // the honest-but-expensive version from coming back.
+  const MUT_WINDOW_MS = 4000;
+  await cdp.send('Runtime.evaluate', {
+    expression: `(function(){
+    window.__mut = { attr: 0, child: 0 };
+    if (window.__mutObs) window.__mutObs.disconnect();
+    window.__mutObs = new MutationObserver(function(ms){
+      ms.forEach(function(m){
+        if (m.type === 'attributes') window.__mut.attr += 1;
+        else window.__mut.child += m.addedNodes.length + m.removedNodes.length;
+      });
+    });
+    window.__mutObs.observe(document.body, { childList: true, subtree: true, attributes: true });
+    window.__mutT0 = performance.now();
+    return 1;
+  })()`,
+    returnByValue: true,
+  });
+  await sleep(MUT_WINDOW_MS);
+  const mutRes = await cdp.send('Runtime.evaluate', {
+    expression: `(function(){
+    var secs = (performance.now() - window.__mutT0) / 1000;
+    if (window.__mutObs) window.__mutObs.disconnect();
+    return JSON.stringify({ attrPerSec: Math.round(window.__mut.attr / secs),
+      childPerSec: Math.round(window.__mut.child / secs), secs: +secs.toFixed(1) });
+  })()`,
+    returnByValue: true,
+  });
+  const mut = JSON.parse(mutRes.result.value);
+  ok('每帧渲染不产生 DOM 写入风暴（属性变更在预算内）',
+    mut.attrPerSec <= 40,
+    `属性 ${mut.attrPerSec}/s、节点 ${mut.childPerSec}/s / 预算 40/s，采样 ${mut.secs}s`);
   const plateOf = (u) => (u.match(/\/v\/(stage_[a-z0-9_]+)\//) || [])[1] || null;
   const fetched = live.stageFetch.map(plateOf).filter(Boolean);
   console.log('[Live] ' + JSON.stringify(live));
