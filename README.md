@@ -331,9 +331,44 @@ MCP 端点 `POST http://localhost:8787/mcp/<玩家 key>`（Streamable HTTP；玩
 >
 > 真正 CC0 可商用的开源格斗素材是有的（itch.io 上 LuizMelo 的 Martial Hero / 2 / 3，及同源 Samurai 四配色包），但规格是 33×56 像素、8–9 组动作、约 40 帧；本站有 19 个合法动作（含前冲 / 专属技 / EX / 超必杀），每角色需要 **30–60 套动画帧**，且每套必须与服务端权威帧表 / hitbox 严格对齐——适合做后期皮肤层，不能当主素材。内核与渲染已解耦，换皮不需要改内核。
 
+## 版本与发布
+
+版本号只在 4 个地方声明，由 `verify` 的 C4b 强制一致：`package.json`（消费者读的）、
+`src/server.js` 的 `server.version`（客户端实际收到的）、`src/mcp.js` 的 `serverInfo.version`、
+`web/guide.html` 的文档芯片与 banner。
+
+发布一次要做两件事，顺序固定：
+
+```bash
+npm run verify:mcp          # 先重新生成探针报告，否则 C4c 报报告过期
+npm run verify              # 全绿（含 C4b/C4c/C4d）
+git tag -a v<version> -m "v<version>"
+git push origin v<version>
+```
+
+- `docs/mcp-client-probe.json` 是 `scripts/mcp-real-client.mjs` 生成的报告，**不手改**。
+  它记录官方 SDK 真实收到的 `serverInfo`，所以必须在改版后的运行服务上重跑。
+- 探针要跑在玩家绑定服务上：`AFL_MCP_URL=http://host:port/mcp/<player key>`。
+  不给这个变量会退化成匿名模式，写出一份失败报告（比过期报告更糟）。
+- 发布约定分两条，不要混：
+  - **向前（C4d 强制的）**：一个版本第一次出现的那个提交（或紧跟它的发布提交）就是该版本的 tag 点，
+    打 tag 必须在 bump 当时做。C4d 只要发现 `package.json` 的版本没有同名 tag 就红，
+    所以“先改版本号、有空再补 tag”是不成立的。
+  - **回溯（我给 0.2.0–0.9.0 打 tag 时用的）**：那些版本发布时仓库根本没有 tag 习惯，
+    只能事后拿“最后一个携带该版本的提交”当发布点。这条**不能当规则用**：
+    谁是“最后一个”要到下一次 bump 之后才知道，bump 当时无人能确定。
+- **不要用 `git tag -f` 移动已推送的 tag**：它会生成新的 tag 对象（改 tagger 日期），
+  本地与远端就分叉了，而 `verify` 不联网、抓不到这种分叉。要打错就
+  `git tag -d` 后 `git push origin :refs/tags/v<x>` 再重打，或直接
+  `git fetch origin --tags --force` 以远端为准。
+- **先推分支，再推 tag**。只推 tag 不会造成悬空引用——实测 push tag 会自动连带上传可达提交，
+  全新 clone 里 tag 能正常解析。真实问题是另一样：那个提交只挂在 tag 上，**不在任何分支历史上**，
+  看 `main` 的人根本意识不到这里发布过，也不会从它继续开发。
+
 ## 验收
 
-`npm run verify` 真实执行 **23 项**检查，不依赖 lint 或编译通过：
+`npm run verify` 真实执行以下检查，不依赖 lint 或编译通过（未配置 `AFL_TEST_DATABASE_URL` 时，
+需要真实玩家账号的实时段会显式 SKIP 并说明原因，不会伪装成绿色）：
 
 1. 同 seed + 同 action 序列跑 1000 次，状态哈希全一致
 2. 60 局不同 seed 的回放逐拍重演一致

@@ -5,7 +5,7 @@
  * created and written into the match record, the replay header and the live
  * spectator payload. It is never rolled by the client: a live view showing the
  * dojo while the replay of the same match shows the rooftop is the same class of
- * fabricated data this league spent v0.8/v0.9 removing.
+ * fabricated data this league removed in v0.9. (There was no v0.8 release.)
  *
  * Everything here is data plus pure functions so the server can declare a stage
  * without importing any rendering code, and the renderer cannot invent one.
