@@ -12,6 +12,16 @@ import { initialize, listTools, callTool, registerAgent, joinQueue, AgentClient,
 import { simulateReplay } from '../src/simulator.js';
 import { authEnv, onboardPlayer } from './lib/harness-auth.mjs';
 
+// Synchronous git for the release-integrity checks. Throws on failure so the
+// callers can tell "no such tag" apart from "tag points somewhere odd" - a
+// helper that returned '' on error would make a missing tag look like a
+// version mismatch instead.
+const git = (...args) => {
+  const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+  if (r.status !== 0) throw new Error((r.stderr || r.stdout || 'git failed').trim());
+  return r.stdout.trim();
+};
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8799;
 const BASE = 'http://127.0.0.1:' + PORT;
@@ -187,6 +197,37 @@ async function verifyEndToEnd() {
         reported === null || reported === pkgV,
         `报告=${reported} 代码=${pkgV}`
         + (reported !== null && reported !== pkgV ? '  重新生成: npm run verify:mcp' : ''));
+    }
+
+    // C4d - the declared version has to resolve to a commit. A release number
+    // that exists only in package.json cannot be pointed at, bisected, or
+    // diffed, which is exactly the state this repository shipped in for every
+    // version before 0.10.0 (zero tags). Rule: tag v<pkgV> exists, its commit
+    // declares that same version, and it is an ancestor of HEAD - so a bump
+    // without a tag fails, and so does a tag pinned to the wrong commit.
+    let gitOk = true;
+    try { git('rev-parse', '--git-dir'); } catch { gitOk = false; }
+    if (!gitOk) {
+      check('C4d 已声明版本有对应 tag，且 tag 提交确实携带该版本', true,
+        'SKIP: 不在 git 工作区内，无法核对 tag');
+    } else {
+      let tagSha = null, tagVer = null, isAncestor = false, notAncestor = false;
+      try { tagSha = git('rev-parse', `v${pkgV}^{commit}`); } catch { /* missing tag */ }
+      if (tagSha) {
+        try { tagVer = JSON.parse(git('show', `${tagSha}:package.json`)).version; } catch { tagVer = null; }
+        try {
+          git('merge-base', '--is-ancestor', tagSha, 'HEAD');
+          isAncestor = true;
+        } catch {
+          notAncestor = true;
+        }
+      }
+      check('C4d 已声明版本有对应 tag，且 tag 提交确实携带该版本',
+        tagSha !== null && tagVer === pkgV && isAncestor,
+        `v${pkgV}=${tagSha ? tagSha.slice(0, 7) : '不存在'}`
+        + (tagSha ? ` 该提交版本=${tagVer}` : '')
+        + (notAncestor ? '  且不在 HEAD 的历史上（tag 钉到了别处）' : '')
+        + (!tagSha ? `  发布时请执行: git tag -a v${pkgV} -m "v${pkgV}" && git push origin v${pkgV}` : ''));
     }
 
     if (!TEST_DB) {
