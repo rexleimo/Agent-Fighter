@@ -399,6 +399,12 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ...league.costModel(), platformUsage: { replays: league.replayStore() } });
     return;
   }
+  if (p === '/api/stages' && req.method === 'GET') {
+    // The stage registry plus how an arena is chosen. Published as data so the
+    // client renders what the server declared instead of inventing a scene.
+    json(res, 200, league.stageModel());
+    return;
+  }
   if (p === '/api/training/drills' && req.method === 'GET') {
     json(res, 200, league.listDrills());
     return;

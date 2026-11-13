@@ -36,6 +36,10 @@ export function serializeReplay(replay) {
     rulesVersion: replay.rulesVersion,
     agents: replay.agents || [],
     fighters: replay.fighters || null,
+    // The arena travels inside the replay file itself. If it only lived in
+    // league.json, a replay downloaded on its own could not prove which stage it
+    // was fought on, and the viewer would have to guess.
+    stage: replay.stage || null,
     start: replay.start || null,
   };
   return JSON.stringify(header) + '\n'

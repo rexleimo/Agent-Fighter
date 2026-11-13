@@ -11,6 +11,7 @@ import { publicFighters, publicTeams, DEFAULT_FIGHTER, isValidFighter } from './
 import { validateStrategy, strategyHash, strategyTemplate, simulateStrategy, describeDsl, DSL_VERSION } from './strategy-dsl.js';
 import { normalizeTeam, TEAM_SIZE, TEAM_HEAL, TEAM_INTERMISSION_MS, TEAM_MAX_ROUNDS } from './team.js';
 import { matchCost, costModel, REPLAY_RETENTION } from './costs.js';
+import { stageFor, stageRef, neutralStage, stageModel } from './stages.js';
 import { runTraining, compareStrategies, listDrills } from './training.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -525,6 +526,9 @@ export class League {
           // ranked=false but mean different games, and a player reading their own
           // history cannot tell them apart without this field.
           pairing: m.pairing || null,
+          // The arena, so a player reviewing their own history can tell which
+          // stage a given match was fought on without re-downloading the replay.
+          stage: m.stage || stageRef(neutralStage()).id,
           format: m.format || 'single',
           side, opponent: other.name, opponentId: other.id,
           opponentOfficial: Boolean(m[side === 'a' ? 'b' : 'a'] && m[side === 'a' ? 'b' : 'a'].official),
@@ -584,7 +588,7 @@ export class League {
     return [a, b];
   }
 
-  recordMatch({ matchId, agentA, agentB, result, replay, decisions, roomId = null, mode = 'ranked', ranked = true, fighters = null, format = 'single', team = null, pairing = null }) {
+  recordMatch({ matchId, agentA, agentB, result, replay, decisions, roomId = null, mode = 'ranked', ranked = true, fighters = null, format = 'single', team = null, pairing = null, stage = null }) {
     // Ladder rule: a result touches the board only when two registered player
     // agents fought each other in a ranked room. Anything else - the demo
     // rotation, a scrim, or a match against an official baseline - is a real,
@@ -658,6 +662,10 @@ export class League {
       roomId,
       mode,
       pairing,
+      // The arena this match was actually fought in, as declared by the room at
+      // kickoff. Resolved through the registry so a stale or invented id cannot
+      // reach a record and then fail to resolve in the client.
+      stage: stageRef(stageFor(stage) || neutralStage()).id,
       cost: matchCost({
         mode,
         ranked: counted,
@@ -684,6 +692,9 @@ export class League {
     };
     this.matches.push(match);
     this.matches = this.matches.slice(-200);
+    // Stamp the arena onto the replay object before it is written, so the file
+    // is self-describing: serializeReplay only publishes fields it is given.
+    if (replay) replay.stage = match.stage;
     const replayText = replay && replay.format === 'afl-team-replay/1'
       ? JSON.stringify(replay) + '\n'
       : serializeReplay(replay);
@@ -859,6 +870,11 @@ export class League {
   /** The published cost model: what is free, what the player pays, what we pay. */
   costModel() {
     return costModel();
+  }
+
+  /** Which arenas exist and how one is chosen - data, not prose. */
+  stageModel() {
+    return stageModel();
   }
 
   listDrills() {

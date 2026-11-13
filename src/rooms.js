@@ -3,6 +3,7 @@ import { isLadderCompetitor } from './league.js';
 import { createMatch, safePolicy, renderState, renderReplay } from './engine.js';
 import { getBuiltinAgent } from './agents.js';
 import { getFighter, DEFAULT_FIGHTER, fighterBrief } from './fighters.js';
+import { selectStage, rosterTeam } from './stages.js';
 import { parseReplay } from './replay.js';
 import { decide } from './strategy-dsl.js';
 import { MAX_MODEL_CALLS_PER_MATCH } from './costs.js';
@@ -132,6 +133,11 @@ export class Room {
       roomId: this.id,
       matchId: c.matchId,
       seed: c.seed,
+      // The arena id, published in the same shape as the match record and the
+      // replay header. A spectator joining mid-game sees what the server chose
+      // at kickoff; the client resolves the rest through /api/stages. Keeping
+      // one shape across all three surfaces is what makes live==replay checkable.
+      stage: c.stage ? c.stage.id : null,
       mode: this.mode,
       format: this.format,
       code: this.code,
@@ -188,8 +194,14 @@ export class Room {
       return;
     }
     const match = createMatch({ seed, matchId, agents: [a, b], fighters: this.fighters });
+    // The arena is decided here, once, from data the replay already carries
+    // (seed + fighters). The client never picks it, so live and replay cannot
+    // disagree about which stage this match was fought on.
+    const stage = selectStage({
+      fighterA: this.fighters.a, fighterB: this.fighters.b, seed, mode: this.mode,
+    });
     this.current = {
-      matchId, seed, match, a, b,
+      matchId, seed, match, a, b, stage,
       pending: { a: null, b: null },
       obs: null,
       decisions: newDecisionCounters(),
@@ -236,8 +248,13 @@ export class Room {
     const sideTeam = (side, agent, n) => (this.teams && this.teams[side]) || (agent && agent.team) || pick(n);
     this.teams = { a: normalizeTeam(sideTeam('a', a, 0)), b: normalizeTeam(sideTeam('b', b, 3)) };
     const team = createTeamState({ matchId, seed, teams: this.teams });
+    // A 3v3 belongs to a team, so the home stage comes from the rosters, not
+    // from whichever fighter happens to be listed first.
+    const stage = selectStage({
+      teamA: rosterTeam(this.teams.a), teamB: rosterTeam(this.teams.b), seed, mode: this.mode,
+    });
     this.current = {
-      matchId, seed, a, b, team,
+      matchId, seed, a, b, team, stage,
       teamReplay: createTeamReplay(matchId, seed, [a, b], this.teams),
       match: null,
       pending: { a: null, b: null },
@@ -531,6 +548,7 @@ export class Room {
       ranked: this.ranked,
       pairing: this.pairing,
       fighters: this.fighters,
+      stage: c.stage ? c.stage.id : null,
     });
     this.renderedReplay = rendered || renderReplay(replay || c.match.replay);
     this.league.unlockAgents([c.a.id, c.b.id]);
@@ -602,6 +620,10 @@ export class RoomManager {
       status: r.status,
       ranked: r.ranked,
       pairing: r.pairing,
+      // Same field, same shape, on every surface that names a match: record,
+      // replay header, room meta and room list. A partial publish is how a
+      // client ends up guessing the arena in one view and reading it in another.
+      stage: r.current ? (r.current.stage ? r.current.stage.id : null) : null,
       matchId: r.current ? r.current.matchId : null,
       tick: r.current && r.current.match ? r.current.match.tick : 0,
       round: r.current && r.current.team ? r.current.team.round : 1,
