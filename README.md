@@ -194,6 +194,9 @@ PORT=9000 AFL_TICK_MS=100 AFL_DATA_DIR=./data npm start
 | `examples/hosted-agent/` | **托管赛道**：声明式 `strategy.json` + 纯 MCP 接入说明 |
 | `examples/llm-agent/` | 模型驱动策略模板（关键局势询问 + 超时降级） |
 | `web/assets/art/` | 16 张原创角色立绘 + 5 张舞台背景板（带 alpha 的 PNG），`raw/` 为生成原图；舞台源图在 `assets/source/plates/stage/` |
+| `web/assets/v/` | **两条独立管线的发布产物，都已随仓库分发**：`v/<角色>/` 是 plate 管线（立绘/背景切图），`v/sprites/` 是 sprite 管线（逐帧动作 sheet + `anim.<hash>.json`）。两者各自有自己的清单（`manifest.json` / `sprites.json`），互不引用；构建清理只准动自己清单点名的文件 |
+| `scripts/sprites/slice.mjs` | sprite 管线生成器：源 sheet 切成发布产物，写 `sprites.json` |
+| `scripts/sprites/redraw-row.mjs` | **逐格重绘**：只换点名的几格（`--cells 5,12`），其余格逐字节不变，所以它们的 FACING 台账条目仍然有效。`--from` 复用已有生成结果不二次付费，`--out` 写到别处先验后信，`AFL_SPRITE_SOURCE` 让 `--write` 可在一次性副本上被真实执行 |
 | `scripts/matte.mjs` | 零依赖素材管线：PNG 解码、去背、裁切、清平台水印 |
 | `scripts/rig-bake.mjs` | 拆件烘焙：把立绘按骨架切成分部件，输出所有权蒙版与 `rig.json` |
 | `web/rig.js` | 拆件人偶渲染器：用服务端关节角驱动每个部件 |
