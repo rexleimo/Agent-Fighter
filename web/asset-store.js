@@ -19,6 +19,9 @@ const state = {
 const images = new Map();
 const rigData = new Map();
 const MAX_IMAGES = 24;
+// One entry per stage plate, so switching arenas never drops the previous one
+// while a replay is still painting it.
+const stageImages = new Map();
 
 function remember(key, value) {
   if (images.size >= MAX_IMAGES) {
@@ -63,9 +66,32 @@ export function variantFor(id, role) {
   return asset.variants.find((variant) => variant.role === role) || asset.variants[0] || null;
 }
 
-export function stageVariant() {
-  const stage = [...state.byId.values()].find((asset) => asset.kind === 'stage-plate');
-  return stage && stage.variants ? stage.variants[0] : null;
+/**
+ * The plate for one stage. There used to be exactly one stage in the league, so
+ * this took the first `stage-plate` it found; with five arenas that would draw
+ * the neutral stadium behind every match regardless of what the server declared.
+ * `stageId` is the id the server published, and an unknown id resolves to the
+ * neutral arena rather than to an arbitrary plate.
+ */
+export function stageVariant(stageId) {
+  const plates = [...state.byId.values()].filter((asset) => asset.kind === 'stage-plate');
+  if (!plates.length) return null;
+  const wanted = stageId ? plates.find((p) => p.id === stageId) : null;
+  return wanted || plates.find((p) => p.preload === 'critical') || plates[0];
+}
+
+/** The plate a request resolved to, so a fallback uses its own legacy file
+ *  instead of reverse-parsing a url. */
+export function stagePlateFor(stageId) {
+  const asset = stageVariant(stageId);
+  if (!asset) return null;
+  const variant = asset.variants ? asset.variants.find((v) => v.role === 'stage') || asset.variants[0] : null;
+  return variant ? { id: asset.id, path: variant.path } : null;
+}
+
+/** Which stage ids actually have a published plate - used to report honestly. */
+export function stagePlateIds() {
+  return [...state.byId.values()].filter((a) => a.kind === 'stage-plate').map((a) => a.id);
 }
 
 export function legacyArtUrl(id) {
@@ -114,11 +140,24 @@ async function ensureManifest() {
   return loadManifest();
 }
 
-export async function loadStageArt() {
-  if (state.stage) return state.stage;
+export async function loadStageArt(stageId) {
+  const key = stageId || 'stage_main';
+  if (stageImages.get(key)) return stageImages.get(key);
   await ensureManifest();
-  const variant = stageVariant();
-  const img = await loadImage(variant && variant.path, legacyArtUrl('stage_main'));
+  const plate = stagePlateFor(key);
+  if (!plate) return loadStageArtFallback(key);
+  const img = await loadImage(plate.path, legacyArtUrl(plate.id));
+  stageImages.set(key, img);
+  if (!stageImages.get('stage_main')) stageImages.set('stage_main', img);
+  state.stage = img;
+  return img;
+}
+
+/** No manifest plate at all: the legacy file, and never a blank arena. */
+async function loadStageArtFallback(key) {
+  const img = await loadImage(null, legacyArtUrl(key));
+  stageImages.set(key, img);
+  if (!stageImages.get('stage_main')) stageImages.set('stage_main', img);
   state.stage = img;
   return img;
 }

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAppState } from '../hooks/useAppState';
 import { createStageRenderer } from '../game/stage.js';
-import type { Fighter, MatchSummary } from '../lib/types';
+import type { Fighter, MatchSummary, StageRegistry } from '../lib/types';
 
 const REASON_LABEL: Record<string, string> = { ko: 'KO', time_up: '时间到', elimination: '全队淘汰' };
 const ACTION_LABEL: Record<string, string> = {
@@ -31,12 +32,14 @@ function ReplayCanvas({
   match,
   moves,
   fighters,
+  stages,
 }: {
   ticks: Tick[];
   index: number;
   match: any;
   moves: Record<string, any>;
   fighters: Fighter[];
+  stages: StageRegistry | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<any>(null);
@@ -53,6 +56,7 @@ function ReplayCanvas({
     showFx: true,
     showRuler: false,
     showGrid: false,
+    stageRegistry: null,
   });
 
   useEffect(() => {
@@ -64,13 +68,15 @@ function ReplayCanvas({
       replayCanvas: canvas,
     });
     rendererRef.current = renderer;
-    renderer.loadStageArtwork();
+    // The arena is resolved from the match record inside draw(); preloading one
+    // fixed plate here is what made every replay open on the same venue.
   }, []);
 
   useEffect(() => {
     viewRef.current.moves = moves;
     viewRef.current.fighters = fighters;
-  }, [moves, fighters]);
+    viewRef.current.stageRegistry = stages;
+  }, [moves, fighters, stages]);
 
   useEffect(() => {
     const tick = ticks[index];
@@ -94,6 +100,10 @@ function ReplayCanvas({
 
 export function ReplayPage() {
   const app = useAppState();
+  // A replay link must be shareable: without this the page can only ever open
+  // on the newest match, so there is no way to point at one arena in particular
+  // (and no way for a gate to assert live and replay agree on a given match).
+  const [params, setParams] = useSearchParams();
   const matchesQuery = useQuery({
     queryKey: ['matches'],
     queryFn: () => api<{ matches: MatchSummary[] }>('/api/matches'),
@@ -112,6 +122,11 @@ export function ReplayPage() {
 
   const matches = matchesQuery.data?.matches ?? [];
   const fighters = app.data?.fighters ?? [];
+  const stages = useMemo<StageRegistry>(() => {
+    const map: StageRegistry = {};
+    for (const s of app.data?.stages?.stages ?? []) map[s.id] = s;
+    return map;
+  }, [app.data?.stages]);
 
   async function select(id: string) {
     setPlaying(false);
@@ -121,14 +136,22 @@ export function ReplayPage() {
       setMatchId(id);
       setReplay({ match: data.match, ticks: data.ticks ?? [] });
       setIndex(0);
+      setParams((prev) => { const next = new URLSearchParams(prev); next.set('match', id); return next; }, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : '回放载入失败');
     }
   }
 
   useEffect(() => {
+    const want = params.get('match');
+    if (!want || want === matchId) return;
+    if (matches.some((m) => m.matchId === want)) select(want);
+  }, [params, matches]);
+
+  useEffect(() => {
+    if (params.get('match')) return;
     if (!matchId && matches.length) select(matches[0].matchId);
-    // Select the newest match once, then let the user drive.
+    // Deep link wins; otherwise open the newest match once, then let the user drive.
   }, [matches.length]);
 
   useEffect(() => {
@@ -190,6 +213,7 @@ export function ReplayPage() {
               match={replay?.match}
               moves={rules.data?.moves ?? {}}
               fighters={fighters}
+              stages={stages}
             />
             <div className="stage-topbar">
               <span className="live-badge replay"><svg className="ic"><use href="#i-replay" /></svg>REPLAY</span>

@@ -257,6 +257,42 @@ function refsFor(manifest) {
   return refs;
 }
 
+/**
+ * Sub-trees of web/assets/v that belong to another pipeline.
+ *
+ * `prune` used to sweep the whole `v/` tree and delete anything this build's
+ * manifest did not name - which silently destroyed the sprite pipeline's
+ * output under `v/sprites/`, because sprites are published by
+ * `sprites.json`, not by `manifest.json`. A build step must not treat another
+ * step's published namespace as garbage, so ownership is declared here instead
+ * of being inferred from one manifest.
+ */
+const FOREIGN_NAMESPACES = [
+  { dir: 'sprites', manifest: 'sprites.json', label: 'sprite pipeline' },
+];
+
+function foreignRefs(outRoot) {
+  const refs = new Set();
+  for (const ns of FOREIGN_NAMESPACES) {
+    const p = path.join(outRoot, ns.manifest);
+    if (!fs.existsSync(p)) continue;
+    try {
+      const doc = JSON.parse(fs.readFileSync(p, 'utf8'));
+      for (const url of urlsIn(doc)) {
+        if (url.startsWith('/assets/')) refs.add(url.slice('/assets/'.length));
+      }
+    } catch { /* unreadable sibling manifest: keep its tree, never delete blind */ }
+  }
+  return refs;
+}
+
+function urlsIn(value, out = []) {
+  if (typeof value === 'string') { if (value.startsWith('/assets/')) out.push(value); return out; }
+  if (Array.isArray(value)) { for (const v of value) urlsIn(v, out); return out; }
+  if (value && typeof value === 'object') { for (const v of Object.values(value)) urlsIn(v, out); }
+  return out;
+}
+
 function prune(outRoot) {
   const manifestPath = path.join(outRoot, 'manifest.json');
   const prevPath = path.join(outRoot, 'manifest.prev.json');
@@ -266,10 +302,17 @@ function prune(outRoot) {
     for (const ref of refsFor(JSON.parse(fs.readFileSync(prevPath, 'utf8')))) refs.add(ref);
   }
   const vRoot = path.join(outRoot, 'v');
+  const foreign = foreignRefs(outRoot);
+  const foreignDirs = new Set(FOREIGN_NAMESPACES.map((n) => n.dir));
   let removed = 0;
+  let skippedForeign = 0;
   for (const file of walkFiles(vRoot)) {
     const rel = path.relative(outRoot, file).split(path.sep).join('/');
-    if (refs.has(rel)) continue;
+    // Never touch another pipeline's namespace, even if this manifest is silent
+    // about it.
+    const top = rel.split('/')[1];
+    if (foreignDirs.has(top)) { skippedForeign += 1; continue; }
+    if (refs.has(rel) || foreign.has(rel)) continue;
     fs.rmSync(file, { force: true });
     removed += 1;
   }

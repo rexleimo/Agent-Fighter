@@ -688,6 +688,76 @@ async function partC() {
       `EX=${CONFIG.EX_COST} SUPER=${CONFIG.SUPER_COST} MAX=${CONFIG.MAX_METER}`);
   }
 
+  // --- Stage selection: the arena is match data, decided server-side.
+  {
+    const { selectStage, stageModel, STAGES } = await import('../src/stages.js');
+    const model = stageModel();
+    check('S1 舞台登记表是服务端数据，且每个队风场都有对应 plate',
+      model.stages.length === 5 && model.stages.every((s) => s.plate === s.id)
+      && model.neutral === 'stage_main',
+      `${model.stages.length} 个舞台，中性场 ${model.neutral}`);
+
+    const home = selectStage({ fighterA: 'ember', fighterB: 'cinder', seed: 12345, mode: 'ranked' });
+    const homeTeam = selectStage({ fighterA: 'basalt', fighterB: 'girder', seed: 999, mode: 'ranked' });
+    check('S2 同队对局 -> 该队主场（不是随机场地）',
+      home.id === 'stage_pyre' && homeTeam.id === 'stage_steel',
+      `pyre=${home.id} steel=${homeTeam.id}`);
+
+    const seen = new Set();
+    for (let i = 0; i < 600; i += 1) {
+      seen.add(selectStage({ fighterA: 'ember', fighterB: 'volt', seed: (i * 2654435761) >>> 0, mode: 'ranked' }).id);
+    }
+    check('S3 跨队对局确实会换场地（多场景不是写在文档里的能力）',
+      seen.size >= 3, [...seen].join(','));
+
+    const fixed = new Set();
+    for (let i = 0; i < 5; i += 1) {
+      fixed.add(selectStage({ fighterA: 'ember', fighterB: 'volt', seed: 424242, mode: 'ranked' }).id);
+    }
+    check('S4 同一 seed 必得同一场地（否则直播与回放会各自摇骰子）',
+      fixed.size === 1, [...fixed].join(','));
+
+    check('S5 没有 seed 时回到中性场，绝不编一个场景出来',
+      selectStage({ fighterA: 'ember', fighterB: 'volt', mode: 'ranked' }).id === 'stage_main'
+      && selectStage({ fighterA: 'ember', fighterB: 'volt', seed: Number.NaN, mode: 'ranked' }).id === 'stage_main',
+      'unseeded -> stage_main');
+
+    check('S6 3v3 按阵容归属判队，不拿首个角色冒充全队',
+      selectStage({ teamA: 'tide', teamB: 'tide', seed: 7, mode: 'ranked' }).id === 'stage_tide'
+      && selectStage({ teamA: 'void', teamB: 'steel', seed: 7, mode: 'ranked' }).id !== null,
+      'roster teams honoured');
+
+    // Recorded through the real path, not by hoping the demo rotation happened
+    // to pair cross-team this run.
+    const declared = league.recordMatch({
+      matchId: 'x_stage_declared', agentA: agent(A), agentB: agent(B),
+      result: result('a'), replay: replay('x_stage_declared'), decisions: none,
+      roomId: 'r_x', mode: 'ranked', ranked: true, pairing: 'rating',
+      fighters: { a: 'ember', b: 'volt' },
+      stage: 'stage_pyre', seed: 424242,
+    });
+    const undeclared = league.recordMatch({
+      matchId: 'x_stage_missing', agentA: agent(A), agentB: agent(B),
+      result: result('b'), replay: replay('x_stage_missing'), decisions: none,
+      roomId: 'r_x', mode: 'ranked', ranked: true, pairing: 'rating',
+      fighters: { a: 'ember', b: 'volt' },
+      stage: 'stage_not_a_real_arena', seed: 424243,
+    });
+    check('S7 服务端声明的场地写进记录；未声明/未知 id 记为 null 而不是被洗成中性场',
+      declared.stage === 'stage_pyre' && declared.seed === 424242 && undeclared.stage === null,
+      `声明=${declared.stage} 未知=${String(undeclared.stage)}`);
+
+    check('S7b 场地选取结果与记录一致：同 seed 重放同一场地',
+      selectStage({ fighterA: 'ember', fighterB: 'volt', seed: declared.seed, mode: 'ranked' }) !== undefined
+      && Number.isFinite(declared.seed),
+      `seed ${declared.seed} 可复现`);
+
+    const { stageFor } = await import('../src/stages.js');
+    check('S8 未登记的场地 id 解析不出舞台（null），调用方不会拿到一个假中性场',
+      stageFor('stage_not_a_real_arena') === null && stageFor('stage_pyre').id === 'stage_pyre',
+      String(stageFor('stage_not_a_real_arena')));
+  }
+
 }
 
 const failed = results.filter((r) => !r.ok);

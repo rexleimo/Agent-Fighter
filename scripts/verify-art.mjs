@@ -31,7 +31,18 @@ for (let i = 0; i < 40; i += 1) {
 if (!state) { console.error('服务未启动：' + BASE); process.exit(1); }
 
 const manifest = await (await fetch(BASE + '/assets/manifest.json')).json();
-ok('manifest has 17 assets', manifest.assets.length === 17, String(manifest.assets.length));
+// The stage registry is what says how many arenas exist. Hardcoding "17 assets"
+// made this gate rot the moment the league grew another arena, and a number
+// copied from today's build proves nothing about tomorrow's.
+const stageModel = await (await fetch(BASE + '/api/stages')).json();
+const wantStages = stageModel.stages.length;
+const plateAssets = manifest.assets.filter((a) => a.kind === 'stage-plate');
+ok('manifest publishes one plate per registered stage',
+  plateAssets.length === wantStages,
+  `${plateAssets.length}/${wantStages} 个舞台 plate`);
+ok('asset count matches roster + registry',
+  manifest.assets.length === 16 + wantStages,
+  `${manifest.assets.length} 资产 = 16 角色 + ${wantStages} 舞台`);
 ok('16 fighters in manifest', manifest.assets.filter((a) => a.kind === 'fighter-plate').length === 16);
 ok('fighters[].art still exposes the legacy field', state.fighters.every((f) => f.art === '/assets/art/' + f.id + '.png'));
 
@@ -50,7 +61,8 @@ for (const asset of manifest.assets) {
     else console.log('    坏资源 ' + variant.path + ' -> ' + res.status + ' ' + type + ' ' + JSON.stringify(probe));
   }
 }
-ok('every manifest variant is reachable and matches dimensions/alpha', checked === 33, `${checked}/33`);
+const wantVariants = manifest.assets.reduce((n, a) => n + (a.variants ? a.variants.length : 0), 0);
+ok('every manifest variant is reachable and matches dimensions/alpha', checked === wantVariants, `${checked}/${wantVariants}`);
 
 // Chrome -------------------------------------------------------------------
 const CHROME_CANDIDATES = [
@@ -135,13 +147,17 @@ try {
       const names=res.map(e=>new URL(e.name).pathname);
       const plays=[...new Set(names.filter(n=>/\\/assets\\/v\\/[a-z0-9-]+\\/play-512\\./.test(n)))];
       const cards=names.filter(n=>/\\/assets\\/v\\/[a-z0-9-]+\\/card-480\\./.test(n));
-      const stageFetch=names.filter(n=>/stage_main|\\/stage-/.test(n));
+      const stageFetch=names.filter(n=>/\\/assets\\/v\\/stage_[a-z0-9_]+\\/stage-/.test(n));
       const cv=document.getElementById('stage');
       const band=cv.getContext('2d').getImageData(300,60,360,150).data;
       const bc=new Set();
       for(let i=0;i<band.length;i+=16) bc.add((band[i]>>4)+'-'+(band[i+1]>>4)+'-'+(band[i+2]>>4));
       const tickText=(document.querySelector('.vs-tick')||{}).textContent||'';
-      return { plays, cards, stageFetch, bandColors:bc.size,
+      const stageCv=document.getElementById('stage');
+      const stageMode=(stageCv&&stageCv.dataset?stageCv.dataset.stageMode:'')||'';
+      const stageDeclared=(stageCv&&stageCv.dataset?stageCv.dataset.stageDeclared:'')||'';
+      const stageFailed=(stageCv&&stageCv.dataset?stageCv.dataset.stageFailed:'')||'';
+      return { plays, cards, stageFetch, bandColors:bc.size, stageMode, stageDeclared, stageFailed,
         tick:tickText.trim(),
         tickNum:(tickText.match(/TICK\\s*(\\d+)/)||[])[1]||'',
         decisions:document.querySelectorAll('.event-list .ev').length };})())`,
@@ -156,6 +172,9 @@ try {
   const live = await liveProbe();
   await sleep(2500);
   const live2 = await liveProbe();
+  const wantStage = state.match && state.match.stage;
+  const plateOf = (u) => (u.match(/\/v\/(stage_[a-z0-9_]+)\//) || [])[1] || null;
+  const fetched = live.stageFetch.map(plateOf).filter(Boolean);
   console.log('[Live] ' + JSON.stringify(live));
   ok('Live loads only the active fighters', live.plays.length >= 1 && live.plays.length <= 2, JSON.stringify(live.plays));
   ok('Live does not preload gallery cards', live.cards.length === 0, JSON.stringify(live.cards));
@@ -163,10 +182,70 @@ try {
   // the painted plate was fetched over HTTP (255 vs 5 buckets in a background
   // band separates art from the flat procedural fallback; the full-canvas
   // number could not, because HUD and impact FX inflate it either way).
+  // Primary evidence: the renderer declares which branch painted the
+  // background, and which arena it was told to paint. This replaced a color
+  // bucket threshold, which stopped being discriminative once the league had
+  // five arenas (real arenas measured 34-249 buckets, fallback 5-18).
+  ok('背景由美术 plate 绘制（不是程序化兜底几何）', live.stageMode === 'art',
+    `渲染分支 ${live.stageMode || '未声明'}`);
   ok('舞台贴图真的被请求（不是程序化兜底）', live.stageFetch.length >= 1, JSON.stringify(live.stageFetch));
-  ok('Canvas is painting the painted stage/art', live.bandColors > 60, `背景带取样色数 ${live.bandColors}`);
+  ok('渲染器绘制的是对局声明的那个场地', live.stageDeclared === wantStage,
+    `声明 ${wantStage} / 绘制 ${live.stageDeclared}`);
+  ok('没有发生 plate 加载失败回退', live.stageFailed !== '1', `stageFailed=${live.stageFailed}`);
+  // Secondary: a painted arena is never a flat fill. Kept low on purpose -
+  // this only catches "solid color canvas", not "wrong arena".
+  ok('背景不是平涂（美术内容存在）', live.bandColors > 25, `背景带取样色数 ${live.bandColors}`);
   ok('实时推流仍在跑', /^TICK \d+/.test(live.tick) && live2.tickNum !== live.tickNum,
     live.tick + ' -> ' + live2.tick);
+
+  // The acceptance criterion for the whole multi-scene feature: the arena a
+  // match declares must be the arena that gets painted, in the live view AND in
+  // the replay, from the same record. Anything else means one of the two is
+  // choosing a stage on its own.
+  const allMatches = (await (await fetch(BASE + '/api/matches')).json()).matches;
+  const staged = allMatches.filter((m) => m.stage);
+  const teamMatch = staged.find((m) => m.stage !== 'stage_main');
+  ok('真实对局里出现了队风主场（多场景不是纸面能力）', Boolean(teamMatch),
+    teamMatch ? `${teamMatch.matchId} -> ${teamMatch.stage}` : '全部仍是 stage_main');
+  ok('同一局的记录与回放文件头部声明同一场地', await (async () => {
+    if (!teamMatch) return false;
+    const text = await (await fetch(`${BASE}/api/replay/${encodeURIComponent(teamMatch.matchId)}`)).text();
+    const header = JSON.parse(text.split('\n')[0]);
+    return header.stage === teamMatch.stage && header.seed === teamMatch.seed;
+  })(), teamMatch ? `${teamMatch.stage} + seed ${teamMatch.seed}` : 'n/a');
+
+  if (teamMatch) {
+    await cdp.send('Page.navigate', { url: `${BASE}/replay?match=${encodeURIComponent(teamMatch.matchId)}` });
+    await sleep(4500);
+    const replayEval = await cdp.send('Runtime.evaluate', {
+      expression: `JSON.stringify((()=>{
+        const names=performance.getEntriesByType('resource').map(e=>new URL(e.name).pathname);
+        const rc=document.getElementById('replayCanvas');
+        return { stageFetch: names.filter(n=>/\\/assets\\/v\\/stage_[a-z0-9_]+\\/stage-/.test(n)),
+          mode: (rc&&rc.dataset?rc.dataset.stageMode:'')||'',
+          declared: (rc&&rc.dataset?rc.dataset.stageDeclared:'')||'',
+          cv: Boolean(rc) };})())`,
+      returnByValue: true,
+    });
+    if (!replayEval.result || replayEval.result.value === undefined) {
+      throw new Error('replay probe returned no value: ' + JSON.stringify(replayEval.exceptionDetails || replayEval));
+    }
+    const replayProbe = JSON.parse(replayEval.result.value);
+    const replayPlates = replayProbe.stageFetch.map(plateOf).filter(Boolean);
+    ok('回放页请求的正是该局声明的场地',
+      replayPlates.includes(teamMatch.stage),
+      `声明 ${teamMatch.stage} / 回放实际请求 ${JSON.stringify(replayPlates)}`);
+    ok('回放背景由美术 plate 绘制，且绘制的就是该局场地',
+      replayProbe.mode === 'art' && replayProbe.declared === teamMatch.stage,
+      `分支 ${replayProbe.mode || '未声明'} / 绘制 ${replayProbe.declared || '—'}`);
+    // Live and replay must not disagree: both derive from the record, so if one
+    // of them kept its own default the two would differ on this exact match.
+    ok('直播与回放对同一局的场地一致',
+      replayPlates.length > 0 && replayPlates.every((p) => p === teamMatch.stage),
+      `直播 ${JSON.stringify(fetched)} vs 回放 ${JSON.stringify(replayPlates)}`);
+    await cdp.send('Page.navigate', { url: BASE + '/?view=live' });
+    await sleep(3000);
+  }
   let shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   fs.writeFileSync(path.join(ROOT, 'docs', 'preview-live.png'), Buffer.from(shot.data, 'base64'));
 

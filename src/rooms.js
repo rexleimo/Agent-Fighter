@@ -549,6 +549,7 @@ export class Room {
       pairing: this.pairing,
       fighters: this.fighters,
       stage: c.stage ? c.stage.id : null,
+      seed: c.seed,
     });
     this.renderedReplay = rendered || renderReplay(replay || c.match.replay);
     this.league.unlockAgents([c.a.id, c.b.id]);

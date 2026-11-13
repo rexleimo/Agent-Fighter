@@ -289,12 +289,48 @@ export type MatchInfo = {
   format?: string;
   mode?: string;
   status?: string;
+  /** Arena id chosen by the server at kickoff. Absent on matches recorded
+   *  before stage tracking existed - the renderer reads that as "unknown",
+   *  not as "neutral arena". */
+  stage?: string | null;
+  seed?: number | null;
   lastFrame?: Frame | null;
   a?: { id: string; name: string; [key: string]: unknown };
   b?: { id: string; name: string; [key: string]: unknown };
   team?: TeamView | null;
   [key: string]: unknown;
 };
+
+export type StageLayers = {
+  weather: 'rain' | 'embers' | 'dust' | 'sparks' | 'none';
+  ambient: 'neon' | 'warm' | 'cool' | 'sodium' | 'storm';
+  crowd: boolean;
+  parallax: number;
+  flicker: number;
+};
+
+/** One arena in the server registry. `id` is what a match record carries. */
+export type StageInfo = {
+  id: string;
+  name: string;
+  label: string;
+  team: string | null;
+  teamName: string | null;
+  neutral: boolean;
+  description: string;
+  plate: string;
+  layers: StageLayers;
+};
+
+/** GET /api/stages, and the `stages` block of /api/state. */
+export type StageModel = {
+  count: number;
+  neutral: string;
+  selection: string[];
+  stages: StageInfo[];
+};
+
+export type StageRegistry = Record<string, StageInfo>;
 
 export type AppState = {
   server: {
@@ -306,6 +342,8 @@ export type AppState = {
     version: string;
   };
   match: MatchInfo | null;
+  /** Arena registry the server uses to pick each match's stage. */
+  stages?: StageModel;
   rooms: Room[];
   lobby: {
     queue: QueueEntry[];

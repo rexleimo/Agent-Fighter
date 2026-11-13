@@ -11,7 +11,7 @@ import { publicFighters, publicTeams, DEFAULT_FIGHTER, isValidFighter } from './
 import { validateStrategy, strategyHash, strategyTemplate, simulateStrategy, describeDsl, DSL_VERSION } from './strategy-dsl.js';
 import { normalizeTeam, TEAM_SIZE, TEAM_HEAL, TEAM_INTERMISSION_MS, TEAM_MAX_ROUNDS } from './team.js';
 import { matchCost, costModel, REPLAY_RETENTION } from './costs.js';
-import { stageFor, stageRef, neutralStage, stageModel } from './stages.js';
+import { stageFor, stageRef, stageModel } from './stages.js';
 import { runTraining, compareStrategies, listDrills } from './training.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -528,7 +528,10 @@ export class League {
           pairing: m.pairing || null,
           // The arena, so a player reviewing their own history can tell which
           // stage a given match was fought on without re-downloading the replay.
-          stage: m.stage || stageRef(neutralStage()).id,
+          // Records written before stage tracking stay null: "we did not record
+          // it" is the truth, and claiming the neutral arena would be a fact the
+          // server never actually decided.
+          stage: m.stage || null,
           format: m.format || 'single',
           side, opponent: other.name, opponentId: other.id,
           opponentOfficial: Boolean(m[side === 'a' ? 'b' : 'a'] && m[side === 'a' ? 'b' : 'a'].official),
@@ -588,7 +591,7 @@ export class League {
     return [a, b];
   }
 
-  recordMatch({ matchId, agentA, agentB, result, replay, decisions, roomId = null, mode = 'ranked', ranked = true, fighters = null, format = 'single', team = null, pairing = null, stage = null }) {
+  recordMatch({ matchId, agentA, agentB, result, replay, decisions, roomId = null, mode = 'ranked', ranked = true, fighters = null, format = 'single', team = null, pairing = null, stage = null, seed = null }) {
     // Ladder rule: a result touches the board only when two registered player
     // agents fought each other in a ranked room. Anything else - the demo
     // rotation, a scrim, or a match against an official baseline - is a real,
@@ -664,8 +667,15 @@ export class League {
       pairing,
       // The arena this match was actually fought in, as declared by the room at
       // kickoff. Resolved through the registry so a stale or invented id cannot
-      // reach a record and then fail to resolve in the client.
-      stage: stageRef(stageFor(stage) || neutralStage()).id,
+      // reach a record and then fail to resolve in the client - and an
+      // unresolvable id stays null ("not recorded") rather than being laundered
+      // into a claim that the fight happened in the neutral arena.
+      stage: stage && stageFor(stage) ? stageFor(stage).id : null,
+      // The seed is part of what makes a match reproducible: stage selection
+      // and every seed-driven layer read it. The replay file already carried
+      // it; keeping it out of the record left two sources of truth for one
+      // match, and the render endpoint (which reads the record) had none.
+      seed: Number.isFinite(seed) ? seed >>> 0 : null,
       cost: matchCost({
         mode,
         ranked: counted,

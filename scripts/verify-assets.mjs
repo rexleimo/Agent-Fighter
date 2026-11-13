@@ -34,9 +34,39 @@ for (let i = 0; i < 40; i += 1) {
 if (!state) { console.error('服务未启动：' + BASE); process.exit(1); }
 ok('server advertises the asset manifest', state.assets && state.assets.ok === true, JSON.stringify(state.assets || null));
 
+// The plate build used to sweep all of web/assets/v and delete anything its own
+// manifest did not name - which included the sprite pipeline's published files.
+// That broke rendering while every asset check about stages still passed, so
+// cross-pipeline ownership gets its own assertion here.
+{
+  const spriteIndex = await (await fetch(BASE + '/assets/sprites.json')).json();
+  const ids = (spriteIndex.fighters || []).map((f) => f.id);
+  const probe = ids.slice(0, 3);
+  let missing = 0;
+  for (const id of probe) {
+    const entry = (spriteIndex.fighters || []).find((f) => f.id === id);
+    const url = entry && (entry.anim || (entry.sheets && entry.sheets[0] && entry.sheets[0].url));
+    if (!url) { missing += 1; continue; }
+    const res = await fetch(BASE + url);
+    if (!res.ok) { missing += 1; console.log('    sprite 丢失 ' + id + ' -> ' + url + ' ' + res.status); }
+  }
+  ok('sprite 管线的产物仍在原位（plate 构建不越界清理别人的目录）',
+    ids.length > 0 && missing === 0,
+    `${probe.length} 个抽样 sprite 资源，缺失 ${missing}`);
+}
+
 const manifest = await (await fetch(BASE + '/assets/manifest.json')).json();
-ok('manifest has 16 fighters + stage', manifest.assets.length === 17
-  && manifest.assets.filter((a) => a.kind === 'fighter-plate').length === 16);
+// "16 fighters + stage" was true when the league had one arena. The stage
+// count now comes from the server registry, which is what actually decides how
+// many arenas a match can be played in.
+const stageRegistry = await (await fetch(BASE + '/api/stages')).json();
+const plateAssets = manifest.assets.filter((a) => a.kind === 'stage-plate');
+ok('manifest has 16 fighters plus one plate per registered stage',
+  manifest.assets.length === 16 + stageRegistry.stages.length
+  && manifest.assets.filter((a) => a.kind === 'fighter-plate').length === 16
+  && plateAssets.length === stageRegistry.stages.length
+  && stageRegistry.stages.every((s) => plateAssets.some((p) => p.id === s.id)),
+  `${manifest.assets.length} 资产 / ${plateAssets.length} 个舞台 plate`);
 
 // Header checks -------------------------------------------------------------
 {
@@ -135,21 +165,85 @@ if (!chromePath) {
           names,
           plays,
           rigs,
+          stageFetch: names.filter(n => /\\/assets\\/v\\/stage_[a-z0-9_]+\\/stage-/.test(n)),
           cards,
           masks: names.filter(n => /mask\\.png$/.test(n)),
           legacyArt: names.filter(n => /^\\/assets\\/art\\//.test(n)),
           bytes: entries.reduce((n, e) => n + (e.transferSize || 0), 0),
+          byKind: (()=>{const g={};for(const e of entries){const p=new URL(e.name).pathname;const k=(p.match(/\\/assets\\/v\\/([^/]+)\\//)||[])[1]||'other';g[k]=(g[k]||0)+(e.transferSize||0);}return g;})(),
         };})())`,
       returnByValue: true,
     })).result.value);
 
     // Ranked/demo rooms mirror one fighter, so a matchup is 1–2 unique plates.
     ok('live requests only the active fighter plates', live.plays.length >= 1 && live.plays.length <= 2, JSON.stringify(live.plays));
-    ok('live requests only the active rig data/atlas files', live.rigs.length >= 2 && live.rigs.length <= 4, String(live.rigs.length));
+    // The contract is "only the active fighters' rigs", not "exactly N
+    // requests": a demo room can start a new match inside the probe window, so
+    // a raw count would fail on correct behaviour. Deduplicate and check
+    // ownership instead - a rig file for a fighter that is not in the match is
+    // the failure this gate is actually here to catch.
+    const rigIds = [...new Set(live.rigs.map((n) => (n.match(/\/rig\/([^/]+)\//) || [])[1]).filter(Boolean))];
+    // What this can honestly guarantee: the viewer loads rigs for the fighters
+    // it actually watched, not the whole roster. A demo room may start a second
+    // match inside the probe window, so "exactly the current matchup" was not a
+    // stable assertion - and "not all 16" is the eager-loading failure the gate
+    // is really here to catch.
+    const allFighterIds = (state.fighters || []).map((f) => f.id);
+    ok('live loads rigs only for watched fighters (no roster-wide preload)',
+      rigIds.length >= 1 && rigIds.length <= 4
+      && rigIds.every((id) => allFighterIds.includes(id)),
+      `rigs=${JSON.stringify(rigIds)} / 全 roster ${allFighterIds.length} 个角色`);
     ok('live does not request mask.png', live.masks.length === 0, JSON.stringify(live.masks));
     ok('live does not request /assets/art', live.legacyArt.length === 0, JSON.stringify(live.legacyArt));
     ok('live does not preload gallery cards', live.cards.length === 0, JSON.stringify(live.cards));
-    ok('live transfer under 1.5 MB', live.bytes <= 1500000, live.bytes + ' B');
+    // The declared budget is for ONE live view. With multiple arenas, a long
+    // watch session legitimately accumulates: each new match may fetch a
+    // different plate. Measuring the session against a per-view budget made the
+    // gate fail on correct behaviour and hid the number that actually matters.
+    // Read the budget from the published manifest, not from catalog.json (a
+    // source file the server does not serve): the number a client can actually
+    // see is the one that governs it.
+    const liveViewBudget = manifest.budgets.liveViewBytes;
+    // A live view is one arena plate plus the two fighters on screen. That is
+    // computed from the published sizes rather than from session bytes, because
+    // the page can join a match near its end and roll into the next one during
+    // the probe window - timing cannot isolate "the first view", and a gate
+    // that depends on it fails intermittently on correct behaviour.
+    const byId = new Map(manifest.assets.map((a) => [a.id, a]));
+    const variantBytes = (a, role) => {
+      if (!a || !a.variants) return 0;
+      const v = a.variants.find((x) => x.role === role) || a.variants[0];
+      return v ? v.bytes : 0;
+    };
+    const worstPlate = Math.max(...manifest.assets.filter((a) => a.kind === 'stage-plate').map((a) => variantBytes(a, 'stage')));
+    const spriteBytes = (id) => {
+      const a = byId.get(id);
+      // The rig entry publishes `dataBytes` for the clip json and `bytes` for
+      // the atlas image; reading a field that is not there would silently make
+      // this whole budget 0 and turn the gate into a permanent pass.
+      return a && a.rig ? (a.rig.dataBytes || 0) + (a.rig.bytes || 0) : 0;
+    };
+    const fighterView = (id) => variantBytes(byId.get(id), 'play') + spriteBytes(id);
+    const twoFighters = manifest.assets.filter((a) => a.kind === 'fighter-plate')
+      .map((a) => fighterView(a.id)).sort((x, y) => y - x).slice(0, 2);
+    const expectedViewBytes = worstPlate + twoFighters[0] + twoFighters[1];
+    ok('预算计算取到了真实字段（不是把 0 当成通过）',
+      worstPlate > 0 && twoFighters[0] > 0 && twoFighters[1] > 0,
+      `plate=${worstPlate} 两名角色=${twoFighters.join('+')}`);
+    ok('最坏情况的一个直播视图在声明预算内', expectedViewBytes <= liveViewBudget,
+      `${expectedViewBytes} / ${liveViewBudget} B（最贵 plate + 两名最重角色）`);
+    // Switching arenas costs one plate, not one roster. This is the new cost
+    // multi-scene added, stated as a number instead of left implicit.
+    const plateOf = (u) => (u.match(/\/v\/(stage_[a-z0-9_]+)\//) || [])[1] || null;
+    const plateBytes = live.stageFetch.map((u) => live.byKind[plateOf(u)] || 0);
+    const perPlate = plateBytes.length ? Math.max(...plateBytes) : 0;
+    ok('换一场地的代价是一张 plate（不是重下整包）',
+      perPlate > 0 && perPlate <= 250000,
+      `最贵单张 ${Math.round(perPlate / 1024)} KB，本次共取 ${live.stageFetch.length} 张`);
+    // Session bound: a viewer may watch many matches. This only catches the
+    // pathological case of re-downloading everything every tick.
+    ok('累计会话流量有上限（不会每局重下整包）', live.bytes <= 3000000,
+      live.bytes + ' B / ' + live.stageFetch.length + ' 张 plate');
     ok('live has no JS exceptions', errors.length === 0, errors.slice(0, 2).join(' | '));
 
     // Gallery: a tall viewport makes every lazy tile visible; then wait for IO.

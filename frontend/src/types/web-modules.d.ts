@@ -32,7 +32,9 @@ declare module '@web/impact-fx.js' {
 
 declare module '@web/asset-store.js' {
   export function loadFighterArt(id: string, kind?: string): Promise<unknown>;
-  export function loadStageArt(): Promise<unknown>;
+  export function loadStageArt(stageId?: string | null): Promise<unknown>;
+  export function stagePlateFor(stageId?: string | null): { id: string; path: string } | null;
+  export function stagePlateIds(): string[];
   export function preloadFighters(ids: string[]): void;
   export function assetFor(id: string, kind: string): { path: string; width?: number; height?: number } | null;
   export function legacyArtUrl(id: string): string;

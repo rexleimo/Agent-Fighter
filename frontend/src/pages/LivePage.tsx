@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -8,7 +8,7 @@ import { StageCanvas, type ToolState } from '../components/live/StageCanvas';
 import { TeamStrip } from '../components/live/TeamStrip';
 import { Intermission } from '../components/live/Intermission';
 import { isEnabled as soundEnabled, play as playSound, setEnabled as setSoundEnabled } from '@web/audio.js';
-import type { Fighter } from '../lib/types';
+import type { Fighter, StageRegistry } from '../lib/types';
 
 const ACTION_LABEL: Record<string, string> = {
   idle: '待机', walk_f: '前走', walk_b: '后撤', jump: '跳跃', crouch: '蹲防', block: '站防', throw: '投技',
@@ -274,6 +274,13 @@ export function LivePage() {
   const match = state.match;
   const frame = state.hud ?? match?.lastFrame ?? null;
   const team = state.team;
+  // Index the server registry by id once per payload; the renderer resolves the
+  // match's arena through it instead of carrying its own list of stage names.
+  const stages = useMemo<StageRegistry>(() => {
+    const map: StageRegistry = {};
+    for (const s of app.data?.stages?.stages ?? []) map[s.id] = s;
+    return map;
+  }, [app.data?.stages]);
 
   return (
     <>
@@ -290,6 +297,7 @@ export function LivePage() {
           fighters={fighters}
           tools={tools}
           lastResult={state.lastResult}
+          stages={stages}
         />
         <div className="stage-topbar">
           <span className={`live-badge${match?.status === 'finished' || match?.mode !== 'ranked' || match?.pairing === 'sparring' ? ' replay' : ''}`}>

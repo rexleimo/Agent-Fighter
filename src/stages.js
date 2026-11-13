@@ -107,9 +107,13 @@ export function neutralStage() {
  * `seed` is required for rule 2. Without a seed we return the neutral arena
  * rather than inventing a "random" one, because an unseeded choice cannot be
  * reproduced from the replay and would make live and replay disagree.
+ *
+ * Demo and showcase rooms follow the same rules. They are seeded like any other
+ * match, so exempting them was not the honesty guard it looked like - it just
+ * pinned every public room to one arena and meant the rest of the league's
+ * stages were never rendered anywhere a visitor could see them.
  */
 export function selectStage({ fighterA = null, fighterB = null, teamA = null, teamB = null, seed = null, mode = 'ranked' } = {}) {
-  if (mode === 'demo') return NEUTRAL;
   const ta = teamA || teamOf(fighterA);
   const tb = teamB || teamOf(fighterB);
   if (ta && ta === tb) {
@@ -142,7 +146,8 @@ export function stageModel() {
     selection: [
       'same team on both sides -> that team home stage',
       'cross-team -> deterministic from the match seed',
-      'demo rooms and any unseeded case -> neutral arena (never a guess)',
+      'any unseeded case -> neutral arena (never a guess)',
+      'demo and showcase rooms follow the same rules as ranked ones',
     ],
     stages: STAGES.map((s) => ({
       id: s.id,

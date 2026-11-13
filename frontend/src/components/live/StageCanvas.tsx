@@ -1,5 +1,6 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import { createStageRenderer } from '../../game/stage.js';
+import type { StageRegistry } from '../../lib/types';
 import type { Fighter } from '../../lib/types';
 
 export type ToolState = {
@@ -18,9 +19,10 @@ type Props = {
   fighters: Fighter[];
   tools: ToolState;
   lastResult: any;
+  stages: StageRegistry | null;
 };
 
-export function StageCanvas({ frameQueue, current, match, moves, fighters, tools, lastResult }: Props) {
+export function StageCanvas({ frameQueue, current, match, moves, fighters, tools, lastResult, stages }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<any>(null);
   const matchRef = useRef(match);
@@ -32,6 +34,7 @@ export function StageCanvas({ frameQueue, current, match, moves, fighters, tools
     match: null,
     lastResult: null,
     spriteTrack: { a: {}, b: {} },
+    stageRegistry: null,
     ...tools,
   });
 
@@ -46,7 +49,8 @@ export function StageCanvas({ frameQueue, current, match, moves, fighters, tools
       replayCanvas: document.createElement('canvas'),
     });
     rendererRef.current = renderer;
-    renderer.loadStageArtwork();
+    // No stage preload here: the arena is chosen per match in draw(), so loading
+    // one fixed plate at mount is what made every fight look the same venue.
     if (viewRef.current.match) renderer.ensureMatchFighters(viewRef.current.match);
 
     let raf = 0;
@@ -82,9 +86,10 @@ export function StageCanvas({ frameQueue, current, match, moves, fighters, tools
   }, [moves]);
 
   useEffect(() => {
+    viewRef.current.stageRegistry = stages;
     viewRef.current.fighters = fighters;
     dirtyRef.current = true;
-  }, [fighters]);
+  }, [fighters, stages]);
 
   useEffect(() => {
     Object.assign(viewRef.current, tools);

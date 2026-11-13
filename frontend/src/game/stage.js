@@ -116,10 +116,21 @@ const ART = {
   images: Object.create(null),
   rigs: Object.create(null),
   rigPending: new Set(),
+  // Keyed by stage id. A single slot would mean the arena currently in RAM is
+  // whatever the last match happened to use.
+  stages: Object.create(null),
   stage: null,
   failed: new Set(),
   wanted: new Set(),
 };
+
+/** The plate a stage id resolves to, or the neutral arena if it never arrived. */
+function stageImage(stageId) {
+  const img = ART.stages[stageId];
+  if (img && img.complete && img.naturalWidth > 0) return img;
+  const neutral = ART.stages.stage_main;
+  return neutral && neutral.complete && neutral.naturalWidth > 0 ? neutral : null;
+}
 
 function artImage(id) {
   const img = ART.images[id];
@@ -127,15 +138,37 @@ function artImage(id) {
 }
 
 function repaintArt() {
-  if (S.current) draw(ctx, S.current, S.match, stageCanvas);
+  // Repaint whatever was last drawn, on the canvas it was drawn to. This used
+  // to repaint only the stage canvas, so on the replay page - whose stage
+  // canvas is a throwaway - the arena image arriving after the first frame
+  // never reached the screen: the replay kept showing procedural geometry under
+  // a record that correctly named the arena.
+  const last = S.lastDraw;
+  if (!last || !last.canvas) return;
+  draw(last.ctx, last.frame, last.match, last.canvas);
 }
 
-function loadStageArtwork() {
-  if (ART.stage) return;
-  loadStageArt().then((img) => {
+/**
+ * Load the plate for the arena this match is actually played in.
+ *
+ * Called on every new match: the previous behaviour was to load one image once
+ * and keep it, which is exactly how a single-stage league looked static across
+ * every fight. `ART.failed` records the id so a missing plate is reported as a
+ * fallback rather than silently showing the wrong arena.
+ */
+function loadStageArtwork(stageId) {
+  const id = stageId || 'stage_main';
+  if (ART.stages[id] || ART.failed.has(id)) return;
+  loadStageArt(id).then((img) => {
+    ART.stages[id] = img;
     ART.stage = img;
     repaintArt();
-  }).catch(() => ART.failed.add('stage'));
+  }).catch(() => {
+    ART.failed.add(id);
+    // Without the declared plate, fall back to the neutral arena and say so via
+    // the failed set - never keep painting the previous match's arena.
+    if (id !== 'stage_main') loadStageArtwork('stage_main');
+  });
 }
 
 function loadFighter(id) {
@@ -161,15 +194,85 @@ function ensureMatchFighters(match) {
   for (const id of ids) loadFighter(id);
 }
 
-/** Painted stadium plate; returns false so the procedural set takes over. */
-function drawStageArt(c, w, h) {
-  const img = ART.stage;
-  if (!img || !img.complete || !img.naturalWidth) {
+/** Deterministic pseudo-random from (seed, lane, frame) - same inputs, same
+ *  particle field in live and replay, because both carry the same seed. */
+function hash3(a, b, c) {
+  let h = (a ^ 0x9e3779b9) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (b + 0x165667b1), 0xc2b2ae35) >>> 0;
+  h = Math.imul(h ^ (c + 0x27d4eb2f), 0x165667b1) >>> 0;
+  return ((h ^ (h >>> 13)) >>> 0) / 4294967296;
+}
+
+const WEATHER = {
+  rain: { count: 90, color: 'rgba(150,205,235,', speed: 9.5, drift: -1.4, size: [8, 20] },
+  embers: { count: 54, color: 'rgba(255,168,72,', speed: -2.6, drift: 0.9, size: [1.4, 3.4] },
+  dust: { count: 66, color: 'rgba(214,190,150,', speed: -0.7, drift: 1.6, size: [1.2, 3.0] },
+  sparks: { count: 46, color: 'rgba(196,158,255,', speed: -3.4, drift: 2.2, size: [1.0, 2.6] },
+};
+
+/**
+ * The living layer over a still plate: weather, ambient grade and light
+ * flicker. Everything is a pure function of (stage layers, seed, tick), so the
+ * arena breathes identically when the same match is replayed - a Math.random()
+ * here would make the live view and the replay disagree, which is the one thing
+ * a stage may never do.
+ */
+function drawStageLayers(c, w, h, stage, seed, tick) {
+  if (!stage || !stage.layers) return;
+  const L = stage.layers;
+  const t = Number.isFinite(tick) ? tick : 0;
+  const s = Number.isFinite(seed) ? seed >>> 0 : 0;
+  const spec = WEATHER[L.weather];
+  if (spec && S.showFx) {
+    for (let i = 0; i < spec.count; i += 1) {
+      const lane = hash3(s, i, 1);
+      const phase = hash3(s, i, 2);
+      const x = ((lane * w + t * spec.drift * 0.6) % (w + 60) + w + 60) % (w + 60) - 30;
+      const y = ((phase * h + t * spec.speed) % (h + 40) + h + 40) % (h + 40) - 20;
+      const len = spec.size[0] + phase * (spec.size[1] - spec.size[0]);
+      const alpha = 0.16 + lane * 0.3;
+      c.fillStyle = spec.color + alpha.toFixed(3) + ')';
+      if (L.weather === 'rain') {
+        c.fillRect(x, y, 1.2, len);
+      } else {
+        c.beginPath();
+        c.arc(x, y, len * 0.5, 0, Math.PI * 2);
+        c.fill();
+      }
+    }
+  }
+  // Ambient grade: a tint that ties the plate to the team's element.
+  const AMBIENT = {
+    warm: 'rgba(255,120,40,.07)', cool: 'rgba(60,150,220,.07)',
+    sodium: 'rgba(255,180,80,.06)', storm: 'rgba(150,90,255,.08)',
+    neon: 'rgba(90,200,230,.05)',
+  };
+  if (AMBIENT[L.ambient]) {
+    c.fillStyle = AMBIENT[L.ambient];
+    c.fillRect(0, 0, w, h);
+  }
+  // Light flicker, and for storm stages a periodic lightning sweep.
+  if (L.flicker) {
+    const n = hash3(s, 7, Math.floor(t / 6));
+    c.fillStyle = 'rgba(255,255,255,' + (n * L.flicker * 0.05).toFixed(4) + ')';
+    c.fillRect(0, 0, w, h);
+  }
+  if (L.ambient === 'storm' && hash3(s, 11, Math.floor(t / 34)) > 0.82) {
+    c.fillStyle = 'rgba(210,190,255,.16)';
+    c.fillRect(0, 0, w, h * 0.62);
+  }
+}
+
+/** Painted arena plate for one stage; returns false so the set takes over. */
+function drawStageArt(c, w, h, stageId) {
+  const img = stageImage(stageId);
+  ART.stageFailed = Boolean(stageId && stageId !== 'stage_main' && ART.failed.has(stageId));
+  if (!img) {
     c.fillStyle = '#0b121a';
     c.fillRect(0, 0, w, h);
     return false;
-  }
-  const scale = w / img.naturalWidth;
+  }  const scale = w / img.naturalWidth;
   const dh = img.naturalHeight * scale;
   const dy = GROUND - dh * 0.70; // align the painted floor with the hitbox ground
   c.drawImage(img, 0, dy, w, dh);
@@ -777,6 +880,7 @@ function drawBoxLegend(c, w) {
 }
 
 function draw(c, frame, match, canvas) {
+  S.lastDraw = { ctx: c, frame, match, canvas };
   const w = canvas.width;
   const h = canvas.height;
   const fx = canvas === stageCanvas ? stageFx : replayFx;
@@ -797,7 +901,22 @@ function draw(c, frame, match, canvas) {
     c.translate(-w / 2, -h / 2);
     c.translate(sh.x, sh.y);
   }
-  const artStage = drawStageArt(c, w, h);
+  // The arena comes from the match record. When the record predates stage
+  // tracking (older replays) `stage` is absent and the neutral arena is the
+  // honest reading of "we do not know which arena this was", not a guess.
+  const stageId = (match && match.stage) || 'stage_main';
+  loadStageArtwork(stageId);
+  const artStage = drawStageArt(c, w, h, stageId);
+  // Declare which branch actually painted the background. A pixel statistic
+  // cannot carry this gate any more: across the five arenas the sampled band
+  // measured 34 to 249 buckets, while the procedural fallback measured 5 to 18,
+  // so any single threshold either false-fails a real arena or false-passes a
+  // fallback. The renderer knows the truth; let it say so.
+  if (canvas && canvas.dataset) {
+    canvas.dataset.stageMode = artStage ? 'art' : 'procedural';
+    canvas.dataset.stageDeclared = stageId;
+    canvas.dataset.stageFailed = ART.stageFailed ? '1' : '0';
+  }
   if (!artStage) {
 
   // Back wall, distant structures and a spectator rail: a broadcast set,
@@ -860,14 +979,23 @@ function draw(c, frame, match, canvas) {
       for (let y = 90; y < GROUND; y += 48) { c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke(); }
     }
   }
+  // Weather / light / parallax over whichever plate was painted, driven by the
+  // match seed so a replay of this match reproduces the same particle field.
+  drawStageLayers(c, w, h, S.stageRegistry && S.stageRegistry[stageId],
+    match && match.seed, match && match.tick);
   const mode = (match && match.mode) || 'demo';
+  const arenaName = (S.stageRegistry && S.stageRegistry[stageId] && S.stageRegistry[stageId].label)
+    || (stageId === 'stage_main' ? 'NEON ARENA' : null);
   const stage = mode === 'ranked' ? 'RANKED ARENA' : mode === 'scrim' ? 'PRIVATE SCRIM' : 'NEUTRAL GRID';
   const technical = S.showBoxes || S.showBones || S.showRuler || S.showGrid;
   if (technical) {
     c.font = '10px ui-monospace, monospace';
     c.fillStyle = 'rgba(138,156,176,.45)';
     c.textAlign = 'left';
-    c.fillText('STAGE 01 / ' + stage, 52, 62);
+    // The arena the match record named, not a fixed "STAGE 01": with five
+    // arenas in the league that number would be a caption on the wrong picture.
+    c.fillText((arenaName || 'ARENA UNRECORDED') + ' / ' + stage
+      + (ART.stageFailed ? ' / PLATE FALLBACK' : ''), 52, 62);
     c.textAlign = 'right';
     c.fillText('SERVER-AUTHORITATIVE · 60 FPS', 908, 62);
     c.textAlign = 'left';
