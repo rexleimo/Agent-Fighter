@@ -280,6 +280,11 @@ export const MCP_TOOLS = [
     inputSchema: { type: 'object', properties: {} },
   },
   {
+    name: 'get_stages',
+    description: 'The arena registry, published as data. Each stage has an id (the value a match record carries), the team it belongs to, and its seed-driven layer parameters (weather, ambient grade, parallax, light flicker). The arena is chosen by the server when the match starts and is recorded in the match, the replay header and the live room state - a client never picks it, so live and replay cannot disagree. Rule: same team on both sides plays that team home arena; cross-team is deterministic from the match seed; anything unseeded falls back to the neutral arena rather than guessing.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'list_drills',
     description: 'The training ground roster: which practice opponents exist and what each one trains. Every entry is a bot algorithm inside this repo (a scripted policy or a seeded pseudo-random bot), never a model, so practising costs nothing and reproduces exactly. Also lists mirror (fight your own strategy) and the four official baselines.',
     inputSchema: { type: 'object', properties: {} },

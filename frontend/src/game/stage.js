@@ -916,6 +916,10 @@ function draw(c, frame, match, canvas) {
     canvas.dataset.stageMode = artStage ? 'art' : 'procedural';
     canvas.dataset.stageDeclared = stageId;
     canvas.dataset.stageFailed = ART.stageFailed ? '1' : '0';
+    // Which match this paint belongs to. Without it a checker can only compare
+    // the canvas against a state snapshot taken earlier, and a match that
+    // starts in between turns a correct render into a false failure.
+    canvas.dataset.stageMatch = (match && match.matchId) || '';
   }
   if (!artStage) {
 

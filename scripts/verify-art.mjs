@@ -157,7 +157,8 @@ try {
       const stageMode=(stageCv&&stageCv.dataset?stageCv.dataset.stageMode:'')||'';
       const stageDeclared=(stageCv&&stageCv.dataset?stageCv.dataset.stageDeclared:'')||'';
       const stageFailed=(stageCv&&stageCv.dataset?stageCv.dataset.stageFailed:'')||'';
-      return { plays, cards, stageFetch, bandColors:bc.size, stageMode, stageDeclared, stageFailed,
+      const stageMatch=(stageCv&&stageCv.dataset?stageCv.dataset.stageMatch:'')||'';
+      return { plays, cards, stageFetch, bandColors:bc.size, stageMode, stageDeclared, stageFailed, stageMatch,
         tick:tickText.trim(),
         tickNum:(tickText.match(/TICK\\s*(\\d+)/)||[])[1]||'',
         decisions:document.querySelectorAll('.event-list .ev').length };})())`,
@@ -172,6 +173,7 @@ try {
   const live = await liveProbe();
   await sleep(2500);
   const live2 = await liveProbe();
+  const allMatches = (await (await fetch(BASE + '/api/matches')).json()).matches;
   const wantStage = state.match && state.match.stage;
   const plateOf = (u) => (u.match(/\/v\/(stage_[a-z0-9_]+)\//) || [])[1] || null;
   const fetched = live.stageFetch.map(plateOf).filter(Boolean);
@@ -189,8 +191,25 @@ try {
   ok('背景由美术 plate 绘制（不是程序化兜底几何）', live.stageMode === 'art',
     `渲染分支 ${live.stageMode || '未声明'}`);
   ok('舞台贴图真的被请求（不是程序化兜底）', live.stageFetch.length >= 1, JSON.stringify(live.stageFetch));
-  ok('渲染器绘制的是对局声明的那个场地', live.stageDeclared === wantStage,
-    `声明 ${wantStage} / 绘制 ${live.stageDeclared}`);
+  // Reconcile against the record of the match the canvas says it is painting,
+  // not against a state snapshot taken before the probe: the demo room can roll
+  // into a new match mid-probe, and comparing across that gap fails a render
+  // that was correct the whole time.
+  // Reconcile against the match the canvas says it is painting, looked up at
+  // probe time. Two sources, because a live match is not in /api/matches yet
+  // (the record is written when the match ends), while a finished one is no
+  // longer in /api/state. Either way the stage must come from that match's own
+  // data - never from a snapshot taken before the probe, which is how a match
+  // rolling mid-probe turned a correct render into a false failure.
+  const liveStateNow = await (await fetch(BASE + '/api/state')).json();
+  const paintedRecord = allMatches.find((m) => m.matchId === live.stageMatch)
+    || (liveStateNow.match && liveStateNow.match.matchId === live.stageMatch ? liveStateNow.match : null);
+  ok('画布自报的对局确实是当前或已登记的真实对局',
+    Boolean(paintedRecord),
+    `matchId=${live.stageMatch || '空'}`);
+  ok('渲染器绘制的是它所渲染那一局声明的场地',
+    Boolean(paintedRecord) && paintedRecord.stage === live.stageDeclared,
+    `局 ${live.stageMatch || '—'} 声明 ${paintedRecord ? String(paintedRecord.stage) : '无'} / 绘制 ${live.stageDeclared}`);
   ok('没有发生 plate 加载失败回退', live.stageFailed !== '1', `stageFailed=${live.stageFailed}`);
   // Secondary: a painted arena is never a flat fill. Kept low on purpose -
   // this only catches "solid color canvas", not "wrong arena".
@@ -202,7 +221,6 @@ try {
   // match declares must be the arena that gets painted, in the live view AND in
   // the replay, from the same record. Anything else means one of the two is
   // choosing a stage on its own.
-  const allMatches = (await (await fetch(BASE + '/api/matches')).json()).matches;
   const staged = allMatches.filter((m) => m.stage);
   const teamMatch = staged.find((m) => m.stage !== 'stage_main');
   ok('真实对局里出现了队风主场（多场景不是纸面能力）', Boolean(teamMatch),

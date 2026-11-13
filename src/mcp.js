@@ -30,6 +30,7 @@ const RESOURCES = [
   { uri: 'afl://observation-schema', name: 'Observation JSON schema', description: 'The exact board state pushed each decision tick.', mimeType: 'application/json' },
   { uri: 'afl://fighters', name: 'Fighter roster', description: 'The 16 original fighters, palettes, style profiles and per-character signature skill sets.', mimeType: 'application/json' },
   { uri: 'afl://rooms', name: 'Lobby and matchmaking', description: 'Room modes, pairing rules and how a match is assigned.', mimeType: 'text/markdown' },
+  { uri: 'afl://stages', name: 'Stages · 舞台与场景', description: 'The arena registry, how the server picks one per match, and why a client must never choose it.', mimeType: 'text/markdown' },
   { uri: 'afl://costs', name: 'Cost model · 计费项', description: 'What is free, what the player pays, what the platform pays - and why training costs nothing.', mimeType: 'text/markdown' },
   { uri: 'afl://training', name: 'Training ground · 训练场', description: 'Drill roster, the zero-LLM guarantee, diagnostics, version A/B, and what the numbers do NOT mean.', mimeType: 'text/markdown' },
   { uri: 'afl://onboarding', name: 'Full onboarding manual', description: 'The complete Chinese onboarding handbook rendered at /guide.html.', mimeType: 'text/markdown' },
@@ -57,6 +58,54 @@ const COSTS_MD = [
   '- 想零成本变强：用托管策略（纯规则 DSL，平台侧逐拍求值）+ 训练场；只有你坚持让 LLM 每拍出招才会产生自己的模型账单。',
   '',
   '机器可读版本：`get_cost_model` 或 GET /api/costs。',
+].join('\n');
+
+const STAGES_MD = [
+  '# 舞台 · 场景由服务端声明',
+  '',
+  '一场比赛在哪个场馆打，是**对局数据**，不是前端装饰。',
+  '',
+  '## 为什么不让前端自己选',
+  '前端摇骰子会产生「直播在天台、回放变道场」，也会让两份回放对同一局画出',
+  '不同背景。所以选取只发生在服务端开局处，并写进三处：',
+  '',
+  '- 对局记录 `match.stage`（配 `match.seed`）',
+  '- 回放文件头部（回放单独下载也能自证场地）',
+  '- 实时房间状态（中途加入的观战看到开局决定的那个）',
+  '',
+  '三处都是同一个 stage id 字符串，客户端拿它去登记表解析细节。',
+  '',
+  '## 选取规则',
+  '| 情形 | 结果 |',
+  '| :--- | :--- |',
+  '| 双方同队 | 该队主场 |',
+  '| 跨队 | 由对局 seed 确定性抽取（同 seed 必得同场地） |',
+  '| 没有 seed | 中性场，**绝不编一个场景出来** |',
+  '| 未登记的 stage id | 记为 null（未记录），不冒充中性场 |',
+  '',
+  '打在这套机制之前的历史对局，`stage` 就是 null。那是事实，不回填。',
+  '',
+  '## 场地',
+  '| id | 场地 | 归属 | 图层 |',
+  '| :--- | :--- | :--- | :--- |',
+  '| stage_main | 霓虹竞技场 NEON ARENA | 中性 | rain / neon / flicker |',
+  '| stage_pyre | 熔铸武馆 FORGE HALL | 炎征队 | embers / warm |',
+  '| stage_tide | 防波堤台 BREAKWATER | 潮汐队 | rain / cool |',
+  '| stage_steel | 矿脉工地 QUARRY WORKS | 钢律队 | dust / sodium |',
+  '| stage_void | 信号塔顶 SIGNAL MAST | 虚数队 | sparks / storm |',
+  '',
+  '## 图层为什么也是数据',
+  '天气、氛围色、灯光闪烁由 `(layers, seed, tick)` 的纯函数生成，',
+  '所以同一局重放出来的粒子场逐帧一致。这里用 `Math.random()` 会直接破坏',
+  '「直播与回放同构」这一条。',
+  '',
+  '## 美术供给',
+  '舞台是真实贴图，走 manifest 内容寻址发布；构建由登记表驱动，',
+  '声明了 plate 却没有对应源图会直接构建失败，不会出现',
+  '「对局声明某场地、客户端却没有那张图可画」。',
+  '',
+  '工具：`get_stages` 取完整登记表。',
+  '',
 ].join('\n');
 
 const TRAINING_MD = [
@@ -285,6 +334,7 @@ export function createMCPHandler(league, manager = null, accounts = null) {
     validate_strategy: (args) => league.validateStrategyTool(args),
     simulate_strategy: (args) => league.simulateStrategyTool(args),
     get_cost_model: () => league.costModel(),
+    get_stages: () => league.stageModel(),
     list_drills: () => league.listDrills(),
     start_training: (args, auth) => league.runTrainingFor({ agent: agentFor(args, auth), strategy: args.strategy || null, drills: args.drills, seeds: args.seeds, rounds: args.rounds, maxGames: args.maxGames }),
     compare_strategies: (args, auth) => league.compareTraining({ agent: agentFor(args, auth), strategyA: args.strategyA || null, strategyB: args.strategyB, drills: args.drills, seeds: args.seeds, rounds: args.rounds }),
@@ -374,6 +424,7 @@ export function createMCPHandler(league, manager = null, accounts = null) {
       case 'afl://observation-schema': return { text: JSON.stringify(league.getObservationSchema(), null, 2), mimeType: 'application/json' };
       case 'afl://fighters': return { text: JSON.stringify(league.listFighters(), null, 2), mimeType: 'application/json' };
       case 'afl://rooms': return { text: ROOMS_MD, mimeType: 'text/markdown' };
+      case 'afl://stages': return { text: STAGES_MD, mimeType: 'text/markdown' };
       case 'afl://costs': return { text: COSTS_MD, mimeType: 'text/markdown' };
       case 'afl://training': return { text: TRAINING_MD, mimeType: 'text/markdown' };
       case 'afl://onboarding': return { text: ONBOARDING_MD, mimeType: 'text/markdown' };
