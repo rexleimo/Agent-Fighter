@@ -7,7 +7,7 @@
     "galleryViewBytes": 2500000,
     "libraryBytes": 8000000
   },
-  "sourceHash": "sha256:8e3f01f9255e8228ed8b0657f2416b3ce6f1fec293cf690be65d6e867ad0463d",
+  "sourceHash": "sha256:0202b718a3aa43d54d9054cdbe2422bcf98515b33bba44072c978e4db8bb5eeb",
   "assets": [
     {
       "id": "stage_main",
@@ -21,6 +21,14 @@
         "commercialUse": true,
         "attributionRequired": false
       },
+      "team": null,
+      "layers": {
+        "weather": "rain",
+        "ambient": "neon",
+        "crowd": true,
+        "parallax": 0.35,
+        "flicker": 0.22
+      },
       "variants": [
         {
           "id": "stage-1280",
@@ -33,6 +41,146 @@
           "format": "webp",
           "alpha": false,
           "sha256": "883b91e501eb18ace20188c92b6d68f079c80a9d7de3e36c654fbb7757559afc"
+        }
+      ]
+    },
+    {
+      "id": "stage_pyre",
+      "kind": "stage-plate",
+      "order": 1,
+      "preload": "lazy",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "team": "pyre",
+      "layers": {
+        "weather": "embers",
+        "ambient": "warm",
+        "crowd": true,
+        "parallax": 0.4,
+        "flicker": 0.34
+      },
+      "variants": [
+        {
+          "id": "stage-1280",
+          "role": "stage",
+          "path": "/assets/v/stage_pyre/stage-1280.ff0a2666b802.webp",
+          "width": 1280,
+          "height": 853,
+          "bytes": 164974,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": false,
+          "sha256": "ff0a2666b8028cca9a2cc1e49299f7a663b16071e902c822b582aaa85c136ef3"
+        }
+      ]
+    },
+    {
+      "id": "stage_tide",
+      "kind": "stage-plate",
+      "order": 2,
+      "preload": "lazy",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "team": "tide",
+      "layers": {
+        "weather": "rain",
+        "ambient": "cool",
+        "crowd": false,
+        "parallax": 0.5,
+        "flicker": 0.16
+      },
+      "variants": [
+        {
+          "id": "stage-1280",
+          "role": "stage",
+          "path": "/assets/v/stage_tide/stage-1280.ac2666f1df53.webp",
+          "width": 1280,
+          "height": 853,
+          "bytes": 155934,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": false,
+          "sha256": "ac2666f1df53e4c51dd417958b70c25cfd835d1b18b86dec2559bc365a1f09e4"
+        }
+      ]
+    },
+    {
+      "id": "stage_steel",
+      "kind": "stage-plate",
+      "order": 3,
+      "preload": "lazy",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "team": "steel",
+      "layers": {
+        "weather": "dust",
+        "ambient": "sodium",
+        "crowd": true,
+        "parallax": 0.3,
+        "flicker": 0.12
+      },
+      "variants": [
+        {
+          "id": "stage-1280",
+          "role": "stage",
+          "path": "/assets/v/stage_steel/stage-1280.f629580fa44b.webp",
+          "width": 1280,
+          "height": 853,
+          "bytes": 157714,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": false,
+          "sha256": "f629580fa44b1d0fbf5143c9397d31503573be9cd89447ce20457be87c9405b7"
+        }
+      ]
+    },
+    {
+      "id": "stage_void",
+      "kind": "stage-plate",
+      "order": 4,
+      "preload": "lazy",
+      "license": {
+        "spdx": "LicenseRef-Original-AI",
+        "origin": "ai-generated-original",
+        "author": "Agent Fighting League",
+        "commercialUse": true,
+        "attributionRequired": false
+      },
+      "team": "void",
+      "layers": {
+        "weather": "sparks",
+        "ambient": "storm",
+        "crowd": false,
+        "parallax": 0.55,
+        "flicker": 0.42
+      },
+      "variants": [
+        {
+          "id": "stage-1280",
+          "role": "stage",
+          "path": "/assets/v/stage_void/stage-1280.176f030663f1.webp",
+          "width": 1280,
+          "height": 853,
+          "bytes": 167430,
+          "mediaType": "image/webp",
+          "format": "webp",
+          "alpha": false,
+          "sha256": "176f030663f10b10b540b6542b90a19809d796d7aeef2ff6351f874e997756cd"
         }
       ]
     },
@@ -1035,9 +1183,9 @@
     }
   ],
   "totals": {
-    "liveViewBytes": 410573,
+    "liveViewBytes": 416573,
     "galleryViewBytes": 489652,
-    "webAssetsBytes": 2356940
+    "webAssetsBytes": 3002992
   },
-  "revision": "sha256:8979f7aaf2904a374c2a940814154be6a3de29c6ba2b04f751758beeb3d76fc3"
+  "revision": "sha256:ebf299c9676738256eaa38d2bd5e33748eaef42ec4077bd2c2036d004c0e453f"
 }

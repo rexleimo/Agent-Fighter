@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-11-09T13:45:00.899Z",
+  "generatedAt": "2026-11-13T04:13:00.377Z",
   "node": "v24.16.0",
   "pipeline": "afl-assets-v1",
   "cwebp": "cwebp",
-  "revision": "sha256:8979f7aaf2904a374c2a940814154be6a3de29c6ba2b04f751758beeb3d76fc3",
-  "sourceHash": "sha256:8e3f01f9255e8228ed8b0657f2416b3ce6f1fec293cf690be65d6e867ad0463d",
+  "revision": "sha256:ebf299c9676738256eaa38d2bd5e33748eaef42ec4077bd2c2036d004c0e453f",
+  "sourceHash": "sha256:0202b718a3aa43d54d9054cdbe2422bcf98515b33bba44072c978e4db8bb5eeb",
   "totals": {
-    "liveViewBytes": 410573,
+    "liveViewBytes": 416573,
     "galleryViewBytes": 489652,
-    "webAssetsBytes": 2356940
+    "webAssetsBytes": 3002992
   }
 }

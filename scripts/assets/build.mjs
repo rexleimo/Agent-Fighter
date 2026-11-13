@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FIGHTERS } from '../../src/fighters.js';
+import { STAGES } from '../../src/stages.js';
 import {
   PIPELINE_VERSION, cwebpPath, encodeWebP, readPNG, resizeToHeight, resizeToWidth,
   sha256, shortHash, writeAtomic,
@@ -26,7 +27,7 @@ import { buildRig } from './rig.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const CATALOG_PATH = path.join(ROOT, 'assets', 'catalog.json');
 const SOURCE_FIGHTERS = path.join(ROOT, 'assets', 'source', 'plates', 'fighters');
-const SOURCE_STAGE = path.join(ROOT, 'assets', 'source', 'plates', 'stage', 'stage_main.png');
+const SOURCE_STAGE_DIR = path.join(ROOT, 'assets', 'source', 'plates', 'stage');
 const OVERRIDE_DIR = path.join(ROOT, 'assets', 'rig');
 const DEFAULT_OUT = path.join(ROOT, 'web', 'assets');
 
@@ -67,19 +68,39 @@ function fileVariant({ outRoot, dirRel, name, image, quality, alpha, write }) {
   };
 }
 
-function sourceHashFor(stageFile, catalog, ids) {
+function sourceHashFor(stageFiles, catalog, ids) {
   const entries = ids.map((id) => {
     const file = path.join(SOURCE_FIGHTERS, id + '.png');
     const buf = fs.readFileSync(file);
     return { id, bytes: buf.length, sha256: sha256(buf) };
   });
-  const stageBuf = fs.readFileSync(stageFile);
+  const stages = stageFiles.map((file) => {
+    const buf = fs.readFileSync(file);
+    return { name: path.basename(file), bytes: buf.length, sha256: sha256(buf) };
+  });
   return 'sha256:' + sha256(Buffer.from(JSON.stringify({
     pipeline: PIPELINE_VERSION,
     catalog,
     fighters: entries,
-    stage: { bytes: stageBuf.length, sha256: sha256(stageBuf) },
+    stages,
   })));
+}
+
+/**
+ * Stage plates come from the server registry, not from a second list here.
+ * If the build and src/stages.js disagreed about which arenas exist, a match
+ * could declare a stage whose plate was never published, and the client would
+ * have nothing to draw.
+ */
+function stagePlates() {
+  return STAGES.map((s) => {
+    const file = path.join(SOURCE_STAGE_DIR, s.plate + '.png');
+    if (!fs.existsSync(file)) {
+      throw new Error('stage ' + s.id + ' declares plate ' + s.plate
+        + ' but ' + path.relative(ROOT, file) + ' does not exist');
+    }
+    return { stage: s, file };
+  });
 }
 
 function buildManifest({ outRoot, write, ids, overlay, catalog }) {
@@ -88,21 +109,29 @@ function buildManifest({ outRoot, write, ids, overlay, catalog }) {
   const assets = [];
   const files = [];
 
-  // Stage first so a critical preload can find it without a roster scan.
-  const stageImg = resizeToWidth(readPNG(SOURCE_STAGE), variants.stage.width);
-  const stageVariant = fileVariant({
-    outRoot, dirRel: 'stage_main', name: 'stage-1280', image: stageImg,
-    quality: variants.stage.quality, alpha: false, write,
+  // Stages first so a critical preload can find them without a roster scan.
+  const stageVariants = [];
+  stagePlates().forEach(({ stage: s, file }, index) => {
+    const img = resizeToWidth(readPNG(file), variants.stage.width);
+    const variant = fileVariant({
+      outRoot, dirRel: s.plate, name: 'stage-1280', image: img,
+      quality: variants.stage.quality, alpha: false, write,
+    });
+    assets.push({
+      id: s.id,
+      kind: 'stage-plate',
+      order: index,
+      // Only the neutral arena is preloaded: it is what a fresh visitor sees.
+      // Team arenas are fetched when a match actually declares one.
+      preload: s.neutral ? 'critical' : 'lazy',
+      license,
+      team: s.team,
+      layers: s.layers,
+      variants: [variant],
+    });
+    files.push(variant);
+    stageVariants.push(variant);
   });
-  assets.push({
-    id: 'stage_main',
-    kind: 'stage-plate',
-    order: 0,
-    preload: 'critical',
-    license,
-    variants: [stageVariant],
-  });
-  files.push(stageVariant);
 
   const rigById = new Map();
   const playById = new Map();
@@ -159,7 +188,9 @@ function buildManifest({ outRoot, write, ids, overlay, catalog }) {
     files.push(play, card);
   });
 
-  const stageEffective = stageVariant.bytes;
+  // A live view shows exactly one arena, so the budget is the worst single
+  // plate plus the two fighters - not the sum of every stage in the league.
+  const stageEffective = Math.max(...stageVariants.map((v) => v.bytes));
   const pairBytes = ids.map((id) => {
     const play = playById.get(id);
     const rig = rigById.get(id).rig;
@@ -183,7 +214,7 @@ function buildManifest({ outRoot, write, ids, overlay, catalog }) {
     pipeline: PIPELINE_VERSION,
     minClient: 1,
     budgets: catalog.budgets,
-    sourceHash: sourceHashFor(SOURCE_STAGE, catalog, ids),
+    sourceHash: sourceHashFor(stagePlates().map((p) => p.file), catalog, ids),
     assets,
     totals: {
       liveViewBytes,
