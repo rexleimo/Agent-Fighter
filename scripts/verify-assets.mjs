@@ -14,10 +14,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 
 const BASE = process.env.AFL_BASE || 'http://127.0.0.1:8787';
 const ROOT = path.resolve(import.meta.dirname, '..');
+const ASSETS_ROOT = path.join(ROOT, 'web', 'assets');
 const PORT = 9261;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const failures = [];
@@ -53,6 +54,66 @@ ok('server advertises the asset manifest', state.assets && state.assets.ok === t
   ok('sprite 管线的产物仍在原位（plate 构建不越界清理别人的目录）',
     ids.length > 0 && missing === 0,
     `${probe.length} 个抽样 sprite 资源，缺失 ${missing}`);
+}
+
+// Sampling proves the server can answer; it does not prove the set is complete
+// or that another clone gets it. sprites.json -> anim.<hash>.json -> sheet webp
+// is a closed set, so assert it exactly: nothing referenced is absent, nothing
+// present is unreferenced, and every byte of it is tracked in git.
+{
+  const index = await (await fetch(BASE + '/assets/sprites.json')).json();
+  const refs = new Set();
+  const walk = (o) => {
+    if (!o || typeof o !== 'object') return;
+    for (const v of Object.values(o)) {
+      if (typeof v === 'string' && v.startsWith('/assets/v/sprites/')) refs.add(v);
+      else walk(v);
+    }
+  };
+  const unreadable = [];
+  for (const f of Object.values(index.fighters || {})) {
+    if (!f.anim) continue;
+    refs.add(f.anim);
+    const local = path.join(ASSETS_ROOT, f.anim.replace('/assets/', ''));
+    // A missing anim file is a finding, not a reason to abort: crashing here
+    // would skip every later check and leave a stack trace instead of a result.
+    if (!fs.existsSync(local)) { unreadable.push(f.anim); continue; }
+    walk(JSON.parse(fs.readFileSync(local, 'utf8')));
+  }
+  const broken = [...refs].filter((r) => !fs.existsSync(path.join(ASSETS_ROOT, r.replace('/assets/', ''))));
+  const lost = [...new Set([...unreadable, ...broken])];
+  ok('sprite 引用集合完整（每个被引用的文件都在）', lost.length === 0,
+    `${refs.size} 个引用，缺失 ${lost.length}` + (lost.length ? ` -> ${lost.slice(0, 3).join(' ')}` : ''));
+
+  const onDisk = [];
+  const scan = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) scan(p);
+      else onDisk.push('/assets/' + path.relative(ASSETS_ROOT, p).split(path.sep).join('/'));
+    }
+  };
+  const spriteRoot = path.join(ASSETS_ROOT, 'v', 'sprites');
+  if (fs.existsSync(spriteRoot)) scan(spriteRoot);
+  const orphans = onDisk.filter((p) => !refs.has(p));
+  ok('sprite 目录没有野文件（磁盘上的每个文件都有人引用）', orphans.length === 0,
+    `${onDisk.length} 个文件，未被引用 ${orphans.length}` + (orphans.length ? ` -> ${orphans.slice(0, 3).join(' ')}` : ''));
+
+  // A fresh clone is the real test. The plate pipeline's output is tracked; the
+  // sprite pipeline's was not, so a clone rendered nothing until someone ran
+  // slice.mjs by accident. Track-equality is the invariant, not file count.
+  let tracked = null;
+  try {
+    tracked = execFileSync('git', ['ls-files', 'web/assets/v/sprites'], { cwd: ROOT, encoding: 'utf8' })
+      .split('\n').filter(Boolean);
+  } catch { tracked = null; }
+  if (tracked === null) {
+    console.log('  SKIP  sprite 产物已随仓库分发（新克隆可直接渲染）  非 git 环境，无法核对跟踪状态');
+  } else {
+    const untracked = onDisk.length - tracked.length;
+    ok('sprite 产物已随仓库分发（新克隆可直接渲染）', tracked.length > 0 && untracked === 0,
+      `git 跟踪 ${tracked.length} / 磁盘 ${onDisk.length}`);
+  }
 }
 
 const manifest = await (await fetch(BASE + '/assets/manifest.json')).json();
