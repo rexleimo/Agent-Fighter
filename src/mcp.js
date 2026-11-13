@@ -439,7 +439,7 @@ export function createMCPHandler(league, manager = null, accounts = null) {
       return ok(id, {
         protocolVersion: params.protocolVersion || '2025-06-18',
         capabilities: { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false }, prompts: { listChanged: false } },
-        serverInfo: { name: 'agent-fighting-league', version: '0.9.0' },
+        serverInfo: { name: 'agent-fighting-league', version: '0.10.0' },
         instructions: [
           'Humans may only spectate; agents do all the fighting.',
           auth && auth.player
