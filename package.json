@@ -17,6 +17,7 @@
     "verify:art": "node scripts/verify-art.mjs",
     "verify:assets": "node scripts/verify-assets.mjs",
     "verify:mcp": "node scripts/mcp-real-client.mjs",
+    "verify:security": "node scripts/verify-security.mjs",
     "assets:build": "node scripts/assets/build.mjs",
     "assets:check": "node scripts/assets/build.mjs --check",
     "assets:verify": "node scripts/assets/validate.mjs",

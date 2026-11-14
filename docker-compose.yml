@@ -1,0 +1,49 @@
+# Minimum safe deployment unit: app + Postgres.
+#   BETTER_AUTH_SECRET=... AFL_ADMIN_PASSWORD=... docker compose up -d --build
+# Secrets are REQUIRED (no insecure defaults). Put the app behind a TLS reverse
+# proxy for public exposure and set AFL_TRUST_PROXY=1 so rate limiting sees the
+# real client IP. See docs/deployment.md.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: afl
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-afl_dev_password}
+      POSTGRES_DB: afl
+    volumes:
+      - afl-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U afl -d afl"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://afl:${POSTGRES_PASSWORD:-afl_dev_password}@db:5432/afl
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET (e.g. openssl rand -hex 32)}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8787}
+      BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-http://localhost:8787}
+      AFL_ADMIN_USERNAME: ${AFL_ADMIN_USERNAME:-admin}
+      AFL_ADMIN_PASSWORD: ${AFL_ADMIN_PASSWORD:?set AFL_ADMIN_PASSWORD}
+      PORT: "8787"
+      # Hardening knobs — defaults are test-friendly; tighten for public exposure.
+      AFL_MAX_BODY_BYTES: ${AFL_MAX_BODY_BYTES:-1048576}
+      AFL_RATE_AUTH: ${AFL_RATE_AUTH:-300}
+      AFL_RATE_GLOBAL: ${AFL_RATE_GLOBAL:-3000}
+      AFL_TRUST_PROXY: ${AFL_TRUST_PROXY:-0}
+    command: sh -c "pnpm db:migrate && node src/server.js"
+    ports:
+      - "${PORT:-8787}:8787"
+    volumes:
+      - afl-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  afl-pg-data:
+  afl-data:

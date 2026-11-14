@@ -20,6 +20,7 @@ import { createMCPHandler } from './mcp.js';
 import { docsManifest } from './docs-index.js';
 import { strategyTemplate } from './strategy-dsl.js';
 import { MAX_MODEL_CALLS_PER_MATCH } from './costs.js';
+import { BODY_LIMIT, BodyTooLargeError, readBodyCapped, applySecurityHeaders, clientIp, createLimiters } from './security.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_DIR = path.join(ROOT, 'web');
@@ -29,6 +30,7 @@ const WEB_DIST_INDEX = path.join(WEB_DIST, 'index.html');
 // read-only docs/sdk trees below keep their own prefixes.
 const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/guide', '/training', '/library']);
 const PORT = Number(process.env.PORT || 8787);
+const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
 const league = new League();
 const players = auth ? await getPlayerStore() : null;
 const handleAuth = auth ? toNodeHandler(auth) : null;
@@ -68,15 +70,12 @@ function json(res, status, data, extra = {}) {
 }
 
 function readBody(req) {
-  return new Promise((resolve) => {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk; });
-    req.on('end', () => resolve(body));
-  });
+  return readBodyCapped(req, BODY_LIMIT);
 }
 
 async function readJson(req) {
-  try { return JSON.parse(await readBody(req) || '{}'); } catch { return {}; }
+  const raw = await readBody(req); // BodyTooLargeError propagates to the handler (413)
+  try { return JSON.parse(raw || '{}'); } catch { return {}; }
 }
 
 function isSecureRequest(req) {
@@ -285,10 +284,26 @@ function serveStatic(req, res, pathname) {
   serveFile(req, res, file, { cache: 'no-cache' });
 }
 
+const limiters = createLimiters();
 const server = http.createServer(async (req, res) => {
+  applySecurityHeaders(req, res);
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
 
+  // Liveness probe: unauthenticated, exempt from rate limiting.
+  if (p === '/healthz' || p === '/api/health') {
+    json(res, 200, { status: 'ok', version: VERSION, uptimeSec: Math.round(process.uptime()), accounts: Boolean(players) });
+    return;
+  }
+  // Per-IP rate limit: stricter on auth (brute force), generous elsewhere.
+  const limiter = p.startsWith('/api/auth/') ? limiters.auth : limiters.global;
+  const rl = limiter.check(clientIp(req));
+  if (!rl.allowed) {
+    json(res, 429, { error: 'rate limit exceeded', retryAfterSec: rl.retryAfter }, { 'Retry-After': String(rl.retryAfter) });
+    return;
+  }
+
+  try {
   if (p.startsWith('/api/auth/')) {
     if (!handleAuth) {
       json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' });
@@ -618,6 +633,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   serveStatic(req, res, p);
+  } catch (err) {
+    if (err instanceof BodyTooLargeError) {
+      if (!res.headersSent) json(res, 413, { error: 'request body too large', limitBytes: BODY_LIMIT }, { Connection: 'close' });
+      return;
+    }
+    console.error('[afl] request error:', err && err.message);
+    if (!res.headersSent) json(res, 500, { error: 'internal server error' });
+  }
 });
 
 attachWebSocketServer(server, {
