@@ -38,7 +38,12 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:reset": "docker rm -f afl-pg; docker volume rm afl-pg-data",
-    "prune:replays": "node scripts/prune-replays.mjs"
+    "prune:replays": "node scripts/prune-replays.mjs",
+    "bench": "node scripts/bench/run.mjs",
+    "bench:selftest": "node scripts/bench/selftest.mjs",
+    "bench:compare": "node scripts/bench/compare.mjs",
+    "bench:suite": "node scripts/bench/suite.mjs",
+    "bench:leaderboard": "node scripts/bench/leaderboard.mjs"
   },
   "engines": {
     "node": ">=22"

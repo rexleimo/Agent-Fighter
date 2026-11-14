@@ -28,3 +28,6 @@ web/assets/art/raw/
 data/league.json
 data/league.pre-integrity.json
 data/accounts.json
+
+# Benchmark report artifacts (reproducible from the protocol; not source).
+bench/reports/
