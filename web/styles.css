@@ -214,15 +214,29 @@ tbody tr:hover { background: var(--surface-2); }
 
 /* ---------- replay ---------- */
 .replay-layout { display: grid; grid-template-columns: 280px 1fr; gap: 14px; align-items: start; }
-.match-list { max-height: 620px; overflow-y: auto; }
-.match-item { padding: 11px 14px; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
+.match-list { max-height: 620px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.match-list::-webkit-scrollbar { width: 6px; }
+.match-list::-webkit-scrollbar-track { background: transparent; }
+.match-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.match-list::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+/* A match item is a <button>: without a full UA reset it paints the light
+   buttonface background, outset border and shrink-to-fit width over the dark
+   theme, which is exactly how the list became unreadable. */
+.match-item {
+  display: block; width: 100%; text-align: left; font: inherit; color: inherit;
+  appearance: none; background: transparent; border: none; border-radius: 0;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 11px 14px; cursor: pointer; transition: background .12s;
+}
+.match-item:last-child { border-bottom: none; }
 .match-item:hover { background: var(--surface-2); }
 .match-item.active { background: var(--accent-soft); border-left: 2px solid var(--accent); padding-left: 12px; }
 .mi-top { display: flex; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 10px; color: var(--dim); }
-.mi-names { font-size: 12px; margin-top: 4px; }
+.mi-names { font-size: 12px; margin-top: 4px; color: var(--dim); }
 .mi-names b { color: var(--accent); font-weight: 500; }
 .mi-names span { color: var(--blue); }
 .mi-meta { color: var(--dim); font-size: 10px; margin-top: 3px; font-family: var(--mono); }
+.mi-win { color: var(--text); font-weight: 500; }
 .replay-stage { margin-bottom: 12px; }
 .replay-controls { display: flex; align-items: center; gap: 14px; padding: 10px 14px; margin-bottom: 12px; }
 .play-btn { width: 32px; height: 32px; display: grid; place-items: center; background: var(--accent-soft); border: 1px solid rgba(53,214,164,.3); border-radius: 5px; color: var(--accent); flex: none; }
@@ -510,6 +524,7 @@ a.nav-btn { text-decoration: none; line-height: 1; }
 .tr-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
 .tr-row .field { min-width: 260px; }
 .tr-actions { display: flex; gap: 10px; align-items: center; }
+.tr-actions .primary-btn { margin: 0; }
 .tr-error { border-left: 3px solid #ff5d5d; }
 .tr-kpis { display: flex; flex-wrap: wrap; gap: 22px; margin-bottom: 8px; }
 .tr-kpis > div { display: flex; flex-direction: column; }

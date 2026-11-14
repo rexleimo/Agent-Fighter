@@ -272,13 +272,15 @@ export function ReplayPage() {
 function MatchItem({ match, active, onSelect }: { match: MatchSummary; active: boolean; onSelect: () => void }) {
   const a = match.a as any;
   const b = match.b as any;
+  const draw = match.winner === 'draw' || (match as any).winnerName === 'draw';
   return (
     <button className={`match-item${active ? ' active' : ''}`} type="button" onClick={onSelect}>
       <div className="mi-top"><span>{match.matchId.slice(0, 18)}</span><span>{String(match.ticks ?? '—')} 拍</span></div>
       <div className="mi-names"><b>{a?.name ?? 'A'}</b> vs <span>{b?.name ?? 'B'}</span></div>
       <div className="mi-meta">
         {match.format === 'team' ? '3v3 组队 · ' : ''}
-        胜 {String((match as any).winnerName ?? match.winner ?? '—')} · {REASON_LABEL[String(match.reason)] ?? match.reason ?? '—'} · Δ {(match as any).ratingDeltaA ?? 0}
+        {draw ? '平局' : <>胜 <b className="mi-win">{String((match as any).winnerName ?? match.winner ?? '—')}</b></>}
+        {' '}· {REASON_LABEL[String(match.reason)] ?? match.reason ?? '—'} · Δ {(match as any).ratingDeltaA ?? 0}
       </div>
     </button>
   );

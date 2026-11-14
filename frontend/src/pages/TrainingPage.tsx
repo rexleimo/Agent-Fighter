@@ -186,7 +186,7 @@ export function TrainingPage() {
                   <input className="mono" value={seeds} onChange={(e) => setSeeds(e.target.value)} />
                 </label>
                 <div className="tr-actions">
-                  <button className="primary" type="button" disabled={run.isPending || !picked.length || needsStrategy} onClick={() => run.mutate()}>
+                  <button className="primary-btn" type="button" disabled={run.isPending || !picked.length || needsStrategy} onClick={() => run.mutate()}>
                     {run.isPending ? '训练中…' : '开始训练'}
                   </button>
                   <span className="muted">
