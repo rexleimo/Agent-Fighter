@@ -37,7 +37,7 @@ services:
       AFL_RATE_AUTH: ${AFL_RATE_AUTH:-300}
       AFL_RATE_GLOBAL: ${AFL_RATE_GLOBAL:-3000}
       AFL_TRUST_PROXY: ${AFL_TRUST_PROXY:-0}
-    command: sh -c "pnpm db:migrate && node src/server.js"
+    command: sh -c "bun run db:migrate && bun src/server.js"
     ports:
       - "${PORT:-8787}:8787"
     volumes:

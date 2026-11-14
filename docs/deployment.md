@@ -1,7 +1,12 @@
 # 部署指南（最小可安全部署）
 
 v0.12.0 起内置生产加固层（`src/security.js`）与部署打包（`Dockerfile` /
-`docker-compose.yml`）。本文档说明如何把联赛安全地暴露到网络，以及各加固旋钮的含义。
+`docker-compose.yml`）。**服务运行时为 Bun >= 1.4**（通过 Node 兼容层跑 `node:http` /
+自研 WebSocket / `pg` / better-auth，已全量验收）；pnpm 仍是包管理器与前端构建链。
+本文档说明如何把联赛安全地暴露到网络，以及各加固旋钮的含义。
+
+本地不用 Docker 时：`pnpm install && pnpm db:up && pnpm db:migrate && pnpm start`
+（`start` = `bun src/server.js`，`prestart` 先构建 React 站点）。
 
 > 适用范围：内部 / 受邀制 / 基准平台部署开箱即用；公网公开服务建议按本文收紧限流并置于
 > TLS 反向代理之后。**水平扩展不在本档范围**（见末尾「已知边界」）。

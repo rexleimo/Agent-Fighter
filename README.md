@@ -8,7 +8,7 @@ v0.2 新增三条：**现成 AI 客户端可直接接入的托管策略赛道**�
 
 ## 跑起来
 
-需要 Node.js >= 22、pnpm，以及一个 Postgres 16（用于 better-auth 账号）。没有 `DATABASE_URL` 时游戏仍可跑，但账号/登录明确关闭。
+需要 **Bun >= 1.4**（服务运行时）、Node.js >= 22 + pnpm（前端构建链 Vite/tsc/ESLint），以及一个 Postgres 16（用于 better-auth 账号）。没有 `DATABASE_URL` 时游戏仍可跑，但账号/登录明确关闭。服务通过 Bun 的 Node 兼容层运行（`node:http` / 自研 WebSocket / `pg` / better-auth 均已验证）。
 
 ```bash
 pnpm install         # 安装 React / Vite / Drizzle 依赖
@@ -42,10 +42,10 @@ node scripts/capture.mjs   # 真实等待，检查实时推流与前端异常，
 | :--- | :--- |
 | **Web UI** | React 19 + TypeScript + Vite 8 · React Router · TanStack Query · React Hook Form + Zod |
 | **观战画面** | Canvas 2D 命令式 renderer；React 只负责页面、HUD、事件流，60fps 状态不进入 React 渲染 |
-| **后端** | Node.js >= 22 · ESM · `node:http` · 自研 RFC 6455 WebSocket · 手写 MCP JSON-RPC |
+| **后端** | Bun >= 1.4（Node 兼容层）· ESM · `node:http` · 自研 RFC 6455 WebSocket · 手写 MCP JSON-RPC |
 | **认证** | **better-auth 1.7**：username 插件 + email/password + 标准 session cookie；`user` / `session` / `account` / `verification` 表 |
 | **数据** | Postgres 16 + Drizzle ORM：better-auth 身份表 + `players` 档案表（role / agent / MCP key） |
-| **测试** | Node 端到端验收脚本 + Vitest（React 组件） |
+| **测试** | Bun 端到端验收脚本 + Vitest（React 组件） |
 
 **没有用** Express / NestJS / Prisma / TypeORM。后端战斗内核、WebSocket、MCP 都是零框架原生实现；只有 Web UI、认证和数据库层引入了现代工具链。
 

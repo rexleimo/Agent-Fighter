@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T16:47:26.823Z",
+  "generatedAt": "2026-11-14T17:12:19.483Z",
   "base": "http://127.0.0.1:8787",
   "client": "official @modelcontextprotocol/sdk Client + StreamableHTTPClientTransport",
   "checks": [
@@ -41,12 +41,12 @@
     {
       "name": "M8 join_queue 真的进入排位队列并开出房间",
       "ok": true,
-      "detail": "queuePosition=1 roomId=r_mwgn2izu_3 opponent=Blue Wave"
+      "detail": "queuePosition=1 roomId=r_mwgnyhuv_3 opponent=Blue Wave"
     },
     {
       "name": "M9 托管策略真的打完一整局并写入战绩",
       "ok": true,
-      "detail": "matchId=r_mwgn2izu_3_mwgn2izu_1 ticks=219 result=draw reason=ko"
+      "detail": "matchId=r_mwgnyhuv_3_mwgnyhuv_1 ticks=219 result=draw reason=ko"
     },
     {
       "name": "M10 WebSocket 观战收到服务端实拍 tick（非前端造数）",
@@ -56,12 +56,12 @@
     {
       "name": "M11 默认观战页血量真实变化、有技能动作（内置策略，非外部 AI）",
       "ok": true,
-      "detail": "hp {\"hpA\":1000,\"hpB\":852} -> {\"hpA\":828,\"hpB\":768} skillActions=6"
+      "detail": "hp {\"hpA\":1000,\"hpB\":708} -> {\"hpA\":1000,\"hpB\":636} skillActions=12"
     },
     {
       "name": "M12 回放状态哈希链逐拍一致（确定性内核，非随机数）",
       "ok": true,
-      "detail": "ticks=219 mismatches=0 seed=3790823597 events=177"
+      "detail": "ticks=219 mismatches=0 seed=3758991072 events=177"
     },
     {
       "name": "M13 回放里出现技能 / 血量下降 / 明确胜负",
@@ -76,7 +76,7 @@
     {
       "name": "M15 战绩与榜单口径一致（排位局计分；官方陪练局真实但不计榜）",
       "ok": true,
-      "detail": "不计榜(sparring) matches=0 practice=74 rating=1500 delta=0"
+      "detail": "不计榜(sparring) matches=0 practice=111 rating=1500 delta=0"
     }
   ],
   "evidence": {
@@ -190,7 +190,7 @@
       "demoHelloPresence": {
         "onlineAgents": 0,
         "waiting": 0,
-        "spectators": 3,
+        "spectators": 4,
         "totalRooms": 3,
         "finishedRooms": 0,
         "queue": []
@@ -199,31 +199,29 @@
     },
     "demoRoom": {
       "actions": {
-        "mp": 45,
-        "block": 119,
-        "super": 1,
-        "fireball": 5
+        "block": 158,
+        "fireball": 12
       },
       "firstHp": {
         "hpA": 1000,
-        "hpB": 852
+        "hpB": 708
       },
       "lastHp": {
-        "hpA": 828,
-        "hpB": 768
+        "hpA": 1000,
+        "hpB": 636
       },
       "hpChanged": true,
-      "skillActions": 6
+      "skillActions": 12
     },
     "match": {
-      "matchId": "r_mwgn2izu_3_mwgn2izu_1",
+      "matchId": "r_mwgnyhuv_3_mwgnyhuv_1",
       "result": "draw",
       "reason": "ko",
       "winner": "draw",
       "hpA": 0,
       "hpB": 0,
       "ticks": 219,
-      "seed": 3790823597,
+      "seed": 3758991072,
       "stateHashMismatches": 0,
       "actionCounts": {
         "fireball": 62,
@@ -355,13 +353,13 @@
         "wins": 0,
         "losses": 0,
         "draws": 0,
-        "practiceMatches": 74,
+        "practiceMatches": 111,
         "competitor": true,
         "official": false,
         "modelCalls": 0,
         "timeouts": 0,
         "budgetExceeded": 0,
-        "hostedTicksEvaluated": 22156,
+        "hostedTicksEvaluated": 33089,
         "trainingRuns": 0,
         "versionHash": "d80b2807e6f6",
         "strategyHash": "d80b2807e6f62c30",
