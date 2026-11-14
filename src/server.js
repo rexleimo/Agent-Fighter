@@ -17,6 +17,7 @@ import { getPlayerStore } from './players.js';
 import { normalizeUsername } from './player-shared.js';
 import { attachWebSocketServer } from './ws.js';
 import { createMCPHandler } from './mcp.js';
+import { docsManifest } from './docs-index.js';
 import { strategyTemplate } from './strategy-dsl.js';
 import { MAX_MODEL_CALLS_PER_MATCH } from './costs.js';
 
@@ -26,7 +27,7 @@ const WEB_DIST = path.join(WEB_DIR, 'dist');
 const WEB_DIST_INDEX = path.join(WEB_DIST, 'index.html');
 // Client-side routes served by the React app. The game assets and the
 // read-only docs/sdk trees below keep their own prefixes.
-const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/guide', '/training']);
+const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/guide', '/training', '/library']);
 const PORT = Number(process.env.PORT || 8787);
 const league = new League();
 const players = auth ? await getPlayerStore() : null;
@@ -524,8 +525,17 @@ const server = http.createServer(async (req, res) => {
     });
     return;
   }
-  // One URL an AI agent client can read to learn the entire game.
+  // One URL an AI agent client can read to learn the entire game. Agents (curl /
+  // MCP / fetch, Accept: */*) get the raw markdown; a human browser navigating
+  // here (Accept: text/html) is sent to the in-app library reader rather than a
+  // bare markdown page.
   if (p === '/SKILL.md' || p === '/skill.md') {
+    const accept = String(req.headers.accept || '');
+    if (accept.includes('text/html')) {
+      res.writeHead(302, { Location: '/library?file=' + encodeURIComponent('skills/afl-league/SKILL.md'), 'Cache-Control': 'no-cache' });
+      res.end();
+      return;
+    }
     const file = path.join(ROOT, 'skills', 'afl-league', 'SKILL.md');
     if (!fs.existsSync(file)) { json(res, 404, { error: 'skill not found' }); return; }
     res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' });
@@ -583,6 +593,14 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/api/rules') {
     json(res, 200, league.getRules());
+    return;
+  }
+  if (p === '/api/docs') {
+    try {
+      json(res, 200, docsManifest());
+    } catch {
+      json(res, 503, { error: 'docs manifest unavailable' });
+    }
     return;
   }
   if (p.startsWith('/api/replay/')) {

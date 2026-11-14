@@ -7,6 +7,8 @@ import '../../web/styles.css';
 import '../../web/team.css';
 import '../../web/account.css';
 import '../../web/guide.css';
+import '../../web/manual.css';
+import '../../web/library.css';
 import './styles/app.css';
 
 if (import.meta.env.DEV) {

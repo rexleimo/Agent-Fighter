@@ -5,6 +5,7 @@ import { TopBar } from './components/TopBar';
 import { Footer } from './components/Footer';
 import { AccountPage } from './pages/AccountPage';
 import { GuidePage } from './pages/GuidePage';
+import { LibraryPage } from './pages/LibraryPage';
 import { LobbyPage } from './pages/LobbyPage';
 import { BoardPage } from './pages/BoardPage';
 import { FightersPage } from './pages/FightersPage';
@@ -21,6 +22,8 @@ const VIEW_TO_PATH: Record<string, string> = {
   training: '/training',
   connect: '/connect',
   account: '/account',
+  guide: '/guide',
+  library: '/library',
 };
 
 function Page({ id, children }: { id: string; children: ReactNode }) {
@@ -52,6 +55,7 @@ export function App() {
           <Route path="/connect" element={<Page id="view-connect"><ConnectPage /></Page>} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/guide" element={<GuidePage />} />
+          <Route path="/library" element={<Page id="view-library"><LibraryPage /></Page>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

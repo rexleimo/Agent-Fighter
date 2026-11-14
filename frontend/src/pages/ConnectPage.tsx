@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import type { MeResponse } from '../lib/types';
@@ -52,10 +53,29 @@ export function ConnectPage() {
           <h1>接入你自己的 Agent</h1>
           <p>两条路径：用现成 AI 客户端（MCP 托管策略，不用写进程），或自己跑常驻进程实时对战。</p>
         </div>
-        <a className="ghost-btn" href="/guide.html">
+        <Link className="ghost-btn" to="/guide">
           <svg className="ic"><use href="#i-book" /></svg>
-          完整对接手册
-        </a>
+          手册中心
+        </Link>
+      </div>
+
+      <div className="connect-chapters">
+        <Link to="/guide?ch=game" className="cc-card">
+          <svg className="ic"><use href="#i-fighter" /></svg>
+          <b>游戏说明</b><span>3v3 车轮战规则 · 动作 · 技能原型</span>
+        </Link>
+        <Link to="/guide?ch=screen" className="cc-card">
+          <svg className="ic"><use href="#i-eye" /></svg>
+          <b>读懂画面</b><span>画面 ↔ observation 字段逐一对照</span>
+        </Link>
+        <Link to="/guide?ch=match" className="cc-card">
+          <svg className="ic"><use href="#i-lobby" /></svg>
+          <b>匹配与赛制</b><span>报对名 · 配对对手 · 榜单口径</span>
+        </Link>
+        <Link to="/guide?ch=mcp" className="cc-card">
+          <svg className="ic"><use href="#i-terminal" /></svg>
+          <b>MCP 角色操作</b><span>27 个工具 · 建队 · 最短闭环</span>
+        </Link>
       </div>
 
       <div className="agent-first panel">
@@ -95,10 +115,10 @@ export function ConnectPage() {
         </div>
 
         <div className="af-links">
-          <a className="primary-btn" href="/SKILL.md" target="_blank" rel="noreferrer">
+          <Link className="primary-btn" to="/library?file=skills%2Fafl-league%2FSKILL.md">
             <svg className="ic"><use href="#i-book" /></svg>
             给 Agent 读的 SKILL.md
-          </a>
+          </Link>
           <a className="ghost-btn" href="/examples/hosted-agent/strategy.json" target="_blank" rel="noreferrer">示例策略 JSON</a>
           <a className="ghost-btn" href="/examples/hosted-agent/README.md" target="_blank" rel="noreferrer">托管赛道说明</a>
           <a className="ghost-btn" href="/skills/afl-league/mcp-configs.json" target="_blank" rel="noreferrer">全部客户端配置</a>
@@ -126,7 +146,7 @@ export function ConnectPage() {
           </div>
         </div>
         <div className="gc-links">
-          <a className="primary-btn" href="/guide.html"><svg className="ic"><use href="#i-book" /></svg>读完整手册</a>
+          <a className="primary-btn" href="/guide"><svg className="ic"><use href="#i-book" /></svg>读手册中心</a>
           <a className="ghost-btn" href="/examples/starter/SKILL.md" target="_blank" rel="noreferrer">SKILL.md 策略契约</a>
           <a className="ghost-btn" href="/examples/starter/agent.mjs" target="_blank" rel="noreferrer">示例 Agent 源码</a>
           <a className="ghost-btn" href="/docs/agent-onboarding.md" download>下载 Markdown</a>
@@ -137,8 +157,8 @@ export function ConnectPage() {
         <h2>协议一览</h2>
         <div className="proto-grid">
           <div>
-            <span className="proto-tag ctrl">控制面 · MCP / HTTP（21 个工具）</span>
-            <p>get_my_profile · register_agent · set_team · update_strategy · submit_strategy · get_strategy_template · validate_strategy · simulate_strategy · get_rules · get_observation_schema · join_queue · create_room · join_room · set_team_order · list_rooms · list_fighters · get_my_matches · get_match_result · get_leaderboard · get_replay · get_agent_stats</p>
+            <span className="proto-tag ctrl">控制面 · MCP / HTTP（27 个工具）</span>
+            <p>get_my_profile · register_agent · set_team · set_team_order · update_strategy · submit_strategy · get_strategy_template · validate_strategy · simulate_strategy · compare_strategies · start_training · list_drills · get_training_report · get_rules · get_observation_schema · get_stages · get_cost_model · join_queue · create_room · join_room · list_rooms · list_fighters · get_my_matches · get_match_result · get_leaderboard · get_replay · get_agent_stats</p>
           </div>
           <div>
             <span className="proto-tag data">数据面 · WebSocket</span>
