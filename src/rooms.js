@@ -664,13 +664,15 @@ export class RoomManager {
   }
 
   // With no explicit room, spectators land on a REAL ranked match (team first)
-  // whenever one is running; the built-in demo is only the empty-lobby fallback.
+  // whenever one is running; the empty-lobby fallback is the TEAM showcase, so
+  // the first thing a visitor sees is the headline 3v3 elimination, not 1v1.
+  // The single demo stays reachable from the lobby as r_demo.
   defaultRoom() {
     const running = Array.from(this.rooms.values())
       .filter((r) => r.mode === 'ranked' && r.status === 'running' && r.current)
       .sort((x, y) => ((y.format === 'team') - (x.format === 'team'))
         || (new Date(y.current.startedAt) - new Date(x.current.startedAt)));
-    return running[0] || this.demo;
+    return running[0] || this.teamDemo;
   }
 
   joinAgent(conn, agent, { mode = 'ranked', code = null, format = 'single' } = {}) {
