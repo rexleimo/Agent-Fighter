@@ -13,7 +13,7 @@
  * World conversion applies `facing` and the fighter's (x, y) position.
  * The browser adds GROUND to every world y it receives.
  */
-import { MOVES, moveFor, totalFor } from './rules.js';
+import { MOVES, moveFor, totalFor, isCommitted, defensiveRules } from './rules.js';
 import { ARCHETYPES, FIGHTER_KITS } from './kits/index.js';
 import { PUSH_WIDTH } from './fighters.js';
 import { cancelWindowOf, legalCancelTargets } from './combo.js';
@@ -60,7 +60,7 @@ function mixJoint(p, key, x, y, t = 1) {
 /** Where a move currently is: startup / active / recovery / free. */
 export function framePhase(f) {
   const m = moveFor(f, f.moveId);
-  if (!m || (f.state !== 'attack' && f.state !== 'projectile' && f.state !== 'special' && f.state !== 'dash')) {
+  if (!m || !isCommitted(f)) {
     return {
       moveId: f.moveId || null, phase: 'none', frame: 0, total: 0,
       startup: 0, active: 0, recovery: 0, cancelable: false, cancelInto: [],
@@ -129,6 +129,31 @@ export function poseFor(f, frame = 0) {
     p.elbowF = [18, -128]; p.handF = [14, -158];
     p.elbowB = [-8, -126]; p.handB = [6, -152];
     p.chest[0] -= 4;
+  } else if (state === 'dodge') {
+    // The whole body leans away and sinks, front foot braked under it. This is
+    // the pose the backstep belongs to, so the picture and the i-frames end
+    // together: a fighter still in this pose after the window is over reads as
+    // recoverable, which is what makes a late hit honest.
+    const away = clamp01(f.moveFrame / Math.max(1, total));
+    p.hip = [-6 - 4 * away, -82];
+    p.chest = [-16 - 8 * away, -132];
+    p.neck = [-22 - 8 * away, -150];
+    p.head = [-28 - 8 * away, -170];
+    p.shoulderF = [-6, -142]; p.elbowF = [2, -122]; p.handF = [-6, -104];
+    p.shoulderB = [-24, -142]; p.elbowB = [-32, -118]; p.handB = [-38, -98];
+    p.kneeF = [8, -44]; p.footF = [30, -2];
+    p.kneeB = [-24, -48]; p.footB = [-38, -2];
+  } else if (state === 'parry') {
+    // Both forearms come UP AND FORWARD, weight over the front foot: the
+    // silhouette is deliberately different from `guard`, where the arms are
+    // tucked close to the body. A player (and a strategy reading the skeleton)
+    // should be able to see that this fighter is betting, not bracing.
+    p.hip = [2, -86];
+    p.chest = [6, -138]; p.neck = [6, -156]; p.head = [4, -176];
+    p.shoulderF = [16, -146]; p.elbowF = [24, -134]; p.handF = [38, -150];
+    p.shoulderB = [-10, -146]; p.elbowB = [6, -130]; p.handB = [26, -140];
+    p.kneeF = [18, -46]; p.footF = [28, -2];
+    p.kneeB = [-16, -46]; p.footB = [-28, -2];
   } else if (state === 'hitstun') {
     p.chest = [-14, -136]; p.neck = [-20, -154]; p.head = [-26, -172];
     p.handF = [-6, -96]; p.handB = [-40, -92]; p.hip[0] -= 6;
@@ -355,8 +380,13 @@ export function hitboxesFor(f, frame = 0) {
     const local = f.moveFrame - m.startup;
     if (local < hb.from || local > hb.to) continue;
     if (m.multiHit) {
+      // A segment is spent either because it connected or because a read erased
+      // it; `hitIds` is the hit-CONFIRM bookkeeping, `spentHitIds` is only
+      // "this box may not resolve again". Collapsing the two would let an
+      // evaded multi-hit super still open its cancel window.
       if ((f.hitIds || []).includes(hb.hitId)) continue;
-    } else if (f.hasHit) {
+      if ((f.spentHitIds || []).includes(hb.hitId)) continue;
+    } else if (f.hasHit || f.spentHit) {
       continue;
     }
     const a = p[hb.anchor] || p.handF;
@@ -382,6 +412,10 @@ export function hitboxesFor(f, frame = 0) {
       launch: Boolean(hb.launch || (m.launch && !m.multiHit)),
       hitstop: hb.hitstop || m.hitstop || 4,
       meterGain: m.meterGain, unblockable: Boolean(m.unblockable || hb.unblockable),
+      // Whether this box eats the dodge i-frames. Data on the move, never a
+      // hardcoded move-id list in the kernel, so a kit can print its own
+      // grab-type skill with the same property.
+      breaksDodge: Boolean(m.breaksDodge || hb.breaksDodge),
       armored: false,
     });
   }
@@ -397,7 +431,7 @@ export function projectileBox(p) {
     kind: 'hit', move: p.move || 'fireball', hitId: 0, height: 'mid',
     damage: p.damage, hitstun: p.hitstun || 16, blockstun: p.blockstun || 10,
     pushback: 9, knockdown: Boolean(p.knockdown), launch: false,
-    hitstop: p.hitstop || 4, meterGain: 12, unblockable: false,
+    hitstop: p.hitstop || 4, meterGain: 12, unblockable: false, breaksDodge: false,
   };
 }
 
@@ -431,6 +465,40 @@ export function guardResult(f, hb) {
   return 'block';
 }
 
+/**
+ * Is the fighter currently inside its 招架 window?
+ *
+ * Derived from (state, moveFrame, frame data) instead of a dedicated counter,
+ * because a stale copy of the window is exactly how a defensive action turns
+ * into a free immune frame: the frame data is the only version of the truth.
+ */
+export function parryWindowOpen(f) {
+  if (!f || f.state !== 'parry' || !f.moveId) return false;
+  const m = moveFor(f, f.moveId);
+  if (!m || !m.parry) return false;
+  const local = f.moveFrame - m.startup;
+  return local >= 0 && local < m.active;
+}
+
+/**
+ * The ACTIVE defensive layer, i.e. everything that is not bracing.
+ *
+ * `guardResult` answers the passive question (am I covering this height?) and
+ * stays the only place that rule lives. This answers the two reads:
+ *
+ *   'evade' — the dodge i-frame window swallows the hit outright.
+ *   'parry' — the parry window negates any BLOCKABLE height, and a projectile.
+ *
+ * Both lose to throws: `breaksDodge` is what the throw hitbox carries, and an
+ * unblockable is by definition not something you can catch.
+ */
+export function defensiveVerdict(f, hb) {
+  if (!f || !hb) return null;
+  if (f.state === 'dodge' && f.invuln > 0 && !hb.breaksDodge) return 'evade';
+  if (parryWindowOpen(f) && !hb.unblockable && hb.height !== 'throw') return 'parry';
+  return null;
+}
+
 /** Everything a renderer or an agent needs for one fighter at one frame. */
 export function boxesFor(f, frame = 0) {
   return {
@@ -453,6 +521,9 @@ export function publicBoxData() {
       cancelWindow: m.cancelWindow || 0, knockdown: Boolean(m.knockdown),
       invuln: m.invuln || 0, armor: m.armor || 0,
       multiHit: Boolean(m.multiHit), hitstop: m.hitstop || 4,
+      breaksDodge: Boolean(m.breaksDodge),
+      evade: m.evade ? { ...m.evade } : null,
+      parry: m.parry ? { ...m.parry } : null,
       hitboxes: (m.hitboxes || []).map((h) => ({ ...h })),
     };
   }
@@ -483,6 +554,8 @@ export function publicBoxData() {
     joints: JOINT_NAMES,
     bones: BONES.map(([a, b]) => a + '->' + b),
     hurtboxRule: 'head/torso/legs boxes are derived from the live skeleton joints every frame',
+    guardRule: 'standing block covers mid/high/overhead and loses to low; crouch block covers low/mid and loses to high/overhead',
+    defensive: defensiveRules(),
     colors: HITBOX_COLORS,
     moves,
     // Per-fighter skill kits: the three meter actions resolve through these.

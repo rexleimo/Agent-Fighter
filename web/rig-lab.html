@@ -42,6 +42,11 @@ const POSES = [
   ['super', { state: 'attack', moveId: 'super', moveFrame: 14 }],
   ['hitstun', { state: 'hitstun' }],
   ['knockdown', { state: 'knockdown' }],
+  // The defensive layer has to be visible, not just legal. Both frames are
+  // taken mid-window (dodge frame 3 of 10 invulnerable, parry frame 2 of 8),
+  // so what renders here is what the player sees when the read lands.
+  ['dodge', { state: 'dodge', moveId: 'dodge', moveFrame: 3 }],
+  ['parry', { state: 'parry', moveId: 'parry', moveFrame: 2 }],
 ];
 
 const labels = CUM ? ['part 1', 'part 2', 'part 3', 'part 4', 'part 5', 'part 6'] : POSES.map((p) => p[0]);
@@ -125,6 +130,11 @@ const report = rows.map(({ id, cells }) => {
     idleVsWalk: diff(data[0], data[1]),
     idleVsIdle: diff(data[0], data[0]),
     idleVsCrouch: diff(data[0], data[2]),
+    // Append-only indices: dodge is 12, parry is 13 in POSES above.
+    idleVsDodge: diff(data[0], data[12]),
+    idleVsParry: diff(data[0], data[13]),
+    dodgeVsParry: diff(data[12], data[13]),
+    guardVsParry: diff(data[3], data[13]),
   };
 });
 window.__rigReport = report;

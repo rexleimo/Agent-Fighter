@@ -42,7 +42,24 @@ export const CONFIG = Object.freeze({
   DASH_F: 13,
   ROUND_SECONDS: 60,
   DEFAULT_ACTION: 'block',
-  RULES_VERSION: '2.0',
+  // --- defensive layer (rules 2.1): 闪避 / 招架 -------------------------------
+  // Agents decide once per tick (FRAMES_PER_TICK frames), so every defensive
+  // window below is at least one tick wide: a 3-frame parry would be a dice
+  // roll for a client that only gets ten decisions a second.
+  DODGE_ACTIVE: 10,
+  DODGE_RECOVERY: 8,
+  DODGE_INVULN: 10,
+  // The i-frames and the backstep cover the SAME frames, so what you see is
+  // what is safe: 10 frames x 5 units = 50 units away from the attacker.
+  DODGE_BACK_VX: 5,
+  // Counted from the frame the dodge starts, so it covers the 18-frame move
+  // itself: after landing there are still DODGE_COOLDOWN - 18 frames of vacuum.
+  DODGE_COOLDOWN: 30,
+  DODGE_METER: 15,
+  PARRY_ACTIVE: 8,
+  PARRY_RECOVERY: 16,
+  PARRY_METER: 25,
+  RULES_VERSION: '2.1',
 });
 
 /**

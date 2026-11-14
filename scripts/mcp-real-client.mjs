@@ -188,9 +188,21 @@ try {
 
   const rules = await call('get_rules');
   const boxMoves = Object.values(rules?.boxes?.moves || {}).filter((m) => Array.isArray(m.hitboxes) && m.hitboxes.length).length;
-  check('M5 get_rules 返回 19 动作 + 权威判定框数据',
-    rules?.actions?.length === 19 && boxMoves >= 5 && (rules?.boxes?.joints?.length || 0) >= 10,
-    'actions=' + rules?.actions?.length + ' movesWithHitboxes=' + boxMoves + ' joints=' + rules?.boxes?.joints?.length + ' bones=' + rules?.boxes?.bones?.length);
+  // The defensive layer is part of the published contract, so an independent
+  // client must see it too — and it must agree with the version the same
+  // response reports. A hardcoded action count catches a truncated payload.
+  const def = rules?.defensive;
+  check('M5 get_rules 返回 21 动作 + 防御层相克表 + 权威判定框数据',
+    rules?.actions?.length === 21
+      && rules.actions.includes('dodge') && rules.actions.includes('parry')
+      && def?.version === rules?.config?.RULES_VERSION
+      && (def?.matrix?.length || 0) === 5
+      && (def?.actions?.parry?.window || 0) > 0 && (def?.actions?.dodge?.cooldown || 0) > 0
+      && boxMoves >= 5 && (rules?.boxes?.joints?.length || 0) >= 10,
+    'actions=' + rules?.actions?.length + ' defensive=' + def?.version + '/v' + rules?.config?.RULES_VERSION
+      + ' matrix=' + (def?.matrix?.length || 0) + ' parryWindow=' + def?.actions?.parry?.window
+      + ' dodgeCooldown=' + def?.actions?.dodge?.cooldown
+      + ' movesWithHitboxes=' + boxMoves + ' joints=' + rules?.boxes?.joints?.length + ' bones=' + rules?.boxes?.bones?.length);
 
   const tpl = await call('get_strategy_template');
   const strategy = tpl?.template;

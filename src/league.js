@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, createHash } from 'node:crypto';
 import { BUILTIN_AGENTS, publicAgent } from './agents.js';
-import { ACTIONS, CONFIG, MOVES, moveTotal } from './rules.js';
+import { ACTIONS, CONFIG, MOVES, moveTotal, defensiveRules } from './rules.js';
 import { publicBoxData } from './combat.js';
 import { OBSERVATION_JSON_SCHEMA } from './protocol.js';
 import { serializeReplay } from './replay.js';
@@ -974,6 +974,9 @@ export class League {
       moves,
       boxes: publicBoxData(),
       skills,
+      // The defensive layer published as data: 站防 / 蹲防 / 招架 / 闪避, what
+      // each covers, what breaks it, and what the read is worth.
+      defensive: defensiveRules(),
       team: {
         format: 'team',
         size: TEAM_SIZE,
@@ -989,7 +992,7 @@ export class League {
           'Ranked team: declare a roster with set_team (or register_agent team=...), then join_queue(format="team"). Matchmaking pairs same-track agents by nearest rating; results count on the wins-first leaderboard. Scrim/exhibition team rooms stay unranked.',
         ],
       },
-      note: 'One decision tick = 6 render frames at 60fps. Hits are resolved by AABB overlap of skeleton-anchored hitboxes against skeleton-derived hurtboxes, NOT by a distance check. Standing block loses to low, crouch block loses to high/overhead, throws are unblockable. Cancel a landed move inside frameData.cancelInto. The kernel never waits: a late act falls back to defaultAction.',
+      note: 'One decision tick = 6 render frames at 60fps. Hits are resolved by AABB overlap of skeleton-anchored hitboxes against skeleton-derived hurtboxes, NOT by a distance check. Standing block loses to low, crouch block loses to high/overhead, throws are unblockable. The active layer on top of that: parry (招架) negates any blockable height and a projectile for 25 meter but is 16 punishable frames of nothing when it whiffs; dodge (闪避) is 10 invulnerable frames plus a 50-unit backstep for 15 meter, on a 30-frame cooldown, and a throw eats it. Cancel a landed move inside frameData.cancelInto. Neither defensive action can be canceled into, and an evaded or parried attack counts as a whiff for the attacker. The kernel never waits: a late act falls back to defaultAction.',
     };
   }
 

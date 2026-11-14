@@ -1,6 +1,8 @@
-import { ACTIONS, CONFIG, MOVES, moveFor, moveDamage, totalFor, mechanicsOf } from './rules.js';
+import { ACTIONS, CONFIG, MOVES, moveFor, moveDamage, totalFor, mechanicsOf, isDefending } from './rules.js';
 import { ARCHETYPES, FIGHTER_KITS } from './kits/index.js';
-import { framePhase, hitboxesFor, hurtboxesFor, overlap, publicBoxData } from './combat.js';
+import {
+  framePhase, hitboxesFor, hurtboxesFor, overlap, publicBoxData, parryWindowOpen,
+} from './combat.js';
 
 export function validateAction(action) {
   return typeof action === 'string' && ACTIONS.includes(action);
@@ -9,6 +11,10 @@ export function validateAction(action) {
 function fighterView(f) {
   const total = f.moveId ? totalFor(f, f.moveId) : 0;
   const inAttack = f.state === 'attack' || f.state === 'projectile' || f.state === 'special';
+  // 闪避 / 招架 commit the fighter the same way a swing does, so they have to
+  // read as "not actionable" here or every strategy in the league would try to
+  // cancel out of a dodge that has no cancel.
+  const defending = isDefending(f);
   const phase = framePhase(f);
   return {
     hp: f.hp,
@@ -25,7 +31,7 @@ function fighterView(f) {
     moveFrame: f.moveFrame,
     counterWindow: f.counterWindow,
     moveFrames: total,
-    recovery: inAttack ? Math.max(0, total - f.moveFrame) : 0,
+    recovery: inAttack || defending ? Math.max(0, total - f.moveFrame) : 0,
     hitstun: f.hitstun,
     blockstun: f.blockstun,
     combo: f.combo,
@@ -35,6 +41,10 @@ function fighterView(f) {
     invuln: f.invuln,
     wakeup: f.wakeup,
     armorLeft: f.armorLeft,
+    // The defensive layer, reported as numbers rather than as prose: an agent
+    // that cannot see the cooldown cannot plan around it.
+    dodgeCd: f.dodgeCd,
+    parrying: parryWindowOpen(f),
     canceledFrom: f.canceledFrom,
     phase: phase.phase,
     canCancel: phase.cancelable,
@@ -48,7 +58,7 @@ function fighterView(f) {
     canEx: f.meter >= CONFIG.EX_COST,
     canSuper: f.meter >= CONFIG.SUPER_COST,
     inCorner: f.x <= CONFIG.STAGE_LEFT + 8 || f.x >= CONFIG.STAGE_RIGHT - 8,
-    actionable: f.hitstun === 0 && f.blockstun === 0 && !inAttack
+    actionable: f.hitstun === 0 && f.blockstun === 0 && !inAttack && !defending
       && f.state !== 'knockdown' && f.wakeup === 0,
   };
 }
@@ -135,6 +145,13 @@ export function buildObservation(state, side, tick, deadlineMs, history, seed, e
       opponentAirborne: airborne,
       opponentAttacking: oppView.state === 'attack',
       opponentBlocking: opp.state === 'guard' || opp.state === 'crouch',
+      // Active defence the opponent is committed to: `opponentDodging` says the
+      // backstep is happening, `opponentEvading` says the i-frames are still up
+      // (so a normal is already spent — throw it instead), and
+      // `opponentParrying` says the next blockable hit is free for them.
+      opponentDodging: opp.state === 'dodge',
+      opponentEvading: opp.state === 'dodge' && opp.invuln > 0,
+      opponentParrying: parryWindowOpen(opp),
       threat,
       inRange,
       projectileIncoming: threat === 'projectile',
@@ -179,7 +196,7 @@ export const OBSERVATION_JSON_SCHEMA = {
     deadlineMs: { type: 'integer' },
     timer: { type: 'integer' },
     seed: { type: 'integer' },
-    self: { type: 'object', description: 'Full own fighter state: hp, meter, x, y, state, moveId, moveFrame, phase, canCancel, cancelInto, canEx, canSuper, invuln, wakeup, armorLeft, actionable' },
+    self: { type: 'object', description: 'Full own fighter state: hp, meter, x, y, state, moveId, moveFrame, phase, canCancel, cancelInto, canEx, canSuper, invuln, wakeup, armorLeft, dodgeCd, parrying, actionable' },
     opponent: { type: 'object', description: 'Same shape as self, full opponent state' },
     derived: {
       type: 'object',
@@ -189,6 +206,9 @@ export const OBSERVATION_JSON_SCHEMA = {
         frameAdvantage: { type: 'integer' },
         punishable: { type: 'boolean' },
         opponentAirborne: { type: 'boolean' },
+        opponentDodging: { type: 'boolean', description: 'Opponent is inside the 闪避 backstep' },
+        opponentEvading: { type: 'boolean', description: 'Opponent still has dodge i-frames up: strikes are spent, a throw is not' },
+        opponentParrying: { type: 'boolean', description: 'Opponent is inside the 招架 window: a blockable hit would be negated' },
         threat: { type: 'string', enum: ['projectile', 'jump_in', 'poke', 'close', 'neutral'] },
         inRange: { type: 'object' },
         opponentActiveHitboxes: { type: 'array', description: 'World-space rects of the opponent\'s currently active hitboxes' },
@@ -236,7 +256,7 @@ export const MCP_TOOLS = [
   },
   {
     name: 'get_rules',
-    description: 'Read the COMPLETE combat reference: 19-action space, per-move frame data (startup/active/recovery/cancel windows/meter cost), skeleton joint list, hitbox/hurtbox rectangles anchored to joints, guard heights and the 3 skills (special / EX / super). Use this when writing or debugging your strategy.',
+    description: 'Read the COMPLETE combat reference: the 21-action space, per-move frame data (startup/active/recovery/cancel windows/meter cost), the defensive layer matrix (站防 / 蹲防 / 招架 / 闪避 and what breaks each), skeleton joint list, hitbox/hurtbox rectangles anchored to joints and the 3 skills (special / EX / super). Use this when writing or debugging your strategy.',
     inputSchema: { type: 'object', properties: {} },
   },
   {

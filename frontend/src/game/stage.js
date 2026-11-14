@@ -19,12 +19,12 @@ const COLOR_B = '#5b8cff';
 const ACTION_LABEL = {
   idle: '待机', walk_f: '前走', walk_b: '后撤', jump: '跳跃', crouch: '蹲防', block: '站防', throw: '投技',
   lp: '轻拳', mp: '中拳', hp: '重拳', lk: '轻脚', mk: '中脚', hk: '重脚', dp: '升龙', fireball: '波动',
-  dash: '前冲', special: '专属技', ex: 'EX 强化', super: '超必杀',
+  dash: '前冲', special: '专属技', ex: 'EX 强化', super: '超必杀', dodge: '闪避', parry: '招架',
 };
 const EVENT_LABEL = {
   hit: '命中', block: '防御', spawn: '发出波动', ko: 'KO', time_up: '时间到',
   cancel: '取消连段', super_start: '超必杀发动', armor: '霸体吸收', wakeup: '起身',
-  move_start: '出招', hitstop: '命中停顿',
+  move_start: '出招', hitstop: '命中停顿', evade: '闪避成功', parry: '招架成功',
 };
 const PHASE_LABEL = { startup: '起手', active: '判定', recovery: '收招', none: '可行动' };
 const REASON_LABEL = { ko: 'KO', time_up: '时间到', elimination: '全队淘汰' };
@@ -65,6 +65,21 @@ function poseFor(f) {
   } else if (f.state === 'guard' || f.blockstun > 0) {
     p.elbowF = [16, -74]; p.handF = [24, -86];
     p.elbowB = [-4, -70]; p.handB = [14, -70];
+  } else if (f.state === 'dodge') {
+    // Matches the kernel pose: weight back, torso leaned off the line, both
+    // arms trailing. This fallback only draws when no skeleton came with the
+    // frame, but it must not disagree with the authoritative one.
+    p.hip = [-6, -44]; p.chest = [-14, -78]; p.head = [-20, -98];
+    p.elbowF = [-2, -70]; p.handF = [-16, -60];
+    p.elbowB = [-20, -68]; p.handB = [-32, -58];
+    p.kneeF = [6, -22]; p.footF = [12, 0];
+    p.kneeB = [-14, -24]; p.footB = [-26, 0];
+  } else if (f.state === 'parry') {
+    p.hip = [-2, -46]; p.chest = [-4, -80]; p.head = [-4, -102];
+    p.elbowF = [18, -76]; p.handF = [30, -92];
+    p.elbowB = [10, -74]; p.handB = [24, -86];
+    p.kneeF = [12, -22]; p.footF = [20, 0];
+    p.kneeB = [-8, -24]; p.footB = [-18, 0];
   } else if (f.state === 'hitstun') {
     p.chest = [-10, -78]; p.head = [-16, -98];
     p.handF = [-6, -50]; p.handB = [-30, -48];

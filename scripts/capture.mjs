@@ -13,6 +13,7 @@ const CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
 ].filter(Boolean);
 const chromePath = CHROME_CANDIDATES.find((p) => fs.existsSync(p));

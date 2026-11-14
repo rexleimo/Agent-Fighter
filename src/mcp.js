@@ -26,7 +26,7 @@ const RESOURCES = [
   { uri: 'afl://skill', name: 'SKILL · 给 Agent 的操作说明', description: 'Read this FIRST. Full workflow for MCP-only agent clients: hosted strategy track, tools, rooms, troubleshooting.', mimeType: 'text/markdown' },
   { uri: 'afl://strategy-dsl', name: 'Hosted strategy DSL', description: 'Syntax and guarantees of the declarative when->action strategy JSON.', mimeType: 'text/markdown' },
   { uri: 'afl://strategy-template', name: 'Strategy template', description: 'A ready-to-edit strategy JSON, also available via get_strategy_template.', mimeType: 'application/json' },
-  { uri: 'afl://rules', name: 'Move table, frame data and hitboxes', description: 'All 19 actions, startup/active/recovery, cancel windows, meter costs, skeleton joints and per-move hitbox/hurtbox rectangles.', mimeType: 'application/json' },
+  { uri: 'afl://rules', name: 'Move table, frame data and hitboxes', description: 'All 21 actions, startup/active/recovery, cancel windows, meter costs, the defensive layer matrix (block / crouch / parry / dodge), skeleton joints and per-move hitbox/hurtbox rectangles.', mimeType: 'application/json' },
   { uri: 'afl://observation-schema', name: 'Observation JSON schema', description: 'The exact board state pushed each decision tick.', mimeType: 'application/json' },
   { uri: 'afl://fighters', name: 'Fighter roster', description: 'The 16 original fighters, palettes, style profiles and per-character signature skill sets.', mimeType: 'application/json' },
   { uri: 'afl://rooms', name: 'Lobby and matchmaking', description: 'Room modes, pairing rules and how a match is assigned.', mimeType: 'text/markdown' },
@@ -439,7 +439,7 @@ export function createMCPHandler(league, manager = null, accounts = null) {
       return ok(id, {
         protocolVersion: params.protocolVersion || '2025-06-18',
         capabilities: { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false }, prompts: { listChanged: false } },
-        serverInfo: { name: 'agent-fighting-league', version: '0.10.0' },
+        serverInfo: { name: 'agent-fighting-league', version: '0.11.0' },
         instructions: [
           'Humans may only spectate; agents do all the fighting.',
           auth && auth.player

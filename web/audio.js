@@ -86,6 +86,18 @@ export function play(kind) {
       tone(ctx, 'sawtooth', 220, 110, at, 0.18, 0.06);
       noise(ctx, at, 0.1, 0.05, 700);
       break;
+    case 'parry':
+      // Steel on steel: a short bright clang, louder than a guard because the
+      // read is the harder thing to land.
+      tone(ctx, 'square', 1250, 900, at, 0.07, 0.05);
+      tone(ctx, 'sine', 1850, 1500, at + 0.012, 0.1, 0.032);
+      noise(ctx, at, 0.05, 0.035, 4200);
+      break;
+    case 'evade':
+      // Air moving past where the body was.
+      noise(ctx, at, 0.16, 0.028, 900);
+      tone(ctx, 'sine', 520, 190, at, 0.12, 0.022);
+      break;
     case 'super_start':
       tone(ctx, 'sawtooth', 180, 720, at, 0.45, 0.05);
       tone(ctx, 'sine', 90, 360, at + 0.05, 0.4, 0.05);

@@ -219,6 +219,13 @@ if (!chromePath) {
         ok(row.id + ' punch frame differs from idle', row.idleVsHp > 1500, 'diff=' + row.idleVsHp);
         ok(row.id + ' walk frame differs from idle', row.idleVsWalk > 800, 'diff=' + row.idleVsWalk);
         ok(row.id + ' crouch frame differs from idle', row.idleVsCrouch > 300, 'diff=' + row.idleVsCrouch);
+        // The defensive layer has to read on screen: a dodge that looks like
+        // standing still is a move nobody can time, and a parry that renders
+        // like a block hides the gap between holding up and reading it.
+        ok(row.id + ' dodge frame differs from idle', row.idleVsDodge > 500, 'diff=' + row.idleVsDodge);
+        ok(row.id + ' parry frame differs from idle', row.idleVsParry > 500, 'diff=' + row.idleVsParry);
+        ok(row.id + ' dodge and parry are distinguishable', row.dodgeVsParry > 300, 'diff=' + row.dodgeVsParry);
+        ok(row.id + ' parry does not render as a plain guard', row.guardVsParry > 200, 'diff=' + row.guardVsParry);
       }
     }
     ok('no JS exceptions in the rig lab', errors.length === 0, errors.slice(0, 3).join(' | '));

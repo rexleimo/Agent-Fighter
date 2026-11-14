@@ -13,12 +13,12 @@ import type { Fighter, StageRegistry } from '../lib/types';
 const ACTION_LABEL: Record<string, string> = {
   idle: '待机', walk_f: '前走', walk_b: '后撤', jump: '跳跃', crouch: '蹲防', block: '站防', throw: '投技',
   lp: '轻拳', mp: '中拳', hp: '重拳', lk: '轻脚', mk: '中脚', hk: '重脚', dp: '升龙', fireball: '波动',
-  dash: '前冲', special: '专属技', ex: 'EX 强化', super: '超必杀',
+  dash: '前冲', special: '专属技', ex: 'EX 强化', super: '超必杀', dodge: '闪避', parry: '招架',
 };
 const EVENT_LABEL: Record<string, string> = {
   hit: '命中', block: '防御', spawn: '发出波动', ko: 'KO', time_up: '时间到',
   cancel: '取消连段', super_start: '超必杀发动', armor: '霸体吸收', wakeup: '起身',
-  move_start: '出招', hitstop: '命中停顿',
+  move_start: '出招', hitstop: '命中停顿', evade: '闪避成功', parry: '招架成功',
 };
 const SOURCE_LABEL: Record<string, string> = { builtin: '官方基线（内置）', hosted: '服务端托管', external: '外部实时进程' };
 const MODE_LABEL: Record<string, string> = { demo: 'DEMO · 演示场', ranked: 'RANKED · 排位场', scrim: 'SCRIM · 私房' };
@@ -153,6 +153,8 @@ function eventTitle(event: any): string {
     case 'cancel': return `${side(event.by)} · 取消连段 ${ACTION_LABEL[event.from] ?? event.from} → ${ACTION_LABEL[event.into] ?? event.into}`;
     case 'super_start': return `${side(event.by)} · 超必杀发动 · 消耗 100 气`;
     case 'armor': return `${side(event.on)} · 霸体吸收 ${event.damage} 伤害，未进入硬直`;
+    case 'evade': return `${side(event.by)} · 闪避穿过 ${ACTION_LABEL[event.absorbed] ?? event.absorbed}（${event.height}）· 无伤害 + ${event.meterGain} 气`;
+    case 'parry': return `${side(event.by)} · 招架 ${ACTION_LABEL[event.absorbed] ?? event.absorbed}（${event.height}）· 零伤害 + ${event.meterGain} 气`;
     case 'wakeup': return `${side(event.by)} · 起身，短暂无敌`;
     case 'move_start': return `${side(event.by)} · 发动 ${ACTION_LABEL[event.move] ?? event.move}${event.meterCost ? ` · 消耗 ${event.meterCost} 气` : ''}`;
     default: return EVENT_LABEL[event.type] ?? event.type;

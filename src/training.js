@@ -22,11 +22,15 @@
 import { runMatch } from './engine.js';
 import { decide, matchingRules, validateStrategy, strategyHash } from './strategy-dsl.js';
 import { getBuiltinAgent, BUILTIN_AGENTS } from './agents.js';
-import { ACTIONS } from './rules.js';
+import { ACTIONS, isAttack } from './rules.js';
 import { CONFIG } from './config.js';
 import { COST_CLASSES, MAX_MODEL_CALLS_PER_MATCH } from './costs.js';
 
-const ATTACK_ACTIONS = new Set(ACTIONS.filter((a) => !['idle', 'walk_f', 'walk_b', 'crouch', 'jump', 'block', 'dash'].includes(a)));
+// What counts as an ATTACK for the whiff report is the move table's own
+// classification, not a hand-written exclusion list: the day the table gained a
+// defensive family, `dodge` would otherwise have been reported as a whiffed
+// strike (and `block` / `crouch` were only ever excluded by name).
+const ATTACK_ACTIONS = new Set(ACTIONS.filter(isAttack));
 /** How many ticks after a whiff still counts as "the opponent countered this mistake". */
 const PUNISH_WINDOW_TICKS = 8;
 const METER_MOVES = new Set(['special', 'ex', 'super']);

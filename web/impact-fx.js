@@ -17,10 +17,11 @@ const LIFE = 46;
 
 const PART_TYPES = new Set([
   'hit', 'block', 'cancel', 'armor', 'counter', 'wakeup', 'super_start', 'ko', 'move_start',
+  'evade', 'parry',
 ]);
 
 const SOUND_TYPES = new Set([
-  'hit', 'block', 'cancel', 'armor', 'counter', 'super_start', 'ko', 'wakeup',
+  'hit', 'block', 'cancel', 'armor', 'counter', 'super_start', 'ko', 'wakeup', 'evade', 'parry',
 ]);
 
 /**
@@ -49,6 +50,8 @@ const FX_PATHS = {
   armor: ['M 0.74 -1 L 0.74 1', 'M 0.74 -0.62 L -0.1 -0.34 M 0.74 0.62 L -0.1 0.34'],
   // Comma-shaped puff that trails away from the direction of travel.
   dust: 'M 0.1 -0.18 C -0.52 -0.4 -1 -0.14 -0.86 0.2 C -0.74 0.5 -0.1 0.42 0.18 0.18 Z',
+  // Four-point flash: the flat plane of a parry catching the attack head-on.
+  parry: ['M 0 -1 L 0.34 -0.28 L 1 0 L 0.34 0.28 L 0 1 L -0.34 0.28 L -1 0 L -0.34 -0.28 Z'],
 };
 
 /** Which body a cue belongs to, and therefore which way it should face. */
@@ -57,6 +60,8 @@ const CUE_OWNER = {
   block: 'on',      // the guard belongs to whoever blocked
   armor: 'on',      // armor absorbs on the defender's body
   wakeup: 'by',     // the fighter standing back up
+  evade: 'by',      // by = whoever just moved out of the way
+  parry: 'by',      // by = whoever caught the attack
 };
 
 const paths = new Map();
@@ -216,6 +221,38 @@ export function createImpactFx({
         c.font = '700 14px ui-monospace, monospace';
         c.fillStyle = 'rgba(255,225,160,' + k.toFixed(2) + ')';
         c.fillText(labelFor(side, p.move, match), side === 'a' ? w * 0.27 : w * 0.73, 104 - age * 0.35);
+      } else if (p.type === 'parry') {
+        // The read itself is invisible, so draw what the kernel just cancelled:
+        // a flat flash where the attack was, plus the meter it bought.
+        const grow = 26 + age * 1.5;
+        c.strokeStyle = 'rgba(150,240,255,' + k.toFixed(2) + ')';
+        c.lineWidth = 2.5 * k + 0.5;
+        c.beginPath(); c.arc(x, y, grow * 0.7, 0, Math.PI * 2); c.stroke();
+        drawMirrored(c, x, y, dir, grow, [
+          [FX_PATHS.parry[0], 'rgba(220,250,255,' + (k * 0.95).toFixed(2) + ')', 3],
+        ]);
+        c.font = '700 ' + (15 + Math.min(6, age * 0.4)) + 'px ui-monospace, monospace';
+        c.lineWidth = 3; c.strokeStyle = 'rgba(8,14,22,.9)';
+        const txt = 'PARRY +' + (p.meterGain || 0);
+        c.strokeText(txt, x, y - 30 - age * 0.5);
+        c.fillStyle = '#9ef2ff';
+        c.fillText(txt, x, y - 30 - age * 0.5);
+      } else if (p.type === 'evade') {
+        // Streaks left behind at the spot the body used to occupy, so the cue
+        // reads as "it was not there any more" rather than as a weak guard.
+        c.strokeStyle = 'rgba(190,225,255,' + (k * 0.75).toFixed(2) + ')';
+        c.lineWidth = 2;
+        for (let i = 0; i < 3; i += 1) {
+          const sy = y - 16 + i * 16;
+          const len = 26 + age * 1.2 - i * 5;
+          c.beginPath();
+          c.moveTo(x - dir * len, sy);
+          c.lineTo(x - dir * len * 0.35, sy + 3);
+          c.stroke();
+        }
+        c.font = '700 13px ui-monospace, monospace';
+        c.fillStyle = 'rgba(200,235,255,' + k.toFixed(2) + ')';
+        c.fillText('DODGE +' + (p.meterGain || 0), x, y - 30 - age * 0.4);
       } else if (p.type === 'wakeup') {
         // Dust kicked off the shoulder that was on the floor, so it trails
         // behind the way the fighter is facing rather than spreading evenly.

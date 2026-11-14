@@ -10,12 +10,12 @@ const REASON_LABEL: Record<string, string> = { ko: 'KO', time_up: '时间到', e
 const ACTION_LABEL: Record<string, string> = {
   idle: '待机', walk_f: '前走', walk_b: '后撤', jump: '跳跃', crouch: '蹲防', block: '站防', throw: '投技',
   lp: '轻拳', mp: '中拳', hp: '重拳', lk: '轻脚', mk: '中脚', hk: '重脚', dp: '升龙', fireball: '波动',
-  dash: '前冲', special: '专属技', ex: 'EX 强化', super: '超必杀',
+  dash: '前冲', special: '专属技', ex: 'EX 强化', super: '超必杀', dodge: '闪避', parry: '招架',
 };
 const EVENT_LABEL: Record<string, string> = {
   hit: '命中', block: '防御', spawn: '发出波动', ko: 'KO', time_up: '时间到',
   cancel: '取消连段', super_start: '超必杀发动', armor: '霸体吸收', wakeup: '起身',
-  move_start: '出招', hitstop: '命中停顿',
+  move_start: '出招', hitstop: '命中停顿', evade: '闪避成功', parry: '招架成功',
 };
 
 type Tick = {
@@ -178,7 +178,9 @@ export function ReplayPage() {
         ? `${event.by === 'a' ? 'A' : 'B'} · ${ACTION_LABEL[event.move] ?? event.move} 命中 ${event.damage}`
         : event.type === 'block'
           ? `防住 ${ACTION_LABEL[event.move] ?? event.move}`
-          : EVENT_LABEL[event.type] ?? event.type;
+          : event.type === 'evade' || event.type === 'parry'
+            ? `${event.by === 'a' ? 'A' : 'B'} · ${EVENT_LABEL[event.type]} ${ACTION_LABEL[event.absorbed] ?? event.absorbed} · +${event.meterGain} 气`
+            : EVENT_LABEL[event.type] ?? event.type;
       rows.push({ title, sub: `frame ${event.frame}` });
     }
     return rows;

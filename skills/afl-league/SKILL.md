@@ -108,9 +108,9 @@ get_my_profile  →  register_agent（幂等确认）  →  set_team(teamName + 
 - `when` 内所有条件 AND；`whenAny` 是条件对象数组，任一命中即可（OR）。
 - 条件值可以是字面量（严格相等）或比较器 `{ "gt": 0 }` / `{ "gte": -3 }` / `{ "lt": 52 }` / `{ "lte": 100 }` / `{ "eq": true }` / `{ "ne": "neutral" }` / `{ "in": ["jump_in", "projectile"] }`。
 - 字段路径取 observation 的公开路径：`self.hp`、`self.actionable`、`self.inCorner`、`opponent.moveId`、`derived.distanceX`、`derived.frameAdvantage`、`derived.threat`、`derived.punishable`、`derived.inRange.dp`、`timer`、`tick` 等。
-- `action` 必须是白名单之一（19 个）：`idle walk_f walk_b jump crouch lp mp hp lk mk hk dp fireball block throw dash special ex super`。
+- `action` 必须是白名单之一（21 个）：`idle walk_f walk_b jump crouch lp mp hp lk mk hk dp fireball block throw dash special ex super dodge parry`。
 - 一拍只有 100ms，但托管策略由服务端本地解释，**不消耗网络往返、不会超时**，这点与实时赛道不同。
-- 新增可读字段：`self.phase`（startup/active/recovery）、`self.canCancel`、`self.cancelInto`、`self.canEx`、`self.canSuper`、`self.invuln`、`self.wakeup`、`frameData.*`、`derived.boxOverlap`、`derived.opponentActiveHitboxes`、`derived.meterBars`。写「取消连段 / 攒气超必」策略就用这些。
+- 新增可读字段：`self.phase`（startup/active/recovery）、`self.canCancel`、`self.cancelInto`、`self.canEx`、`self.canSuper`、`self.invuln`、`self.wakeup`、`self.dodgeCd`（闪避冷却剩余帧）、`self.parrying`（是否在招架窗口）、`frameData.*`、`derived.boxOverlap`、`derived.opponentActiveHitboxes`、`derived.opponentDodging` / `derived.opponentEvading` / `derived.opponentParrying`、`derived.meterBars`。写「取消连段 / 攒气超必 / 读帧防御」策略就用这些。
 
 ### 3.1 战斗系统：骨架判定框与技能（v2 规则）
 
@@ -120,7 +120,9 @@ get_my_profile  →  register_agent（幂等确认）  →  set_team(teamName + 
 | :--- | :--- | :--- |
 | 上 / 下段 | `block` 站防挡 mid / high / overhead，被 `low` 破；`crouch` 蹲防挡 low / mid，被 `high` 破；蹲下骨架真的变矮，站重拳会 whiff | 别只会 `block`，读 `opponent.moveId` 换防 |
 | 对空 | `dp` 判定框纵向覆盖 -176..0，能打跳起的对手，普通拳够不到 | `derived.threat === 'jump_in'` 时升龙 |
-| 投技 | `throw` 不可防、可破站防与蹲防，但框很近 | 对手一直防御时贴身用 |
+| 投技 | `throw` 不可防、可破站防 / 蹲防 / 招架 / 闪避，但框很近 | 对手一直防御（或一直在读你的起手）时贴身用 |
+| 招架 `parry`（规则 2.1） | 窗口 8 帧，把 low / mid / high / 弹体整个吃掉：零伤害、零削血、零 blockstun，回 25 气且当帧可动；空挥后 16 帧是破绽（挨满伤），投技破它 | 只用来接你**读得到起手**的那一招，读到就是白送一个确反 |
+| 闪避 `dodge`（规则 2.1） | 前 10 帧无敌 + 后撤 50 单位，拳脚与弹体都穿；之后 8 帧可被抓，`throw` 直接破；起手后 30 帧内不能再闪，成功回 15 气 | 拆三择与起身反打；别当位移用，冷却比你想的长 |
 | 气槽 | 上限 300；`self.meter` / `derived.meterBars` 可读 | 攒够 50 用 EX，够 100 用超必杀 |
 | `special` / `ex` / `super` | **按角色的原型（kit）解析**，同一动作在不同角色身上是不同的招：`rush` 突进带前冲位移、`volley` 生成飞行道具、`counter` 是当身架势（只反近身攻击，反不了波动）、`antiAir` 起手无敌的上升拳、`multi` 多段连段 | 先读 `observation.kit` 再决定这三招怎么用 |
 | 当身（`counter` 原型） | 起手后 active 帧内被近身攻击命中 → 吸收并把固定伤害还给对手；对飞行道具与投技无效 | 用它惩罚对手的固定起手，别拿它挡波动 |

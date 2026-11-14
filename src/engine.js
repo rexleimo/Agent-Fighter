@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto';
-import { CONFIG, MOVES, moveFor, totalFor, isAttack, canAfford, clamp, mechanicsOf } from './rules.js';
+import {
+  CONFIG, MOVES, moveFor, totalFor, isAttack, isDefense, isDefending, isCommitted,
+  MOMENTUM_STATES, canAfford, clamp, mechanicsOf,
+} from './rules.js';
 import { comboScale, cancelWindowOf, isCancelTarget } from './combo.js';
 import { getFighter } from './fighters.js';
 import {
   skeletonFor, boxesFor, hurtboxesFor, hitboxesFor, pushboxFor,
   projectileBox, overlap, firstOverlap, guardResult, framePhase,
+  defensiveVerdict, parryWindowOpen,
 } from './combat.js';
 import { buildObservation, validateAction } from './protocol.js';
 import { stableStringify, createReplay, appendTick, hashObject } from './replay.js';
@@ -17,9 +21,17 @@ function makeFighter(id, x, facing, fighterId = null, start = null) {
     x, y: 0, vx: 0, vy: 0, facing,
     state: 'idle', moveId: null, moveFrame: 0, hasHit: false,
     hitIds: [], armorLeft: 0, wakeup: 0, canceledFrom: null, lastMove: null,
+    // `spentHit` / `spentHitIds` mean "this box already resolved and may not
+    // resolve again". They are deliberately NOT the same thing as `hasHit`,
+    // which is the hit-CONFIRM signal that opens the cancel window: a read by
+    // the defender spends the box without handing the attacker a confirm.
+    spentHit: false, spentHitIds: [],
     hitstun: 0, blockstun: 0, combo: 0, comboTimer: 0,
     comboDamage: 0, comboChain: [], comboBest: 0, comboBestDamage: 0,
     invuln: 0, lastAction: 'idle',
+    // 闪避 cooldown, counted from the frame the dodge starts. It is part of the
+    // state hash, so a replay of a match that used dodges stays reproducible.
+    dodgeCd: 0,
     // Combo state: `hitFrame` is the move frame the current move connected on
     // (it anchors the cancel window), `buffer` holds a cancel input that was
     // issued before its window opened.
@@ -54,12 +66,18 @@ function startMove(f, action, s, side) {
   const m = moveFor(f, action);
   if (!m) return false;
   if (m.meterCost && f.meter < m.meterCost) return false;
+  // A dodge on cooldown simply does not come out. Like an unaffordable meter
+  // move this does NOT consume the input, so the agent can try again next tick
+  // instead of being punished for a timing it could not see.
+  if (m.evade && f.dodgeCd > 0) return false;
   f.meter -= m.meterCost || 0;
   f.lastMove = action;
   f.moveId = action;
   f.moveFrame = 0;
   f.hasHit = false;
   f.hitIds = [];
+  f.spentHit = false;
+  f.spentHitIds = [];
   f.hitFrame = null;
   f.buffer = null;
   f.armorLeft = m.armor || 0;
@@ -67,12 +85,20 @@ function startMove(f, action, s, side) {
   f.vx = 0;
   f.counterWindow = 0;
   f.counterSpec = m.counter ? { ...m.counter } : null;
-  f.advanceVx = m.advance ? m.advance.vx : 0;
+  // The body that carries its own horizontal speed for the active frames is
+  // already modelled (`advance`); a backstep is the same mechanic with a
+  // negative sign, so the dodge does not need a second travel implementation.
+  f.advanceVx = m.advance ? m.advance.vx : (m.evade ? -m.evade.back : 0);
   f.spawned = false;
   if (m.invuln) f.invuln = Math.max(f.invuln, m.invuln);
+  if (m.evade) f.dodgeCd = m.evade.cooldown;
   if (m.kind === 'movement') {
     f.state = 'dash';
     f.vx = f.facing * CONFIG.DASH_F;
+  } else if (m.kind === 'defense') {
+    // The defensive actions own their state name, so the renderer, the
+    // observation and the guard predicates all read the same word.
+    f.state = action;
   } else {
     f.state = m.kind === 'projectile' ? 'projectile' : 'attack';
   }
@@ -94,6 +120,8 @@ function endMove(f) {
   f.moveFrame = 0;
   f.hasHit = false;
   f.hitIds = [];
+  f.spentHit = false;
+  f.spentHitIds = [];
   f.hitFrame = null;
   f.buffer = null;
   f.armorLeft = 0;
@@ -105,11 +133,56 @@ function endMove(f) {
   f.vx = 0;
 }
 
+/**
+ * A landed read erases the incoming hit.
+ *
+ * Both active defences pay meter and emit an event shaped like the other
+ * impact events, so the HUD, the replay and the training report all see one
+ * vocabulary. They differ in what the DEFENDER is left with: a dodge still owes
+ * its recovery frames, a parry frees the fighter on the spot — that is the
+ * whole reward, a punish window rather than extra damage.
+ *
+ * The attacker's bookkeeping is the caller's job: a melee caller must mark the
+ * box consumed, a projectile caller drops the shot. `hitFrame` is deliberately
+ * NOT stamped, so an evaded/parried attack cannot hit-confirm into a chain —
+ * the read turns the move into a whiff.
+ */
+function resolveActiveDefense(s, def, hb, kind, atkSide, defSide, point) {
+  const m = moveFor(def, def.moveId);
+  const spec = (kind === 'parry' ? m && m.parry : m && m.evade) || null;
+  const meterGain = spec && spec.meterGain ? spec.meterGain : 0;
+  def.meter = Math.min(CONFIG.MAX_METER, def.meter + meterGain);
+  const move = def.moveId;
+  if (kind === 'parry') endMove(def);
+  s.events.push({
+    frame: s.frame, type: kind, by: defSide, on: atkSide, move,
+    absorbed: hb.move, height: hb.height, damage: 0, meterGain,
+    x: point.x, y: point.y, hitstun: 0,
+  });
+}
+
+/**
+ * Consume one melee box so the same active window cannot resolve twice.
+ *
+ * This spends the box; it does not confirm the hit. `hasHit` / `hitIds` stay
+ * untouched on purpose, because those are what `framePhase` reads to open the
+ * cancel window — an attack that was evaded or parried has to come back empty
+ * handed, which is the whole price of getting read.
+ */
+function consumeIncomingHit(atk, hb) {
+  const m = moveFor(atk, atk.moveId);
+  if (m && m.multiHit) {
+    if (!(atk.spentHitIds || []).includes(hb.hitId)) atk.spentHitIds.push(hb.hitId);
+  } else {
+    atk.spentHit = true;
+  }
+}
+
 function tickFighter(f, action, s, side) {
   f.lastAction = action;
   if (f.wakeup > 0 || f.hitstun > 0 || f.blockstun > 0) return;
 
-  const busy = (f.state === 'attack' || f.state === 'projectile' || f.state === 'dash') && f.moveId;
+  const busy = isCommitted(f);
   if (busy) {
     const m = moveFor(f, f.moveId);
     const hitLanded = f.hasHit || (f.hitIds && f.hitIds.length > 0);
@@ -186,6 +259,12 @@ function tickFighter(f, action, s, side) {
   if (action === 'walk_b') { f.state = 'walk'; f.vx = -f.facing * CONFIG.WALK_B; return; }
   if (action === 'crouch') { f.state = 'crouch'; f.vx = 0; return; }
   if (action === 'jump') { f.state = 'jump'; f.vy = CONFIG.JUMP_VY; f.vx = f.facing * CONFIG.JUMP_VX; return; }
+  if (isDefense(action)) {
+    // Grounded only (the airborne branch above returned already), and a
+    // refused start leaves the fighter exactly where it was.
+    startMove(f, action, s, side);
+    return;
+  }
   if (isAttack(action) || moveFor(f, action)?.kind === 'movement') {
     // Meter-gated moves simply fail to start if the bar is empty; the same
     // action next tick is not consumed. canAfford is exposed in observation.
@@ -239,7 +318,7 @@ function physics(f) {
     if (f.state === 'jump') f.state = 'idle';
   }
   f.x = clamp(f.x, CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
-  if (f.state !== 'walk' && f.state !== 'jump' && f.state !== 'dash' && !f.advanceVx) f.vx = 0;
+  if (!MOMENTUM_STATES.includes(f.state) && !f.advanceVx) f.vx = 0;
 }
 
 function resolvePush(a, b) {
@@ -399,11 +478,30 @@ function resolveAttack(s, atkSide, defSide) {
   const atk = s[atkSide];
   const def = s[defSide];
   const hitboxes = hitboxesFor(atk, s.frame);
-  if (!hitboxes.length || def.invuln > 0) return;
+  if (!hitboxes.length) return;
   const hurt = hurtboxesFor(def, s.frame);
   const pair = firstOverlap(hitboxes, hurt);
   if (!pair) return;
   const hb = { ...pair.hit, hurtPart: pair.hurt.part };
+  // The active defensive layer is resolved HERE, after the rectangles already
+  // agree that something would have landed: an evade has to know what it dodged
+  // to report and reward it, which the old "return early while invulnerable"
+  // shortcut could not.
+  const defense = defensiveVerdict(def, hb);
+  if (defense === 'evade' || defense === 'parry') {
+    consumeIncomingHit(atk, hb);
+    resolveActiveDefense(s, def, hb, defense, atkSide, defSide, {
+      x: Math.round(hb.x + hb.w / 2), y: Math.round(hb.y + hb.h / 2),
+    });
+    return;
+  }
+  if (def.invuln > 0) {
+    // 投技破闪避: the grab is the answer to the i-frames, and it eats what is
+    // left of them — otherwise the knocked-down body would carry a free
+    // invulnerability bank all the way through its wakeup.
+    if (def.state === 'dodge' && hb.breaksDodge) def.invuln = 0;
+    else return;
+  }
   if (resolveCounter(s, atk, def, hb, atkSide, defSide)) return;
   if (moveFor(atk, atk.moveId).multiHit) atk.hitIds.push(hb.hitId);
   else atk.hasHit = true;
@@ -423,56 +521,70 @@ function updateProjectiles(s) {
     const atk = s[p.owner];
     const def = s[defSide];
     const box = projectileBox(p);
-    if (def.invuln <= 0 && firstOverlap([box], hurtboxesFor(def, s.frame))) {
-      const verdict = guardResult(def, box);
-      if (verdict === 'block') {
-        def.hp = Math.max(0, def.hp - 6);
-        def.blockstun = box.blockstun;
-        def.state = 'guard';
-        s.events.push({ frame: s.frame, type: 'block', by: p.owner, on: defSide, move: 'fireball', damage: 6, x: Math.round(p.x), y: box.y + box.h / 2 });
-      } else {
-        if (atk.comboTimer <= 0) {
-          atk.combo = 0;
-          atk.comboChain = [];
-          atk.comboDamage = 0;
-        }
-        const scale = comboScale(atk.combo);
-        const damage = Math.max(1, Math.round(box.damage * scale));
-        def.hp = Math.max(0, def.hp - damage);
-        def.hitstun = box.hitstun;
-        def.state = 'hitstun';
-        def.moveId = null;
-        def.moveFrame = 0;
-        def.hitFrame = null;
-        def.buffer = null;
-        def.advanceVx = 0;
-        def.counterWindow = 0;
-        def.x = clamp(def.x + Math.sign(p.vx) * 9, CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
-        if (box.knockdown) {
-          def.state = 'knockdown';
-          def.wakeup = CONFIG.WAKEUP_FRAMES;
-        }
-        atk.combo += 1;
-        atk.comboTimer = CONFIG.COMBO_FRAMES;
-        atk.comboDamage += damage;
-        atk.comboChain.push(p.move || 'fireball');
-        if (atk.combo > atk.comboBest) {
-          atk.comboBest = atk.combo;
-          atk.comboBestDamage = atk.comboDamage;
-        }
-        if (atk.combo === 2) {
-          s.events.push({ frame: s.frame, type: 'combo_start', by: p.owner, on: defSide, count: atk.combo, chain: atk.comboChain.slice() });
-        }
-        atk.meter = Math.min(CONFIG.MAX_METER, atk.meter + 12);
-        s.hitstop = Math.max(s.hitstop, box.hitstop);
-        s.events.push({
-          frame: s.frame, type: 'hit', by: p.owner, on: defSide, move: p.move || 'fireball',
-          damage, combo: atk.combo, scale, comboDamage: atk.comboDamage,
-          chain: atk.comboChain.slice(), frameAdvantage: 6,
-          knockdown: Boolean(box.knockdown), x: Math.round(p.x), y: box.y + box.h / 2,
+    if (firstOverlap([box], hurtboxesFor(def, s.frame))) {
+      // A dodge slips through it and a parry dissipates it; in both cases the
+      // shot is SPENT, because leaving it alive would re-resolve the same
+      // projectile on every frame of the window.
+      const defense = defensiveVerdict(def, box);
+      if (defense) {
+        resolveActiveDefense(s, def, box, defense, p.owner, defSide, {
+          x: Math.round(p.x), y: box.y + box.h / 2,
         });
+        continue;
       }
-      continue;
+      if (def.invuln <= 0) {
+        const verdict = guardResult(def, box);
+        if (verdict === 'block') {
+          def.hp = Math.max(0, def.hp - 6);
+          def.blockstun = box.blockstun;
+          def.state = 'guard';
+          s.events.push({ frame: s.frame, type: 'block', by: p.owner, on: defSide, move: 'fireball', damage: 6, x: Math.round(p.x), y: box.y + box.h / 2 });
+        } else {
+          if (atk.comboTimer <= 0) {
+            atk.combo = 0;
+            atk.comboChain = [];
+            atk.comboDamage = 0;
+          }
+          const scale = comboScale(atk.combo);
+          const damage = Math.max(1, Math.round(box.damage * scale));
+          def.hp = Math.max(0, def.hp - damage);
+          def.hitstun = box.hitstun;
+          def.state = 'hitstun';
+          def.moveId = null;
+          def.moveFrame = 0;
+          def.hitFrame = null;
+          def.buffer = null;
+          def.advanceVx = 0;
+          def.counterWindow = 0;
+          def.x = clamp(def.x + Math.sign(p.vx) * 9, CONFIG.STAGE_LEFT, CONFIG.STAGE_RIGHT);
+          if (box.knockdown) {
+            def.state = 'knockdown';
+            def.wakeup = CONFIG.WAKEUP_FRAMES;
+          }
+          atk.combo += 1;
+          atk.comboTimer = CONFIG.COMBO_FRAMES;
+          atk.comboDamage += damage;
+          atk.comboChain.push(p.move || 'fireball');
+          if (atk.combo > atk.comboBest) {
+            atk.comboBest = atk.combo;
+            atk.comboBestDamage = atk.comboDamage;
+          }
+          if (atk.combo === 2) {
+            s.events.push({ frame: s.frame, type: 'combo_start', by: p.owner, on: defSide, count: atk.combo, chain: atk.comboChain.slice() });
+          }
+          atk.meter = Math.min(CONFIG.MAX_METER, atk.meter + 12);
+          s.hitstop = Math.max(s.hitstop, box.hitstop);
+          s.events.push({
+            frame: s.frame, type: 'hit', by: p.owner, on: defSide, move: p.move || 'fireball',
+            damage, combo: atk.combo, scale, comboDamage: atk.comboDamage,
+            chain: atk.comboChain.slice(), frameAdvantage: 6,
+            knockdown: Boolean(box.knockdown), x: Math.round(p.x), y: box.y + box.h / 2,
+          });
+        }
+        continue;
+      }
+      // Anything else that is merely invulnerable (升龙 / EX / 奥义 startup, the
+      // wakeup frames) lets the shot fly on through, as it always did.
     }
     if (p.life > 0 && p.x > CONFIG.STAGE_LEFT && p.x < CONFIG.STAGE_RIGHT) alive.push(p);
   }
@@ -505,6 +617,10 @@ const TURNING_STATES = new Set(['idle', 'walk', 'crouch', 'guard', 'hitstun']);
 function canTurn(f) {
   if (f.y !== 0 || f.vy !== 0 || f.wakeup > 0) return false;
   if (f.state === 'dash' || f.state === 'jump' || f.state === 'knockdown') return false;
+  // A dodge slides backwards and a parry opens a guard in front of the body:
+  // turning during either one would move the escape, or the catch, to the far
+  // side of the fighter.
+  if (isDefending(f)) return false;
   if (f.state === 'attack' || f.state === 'projectile' || f.state === 'special') {
     const m = f.moveId ? moveFor(f, f.moveId) : null;
     return Boolean(m) && (f.moveFrame || 0) >= m.startup + m.active;
@@ -579,6 +695,7 @@ export function step(state, rawA, rawB) {
       }
     }
     if (f.invuln > 0) f.invuln -= 1;
+    if (f.dodgeCd > 0) f.dodgeCd -= 1;
     if (f.wakeup > 0) {
       // Hold the getup clock while a launched body is still in the air: it
       // used to expire mid-flight, snap y to 0 and stand the fighter up in
@@ -622,12 +739,13 @@ function hashCore(state) {
     fighterId: f.fighterId, kit: f.kit,
     hp: f.hp, meter: f.meter, x: f.x, y: f.y, vx: f.vx, vy: f.vy, facing: f.facing,
     state: f.state, moveId: f.moveId, moveFrame: f.moveFrame, hasHit: f.hasHit,
-    hitIds: f.hitIds, armorLeft: f.armorLeft, wakeup: f.wakeup,
+    hitIds: f.hitIds, spentHit: f.spentHit, spentHitIds: f.spentHitIds,
+    armorLeft: f.armorLeft, wakeup: f.wakeup,
     canceledFrom: f.canceledFrom, lastMove: f.lastMove,
     hitstun: f.hitstun, blockstun: f.blockstun, combo: f.combo, comboTimer: f.comboTimer,
     comboDamage: f.comboDamage, comboChain: f.comboChain,
     comboBest: f.comboBest, comboBestDamage: f.comboBestDamage,
-    invuln: f.invuln, lastAction: f.lastAction,
+    invuln: f.invuln, lastAction: f.lastAction, dodgeCd: f.dodgeCd,
     hitFrame: f.hitFrame, buffer: f.buffer,
     counterWindow: f.counterWindow, counterSpec: f.counterSpec,
     advanceVx: f.advanceVx, spawned: f.spawned,
@@ -655,6 +773,9 @@ export function renderState(state) {
     comboBest: f.comboBest, comboBestDamage: f.comboBestDamage,
     hitstun: f.hitstun, blockstun: f.blockstun,
     invuln: f.invuln, wakeup: f.wakeup, armorLeft: f.armorLeft,
+    // The defensive layer has to be readable on the broadcast, or a spectator
+    // watching a dodge cannot tell why the hit evaporated.
+    dodgeCd: f.dodgeCd, parrying: parryWindowOpen(f),
     canceledFrom: f.canceledFrom, meterCost: f.moveId ? (moveFor(f, f.moveId).meterCost || 0) : 0,
     skeleton: skeletonFor(f, state.frame),
     boxes: boxesFor(f, state.frame),

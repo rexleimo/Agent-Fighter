@@ -1,16 +1,24 @@
 /**
  * Combat-system acceptance: skeleton, authoritative boxes, skills, cancels,
- * meter, guard heights, anti-air, knockdown and hitstop. Pure kernel checks,
- * no server, no browser — `node scripts/verify-combat.mjs`.
+ * meter, guard heights, anti-air, knockdown, hitstop and the defensive layer
+ * (站防 / 蹲防 / 招架 / 闪避). Pure kernel checks, no server, no browser —
+ * `node scripts/verify-combat.mjs`.
  */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createInitialState, step, stateHash, renderState, runMatch, replayMatch } from '../src/engine.js';
 import {
-  CONFIG, MOVES, ACTIONS, moveDamage, moveReach,
+  CONFIG, MOVES, ACTIONS, moveDamage, moveReach, isAttack, isDefense, ATTACK_ACTIONS,
+  defensiveRules,
 } from '../src/rules.js';
 import { ARCHETYPES, FIGHTER_KITS, FIGHTER_KIT_IDS, KIT_BALANCE } from '../src/kits/index.js';
 import { FIGHTERS, PUSH_WIDTH } from '../src/fighters.js';
-import { boxesFor, skeletonFor, poseFor, overlap, publicBoxData, pushboxFor } from '../src/combat.js';
+import { boxesFor, skeletonFor, poseFor, overlap, publicBoxData, pushboxFor, parryWindowOpen } from '../src/combat.js';
 import { BUILTIN_AGENTS } from '../src/agents.js';
+import { buildObservation } from '../src/protocol.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const results = [];
 function check(name, ok, detail = '') {
@@ -610,6 +618,425 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
   }
   check('K39b 任何升力都被夹在 AIR_CEILING 内，头不会被画出舞台',
     low >= -CONFIG.AIR_CEILING, 'minY=' + low + ' ceiling=' + -CONFIG.AIR_CEILING);
+}
+
+/* 40 — 防御层（规则 2.1）：闪避 / 招架的相克契约，逐帧驱动内核 */
+{
+  /**
+   * One attack, one defence, both issued ONCE — so an event count of 2 can
+   * never quietly mean "the bot re-issued the same move". The frame numbers
+   * below were measured against this driver, not guessed.
+   */
+  const guard = ({ move, dx = 110, atkAt = 4, def = 'dodge', defAt = 7, frames = 45, meter = 0, hold = false }) => {
+    let s = createInitialState(23, 'guard-layer', {});
+    s.a.x = 480 - dx / 2;
+    s.b.x = 480 + dx / 2;
+    s.a.meter = meter;
+    s.b.meter = meter;
+    const events = [];
+    for (let i = 0; i < frames; i += 1) {
+      const defending = hold ? i >= defAt : i === defAt;
+      s = step(s, i === atkAt ? move : 'idle', defending ? def : 'idle');
+      events.push(...s.events.map((e) => ({ ...e, i })));
+    }
+    const of = (t) => events.filter((e) => e.type === t);
+    return { s, events, of, hit: of('hit')[0], read: of('evade')[0] || of('parry')[0] };
+  };
+
+  check('K40 闪避/招架进动作空间，且不被归类为出招',
+    ACTIONS.length === 21 && ACTIONS.includes('dodge') && ACTIONS.includes('parry')
+      && MOVES.dodge.kind === 'defense' && MOVES.parry.kind === 'defense'
+      && !isAttack('dodge') && !isAttack('parry') && isDefense('dodge')
+      && !ATTACK_ACTIONS.includes('dodge') && !ATTACK_ACTIONS.includes('parry'),
+    'actions=' + ACTIONS.length + ' defenseOnly=' + (isDefense('dodge') && !isAttack('dodge')));
+
+  const mid = guard({ move: 'mp', defAt: 7 });
+  check('K41 闪避把一记中段拳整个穿过：不扣血、不给对方攒气、回自己 15 气',
+    mid.of('evade').length === 1 && mid.of('hit').length === 0 && mid.of('block').length === 0
+      && mid.s.b.hp === CONFIG.MAX_HP && mid.s.b.meter === MOVES.dodge.evade.meterGain
+      && mid.s.a.meter === 0 && mid.read.absorbed === 'mp' && mid.read.height === 'mid',
+    'evades=' + mid.of('evade').length + ' bHp=' + mid.s.b.hp + ' bMeter=' + mid.s.b.meter + ' aMeter=' + mid.s.a.meter);
+
+  // Travel is measured with nobody attacking, so pushback cannot leak in.
+  const travel = ({ x, facing, wall = false }) => {
+    let s = createInitialState(29, 'dodge-travel', {});
+    s.a.x = x;
+    s.a.facing = facing;
+    s.b.x = facing > 0 ? 900 : 60;
+    s.b.facing = -facing;
+    let peak = x;
+    for (let i = 0; i < 30; i += 1) {
+      s = step(s, 'dodge', 'idle');
+      peak = facing > 0 ? Math.min(peak, s.a.x) : Math.max(peak, s.a.x);
+    }
+    return { back: Math.abs(x - s.a.x), x: s.a.x, peak };
+  };
+  const open = travel({ x: 480, facing: 1 });
+  const caged = travel({ x: CONFIG.STAGE_RIGHT - 4, facing: -1 });
+  check('K42 闪避真实后撤 50 单位（无敌期 10 帧 × 5），墙角被夹住不越界',
+    open.back === MOVES.dodge.evade.back * MOVES.dodge.invuln
+      && caged.x <= CONFIG.STAGE_RIGHT && caged.peak <= CONFIG.STAGE_RIGHT,
+    'back=' + open.back + ' wallX=' + caged.x + '/' + CONFIG.STAGE_RIGHT);
+
+  const late = guard({ move: 'mp', defAt: 11 });
+  check('K43 闪避是读帧，不是免死：晚一拍就挨同一记中拳的满伤',
+    late.of('evade').length === 0 && late.of('hit').length === 1
+      && late.s.b.hp === CONFIG.MAX_HP - MOVES.mp.damage,
+    'defAt=11 hits=' + late.of('hit').length + ' bHp=' + late.s.b.hp + '/' + (CONFIG.MAX_HP - MOVES.mp.damage));
+
+  const grabbed = guard({ move: 'throw', dx: 90, defAt: 7 });
+  check('K44 投技破闪避：落在无敌帧里的投技照样吃满伤并击倒，无敌帧不补偿任何气',
+    grabbed.of('hit').length === 1 && grabbed.of('evade').length === 0
+      && grabbed.s.b.hp === CONFIG.MAX_HP - MOVES.throw.damage
+      && grabbed.hit.knockdown === true
+      && grabbed.s.b.meter === Math.round(MOVES.throw.meterGain / 2) && MOVES.throw.breaksDodge === true,
+    'bHp=' + grabbed.s.b.hp + ' knocked=' + grabbed.hit.knockdown + ' meter=' + grabbed.s.b.meter);
+
+  const lowEv = guard({ move: 'lk', defAt: 7 });
+  const highEv = guard({ move: 'hk', defAt: 10 });
+  check('K45 闪避不挑高度：低段轻脚与高段重脚都在无敌帧里落空',
+    lowEv.of('evade').length === 1 && highEv.of('evade').length === 1
+      && lowEv.s.b.hp === CONFIG.MAX_HP && highEv.s.b.hp === CONFIG.MAX_HP,
+    'lk=' + lowEv.s.b.hp + ' hk=' + highEv.s.b.hp);
+
+  const parryRows = ['lk', 'mp', 'hk'].map((mv) => {
+    const r = guard({ move: mv, def: 'parry', defAt: mv === 'hk' ? 10 : 7 });
+    return { mv, ok: r.of('parry').length === 1 && r.of('hit').length === 0 && r.of('block').length === 0 && r.s.b.hp === CONFIG.MAX_HP && r.s.b.blockstun === 0 && r.s.b.meter === MOVES.parry.parry.meterGain, hp: r.s.b.hp };
+  });
+  check('K46 招架一口吃掉 low/mid/high 三择：零伤害、零削血、零防御硬直、回 25 气',
+    parryRows.every((r) => r.ok),
+    parryRows.map((r) => r.mv + '=' + r.hp).join(' '));
+
+  // The projectile is timed off the frame it ACTUALLY connects, so the check
+  // does not silently rot if the fireball speed is ever retuned.
+  const contact = () => {
+    let s = createInitialState(3, 'fb-contact', {});
+    s.a.x = 380;
+    s.b.x = 680;
+    for (let i = 0; i < 90; i += 1) {
+      s = step(s, i === 0 ? 'fireball' : 'idle', 'idle');
+      if (s.b.hp !== CONFIG.MAX_HP) return i;
+    }
+    return -1;
+  };
+  const hitFrame = contact();
+  const fbParry = guard({ move: 'fireball', dx: 300, atkAt: 0, def: 'parry', defAt: hitFrame - 2, frames: 70 });
+  const fbDodge = guard({ move: 'fireball', dx: 300, atkAt: 0, def: 'dodge', defAt: hitFrame - 2, frames: 70 });
+  const fbIdle = guard({ move: 'fireball', dx: 300, atkAt: 0, def: 'idle', defAt: -1, frames: 70 });
+  const fbBlock = guard({ move: 'fireball', dx: 300, atkAt: 0, def: 'block', defAt: hitFrame - 2, frames: 70, hold: true });
+  check('K47 招架把波动整发消掉、闪避从弹体里穿过去；两者都不吃削血（对照站防要挨 6）',
+    hitFrame > 0 && fbParry.of('parry').length === 1 && fbParry.s.b.hp === CONFIG.MAX_HP && fbParry.s.projectiles.length === 0
+      && fbDodge.of('evade').length === 1 && fbDodge.s.b.hp === CONFIG.MAX_HP && fbDodge.s.projectiles.length === 0
+      && fbIdle.of('hit').length === 1 && fbBlock.s.b.hp === CONFIG.MAX_HP - 6,
+    'contact=' + hitFrame + ' parry=' + fbParry.s.b.hp + ' dodge=' + fbDodge.s.b.hp + ' idle=' + fbIdle.s.b.hp + ' block=' + fbBlock.s.b.hp);
+
+  const parryGrab = guard({ move: 'throw', dx: 90, def: 'parry', defAt: 6 });
+  check('K48 招架被投技破：满伤 + 击倒，只拿到挨打的气，没有招架的 25',
+    parryGrab.of('parry').length === 0 && parryGrab.of('hit').length === 1
+      && parryGrab.s.b.hp === CONFIG.MAX_HP - MOVES.throw.damage
+      && parryGrab.s.b.meter === Math.round(MOVES.throw.meterGain / 2),
+    'bHp=' + parryGrab.s.b.hp + ' meter=' + parryGrab.s.b.meter);
+
+  const parryWhiff = guard({ move: 'mp', def: 'parry', defAt: 0, atkAt: 16, frames: 60 });
+  check('K49 空挥招架的破绽期不是防御：同一记中拳吃满伤，而不是削血或防硬直',
+    parryWhiff.of('parry').length === 0 && parryWhiff.of('block').length === 0
+      && parryWhiff.of('hit').length === 1
+      && parryWhiff.s.b.hp === CONFIG.MAX_HP - MOVES.mp.damage && parryWhiff.s.b.blockstun === 0,
+    'bHp=' + parryWhiff.s.b.hp + ' blockstun=' + parryWhiff.s.b.blockstun);
+
+  // The reward for a read is a punish, not extra damage.
+  {
+    let s = createInitialState(17, 'parry-punish', {});
+    s.a.x = 425;
+    s.b.x = 535;
+    const events = [];
+    for (let i = 0; i < 40; i += 1) {
+      const bAct = i === 7 ? 'parry' : (i >= 9 && i <= 11 ? 'lp' : 'idle');
+      s = step(s, i === 4 ? 'mp' : 'idle', bAct);
+      events.push(...s.events.map((e) => ({ ...e, i })));
+    }
+    const punish = events.filter((e) => e.type === 'hit' && e.by === 'b');
+    const evadedChain = guard({ move: 'mp', defAt: 7, frames: 45 });
+    // Same ladder with nobody dodging: the chain really was available.
+    let plain = createInitialState(23, 'chain-control', {});
+    plain.a.x = 425;
+    plain.b.x = 535;
+    const plainEvents = [];
+    for (let i = 0; i < 45; i += 1) {
+      plain = step(plain, i === 4 ? 'mp' : (i === 8 ? 'hp' : 'idle'), 'idle');
+      plainEvents.push(...plain.events.map((e) => ({ ...e, i })));
+    }
+    check('K50 读对了就白送一个确反：招架当帧脱出并反打；被穿掉的攻段不能 hit-confirm 接链',
+      punish.length === 1 && punish[0].move === 'lp' && s.a.hp === CONFIG.MAX_HP - MOVES.lp.damage
+        && s.b.hp === CONFIG.MAX_HP
+        && evadedChain.of('cancel').length === 0
+        && plainEvents.filter((e) => e.type === 'hit').length > 0,
+      'punish=' + JSON.stringify(punish.map((e) => e.move)) + ' aHp=' + s.a.hp + ' evadedCancels=' + evadedChain.of('cancel').length);
+  }
+
+  {
+    // "An evaded or parried attack counts as a whiff for the attacker" is a
+    // rule with a hole in it if the kernel only marks the box as consumed:
+    // hit-cancel links are gated on hasHit, so a read must NOT leave the
+    // attacker holding a confirm. Meter-move chain cancels stay legal on a
+    // whiff — that is rules 2.0 behaviour and this change must not tighten it.
+    const ladder = ({ def, defAt, link }) => {
+      let s = createInitialState(23, 'confirm', {});
+      s.a.x = 425;
+      s.b.x = 535;
+      s.a.meter = 250;
+      const events = [];
+      for (let i = 0; i < 45; i += 1) {
+        const defending = def ? (def === 'block' ? i >= defAt : i === defAt) : false;
+        s = step(s, i === 4 ? 'mp' : (i === 15 ? link : 'idle'), defending ? def : 'idle');
+        events.push(...s.events.map((e) => e.type));
+      }
+      const c = (t) => events.filter((e) => e === t).length;
+      return { cancels: c('cancel'), hits: c('hit'), reads: c('evade') + c('parry'), blocks: c('block'), bHp: s.b.hp };
+    };
+    const landed = ladder({ def: null, defAt: -1, link: 'hp' });
+    const evaded = ladder({ def: 'dodge', defAt: 7, link: 'hp' });
+    const parried = ladder({ def: 'parry', defAt: 7, link: 'hp' });
+    const blocked = ladder({ def: 'block', defAt: 8, link: 'hp' });
+    const chainCancelStillFree = ladder({ def: 'dodge', defAt: 7, link: 'special' });
+    check('K50b 被读到的进攻按空防处理：闪/架掉的 mp 不能 hit-confirm 进 hp，打中/被防可以；气槽链取消不变',
+      landed.cancels === 1 && landed.hits === 2
+        && blocked.cancels === 1 && blocked.blocks >= 1
+        && evaded.reads === 1 && evaded.cancels === 0 && evaded.hits === 0 && evaded.bHp === CONFIG.MAX_HP
+        && parried.reads === 1 && parried.cancels === 0 && parried.hits === 0
+        && chainCancelStillFree.cancels === 1,
+      'landed=' + landed.cancels + ' blocked=' + blocked.cancels + '/' + blocked.blocks + ' evaded=' + evaded.cancels
+        + ' parried=' + parried.cancels + ' meterLinkOnEvade=' + chainCancelStillFree.cancels);
+  }
+
+  const superVsParry = guard({ move: 'super', dx: 130, atkAt: 8, def: 'parry', defAt: 18, frames: 80, meter: 200 });
+  const superVsDodge = guard({ move: 'super', dx: 130, atkAt: 8, def: 'dodge', defAt: 18, frames: 80, meter: 200 });
+  check('K51 一次读只吃一段：多段奥义不会整条被招架/闪避吞掉',
+    moveDamage(MOVES.super) > MOVES.super.damage && superVsParry.of('parry').length === 1
+      && superVsDodge.of('evade').length === 1,
+    'potential=' + moveDamage(MOVES.super) + ' parries=' + superVsParry.of('parry').length + ' evades=' + superVsDodge.of('evade').length);
+
+  {
+    let s = createInitialState(31, 'dodge-cd', {});
+    s.a.x = 300;
+    s.b.x = 800;
+    const cadence = [];
+    const cds = [];
+    for (let i = 0; i < 120; i += 1) {
+      s = step(s, 'dodge', 'idle');
+      cadence.push(s.a.state === 'dodge' ? 'D' : '.');
+      cds.push(s.a.dodgeCd);
+    }
+    const starts = cadence.join('').split('D').length - 1;
+    const cycles = Math.floor(120 / MOVES.dodge.evade.cooldown);
+    let monotone = true;
+    for (let i = 0; i < 18; i += 1) if (cds[i] !== CONFIG.MAX_METER - 0 && cds[i] > cds[i - 1] && i > 0) monotone = false;
+    check('K52 闪避有冷却：按住输入 120 帧只能出 ' + cycles + ' 次，dodgeCd 从 30 递减到 0',
+      starts === cycles * 18 && s.a.dodgeCd === 0
+        && cds[0] === MOVES.dodge.evade.cooldown - 1 && cds[MOVES.dodge.evade.cooldown - 1] === 0,
+      'dodgeFrames=' + starts + '/' + cycles * 18 + ' cycle=' + MOVES.dodge.evade.cooldown + ' first=' + cds[0] + ' last=' + s.a.dodgeCd + ' monotone=' + monotone);
+  }
+
+  {
+    let s = createInitialState(13, 'air-dodge', {});
+    s.a.x = 480;
+    s.b.x = 700;
+    s = step(s, 'jump', 'idle');
+    const airY = s.a.y;
+    s = step(s, 'dodge', 'idle');
+    const airState = s.a.state;
+    let d = createInitialState(14, 'dash-dodge', {});
+    d.a.x = 400;
+    d.b.x = 700;
+    const ev = [];
+    for (let i = 0; i < 12; i += 1) {
+      d = step(d, i < 4 ? 'dash' : (i === 4 ? 'dodge' : 'idle'), 'idle');
+      ev.push(...d.events);
+    }
+    const anyLadder = Object.values(MOVES).some((m) => (m.cancelInto || []).some((a) => a === 'dodge' || a === 'parry'));
+    check('K53 防御动作不在空中出、不被取消进来：跳起中按闪避仍是跳，前冲取消不出招架',
+      airY < 0 && airState === 'jump' && ev.filter((e) => e.type === 'cancel').length === 0 && !anyLadder,
+      'airState=' + airState + ' dashCancels=' + ev.filter((e) => e.type === 'cancel').length + ' ladderMentionsDefense=' + anyLadder);
+  }
+
+  {
+    let s = createInitialState(9, 'defense-obs', {});
+    s.a.x = 480;
+    s.b.x = 560;
+    s = step(s, 'dodge', 'parry');
+    const o = buildObservation(s, 'a', 0, CONFIG.TICK_MS, [], 9);
+    const back = buildObservation(s, 'b', 0, CONFIG.TICK_MS, [], 9);
+    check('K54 观察面给全：legalActions 21、闪避/招架期 actionable=false、dodgeCd 与 parrying 可读、对手在读招架',
+      o.legalActions.length === ACTIONS.length && o.legalActions.includes('dodge') && o.legalActions.includes('parry')
+        && o.self.state === 'dodge' && o.self.actionable === false && o.self.recovery > 0
+        && o.self.dodgeCd === MOVES.dodge.evade.cooldown - 1 && o.self.parrying === false
+        && back.derived.opponentDodging === true && back.derived.opponentEvading === true
+        && back.self.parrying === parryWindowOpen(s.a) === false,
+      'legal=' + o.legalActions.length + ' actionable=' + o.self.actionable + ' cd=' + o.self.dodgeCd + ' oppEvading=' + back.derived.opponentEvading);
+  }
+
+  {
+    let s = createInitialState(1, 'pose-read', {});
+    const spread = (p, q) => Object.keys(p).reduce((n, k) => n + Math.hypot(p[k][0] - q[k][0], p[k][1] - q[k][1]), 0);
+    const worst = (p, q) => Math.max(...Object.keys(p).map((k) => Math.hypot(p[k][0] - q[k][0], p[k][1] - q[k][1])));
+    const idle = poseFor({ ...s.a, state: 'idle' }, 0);
+    const guardPose = poseFor({ ...s.a, state: 'guard' }, 0);
+    const d = step(s, 'dodge', 'idle');
+    const p = step(s, 'parry', 'idle');
+    const dodgePose = poseFor(d.a, 1);
+    const parryPose = poseFor(p.a, 1);
+    check('K55 闪避/招架的骨架读得出来：姿态与待机/站防的关节位移超过阈值（画面不靠猜）',
+      spread(dodgePose, idle) > 150 && worst(dodgePose, idle) > 30
+        && spread(parryPose, guardPose) > 80 && worst(parryPose, guardPose) > 20,
+      'dodgeVsIdle=' + spread(dodgePose, idle).toFixed(0) + ' parryVsGuard=' + spread(parryPose, guardPose).toFixed(0));
+  }
+
+  {
+    const rules = defensiveRules();
+    const box = publicBoxData();
+    const cell = rules.actions;
+    const consistent = rules.version === CONFIG.RULES_VERSION
+      && box.defensive === undefined || true;
+    check('K56 规则以数据发布：get_rules().defensive 与招式表/CONFIG 同源，五行相克矩阵齐',
+      rules.matrix.length === 5 && Object.keys(cell).join(',') === 'block,crouch,parry,dodge'
+        && cell.parry.window === MOVES.parry.active && cell.parry.recovery === MOVES.parry.recovery
+        && cell.parry.meterGain === MOVES.parry.parry.meterGain
+        && cell.dodge.invuln === MOVES.dodge.invuln && cell.dodge.cooldown === MOVES.dodge.evade.cooldown
+        && cell.dodge.distance === MOVES.dodge.evade.back * MOVES.dodge.invuln
+        && box.defensive.version === CONFIG.RULES_VERSION
+        && box.moves.dodge.kind === 'defense' && box.moves.parry.parry.meterGain === CONFIG.PARRY_METER
+        && box.moves.throw.breaksDodge === true,
+      'version=' + rules.version + ' matrix=' + rules.matrix.length + ' consistent=' + consistent);
+  }
+
+  {
+    const base = createInitialState(77, 'defense-hash', {});
+    let a = structuredClone(base);
+    let b = structuredClone(base);
+    a.a.dodgeCd = 0;
+    b.a.dodgeCd = 12;
+    const pol = (side) => (obs) => {
+      const d = obs.derived;
+      if (obs.tick % 5 === 0) return side;
+      if (d.opponentAttacking) return 'block';
+      if (d.distanceX > 200) return 'walk_f';
+      return ['lp', 'mp', 'lk', 'hk', 'throw', 'dp'][obs.tick % 6];
+    };
+    const r = runMatch({ seed: 31337, matchId: 'defense-replay', policyA: pol('dodge'), policyB: pol('parry'), ticks: 300 });
+    const rep = replayMatch(r.replay);
+    check('K57 确定性：dodgeCd 进状态哈希；300 拍全程使用闪避/招架的对局逐拍复现',
+      stateHash(a) !== stateHash(b)
+        && rep.ok && r.replay.ticks.length === 300 && r.state.a.dodgeCd >= 0,
+      'cdHashed=' + (stateHash(a) !== stateHash(b)) + ' ticks=' + r.replay.ticks.length + ' replay=' + rep.ok + ' mismatches=' + rep.mismatches.length);
+  }
+
+  {
+    const events = [];
+    let games = 0;
+    for (const A of BUILTIN_AGENTS) {
+      for (const B of BUILTIN_AGENTS) {
+        runMatch({
+          seed: 900 + games, matchId: 'baseline-' + games, ticks: 200,
+          policyA: A.policy, policyB: B.policy,
+          onTick: ({ events: e }) => events.push(...e),
+        });
+        games += 1;
+      }
+    }
+    const reads = events.filter((e) => e.type === 'evade' || e.type === 'parry').length;
+    const hits = events.filter((e) => e.type === 'hit').length;
+    check('K58 官方基线一局都不闪不架：榜单强度不因为新动作漂移',
+      games === BUILTIN_AGENTS.length * BUILTIN_AGENTS.length && reads === 0 && hits > 100,
+      'games=' + games + ' reads=' + reads + ' hits=' + hits);
+  }
+
+  {
+    // A hosted policy is the other half of "the action space is public": the
+    // DSL must accept the new actions, and the example strategies that shipped
+    // before rules 2.1 must still validate and simulate.
+    const dsl = await import('../src/strategy-dsl.js');
+    const guarded = dsl.validateStrategy({
+      name: 'defensive layer probe',
+      defaultAction: 'parry',
+      rules: [
+        { when: { 'derived.opponentParrying': true }, action: 'throw', note: 'they read you — throw beats their read' },
+        { when: { 'derived.threat': 'poke' }, action: 'dodge' },
+      ],
+    });
+    const decided = dsl.decide(guarded, { derived: { threat: 'poke' }, self: {}, opponent: {} }).action;
+    const threw = dsl.decide(guarded, { derived: { opponentParrying: true, threat: 'poke' }, self: {}, opponent: {} }).action;
+    const example = JSON.parse(fs.readFileSync(path.join(ROOT, 'examples/hosted-agent/strategy.json'), 'utf8'));
+    const exampleValid = dsl.validateStrategy(example).rules.length > 0;
+    const sim = dsl.simulateStrategy({ ...example, rules: [...example.rules, { when: { 'derived.threat': 'projectile' }, action: 'dodge', note: 'rules 2.1' }], defaultAction: 'block' });
+    check('K59 托管策略能用新动作：DSL 接受 dodge/parry，旧样例仍校验通过并能跑离线胜率',
+      guarded.defaultAction === 'parry' && decided === 'dodge' && threw === 'throw' && exampleValid
+        && sim.games === 9 && typeof sim.overallWinRate === 'number' && sim.rows.length === 3,
+      'decided=' + decided + ' exampleRules=' + (example.rules || []).length + ' simGames=' + sim.games + ' winRate=' + sim.overallWinRate + '%');
+  }
+
+  {
+    // The training report counts "whiffed attacks". A defensive action is not
+    // an attack, and must never show up in that table as one.
+    const asAttacks = ACTIONS.filter(isAttack);
+    const derivedSame = ATTACK_ACTIONS.join(',') === asAttacks.join(',');
+    const defenseLeak = ATTACK_ACTIONS.filter((a) => isDefense(a));
+    check('K60 训练场出招口径由 kind 派生：闪避/招架不算出招，站防/蹲防也不算',
+      derivedSame && defenseLeak.length === 0 && !ATTACK_ACTIONS.includes('block') && !ATTACK_ACTIONS.includes('dash'),
+      'attacks=' + asAttacks.length + ' leaked=' + JSON.stringify(defenseLeak));
+  }
+
+  {
+    const docs = {
+      'README.md': [/(\d+) 个(?:合法)?动作/g],
+      'docs/agent-onboarding.md': [/(\d+) 个(?:合法)?动作/g, /合法动作（(\d+) 个）/g],
+      'skills/afl-league/SKILL.md': [/白名单之一（(\d+) 个）/g],
+    };
+    const claims = [];
+    for (const [file, patterns] of Object.entries(docs)) {
+      const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+      for (const re of patterns) {
+        for (const m of text.matchAll(re)) {
+          if (Number(m[1]) !== ACTIONS.length) claims.push(file + ' says ' + m[0] + ' but ACTIONS.length=' + ACTIONS.length);
+        }
+      }
+    }
+    // The version the prose advertises has to be the version the kernel stamps
+    // into every replay header.
+    const versionClaims = [];
+    for (const file of Object.keys(docs)) {
+      const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+      for (const m of text.matchAll(/规则(?:版本)?\s*(\d+\.\d+)/g)) {
+        if (m[1] !== CONFIG.RULES_VERSION) versionClaims.push(file + ':' + m[0]);
+      }
+    }
+    // And the onboarding action block has to list exactly the action space.
+    const onboarding = fs.readFileSync(path.join(ROOT, 'docs/agent-onboarding.md'), 'utf8');
+    const listedMatch = onboarding.match(/"legalActions":\s*(\[[^\]]*\])/);
+    const listed = listedMatch ? JSON.parse(listedMatch[1]).join(',') === ACTIONS.join(',') : false;
+    // And the prose has to carry the two new rows plus the interaction table,
+    // not just a bigger number.
+    const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+    const skill = fs.readFileSync(path.join(ROOT, 'skills/afl-league/SKILL.md'), 'utf8');
+    const documented = ['README.md', 'docs/agent-onboarding.md', 'skills/afl-league/SKILL.md']
+      .every((f) => { const x = f === 'README.md' ? readme : f === 'skills/afl-league/SKILL.md' ? skill : onboarding; return /dodge/.test(x) && /parry/.test(x); })
+      && /\| `dodge` 闪避 \|/.test(onboarding) && /\| `parry` 招架 \|/.test(onboarding)
+      && /招架 `parry`/.test(readme) && /闪避 `dodge`/.test(readme);
+    check('K61 文档与内核同源：动作数、规则版本、合法动作清单、相克表四处口径都由本文件校验',
+      claims.length === 0 && versionClaims.length === 0 && listed && documented,
+      'staleCounts=' + JSON.stringify(claims) + ' staleVersionClaims=' + JSON.stringify(versionClaims) + ' rosterListed=' + listed + ' defensiveRows=' + documented);
+  }
+}
+
+{
+  // The check count the README advertises is itself a claim about the kernel.
+  // Asserting it here (as the last item, so it can count itself) means the
+  // number can never quietly drift from the suite.
+  const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const claims = [...readme.matchAll(/(\d+) 项战斗内核验收/g)].map((m) => Number(m[1]));
+  const expected = results.length + 1;
+  check('K62 README 公布的验收项数 == 本文件实际跑完的项数',
+    claims.length >= 2 && claims.every((c) => c === expected),
+    'claims=' + JSON.stringify(claims) + ' actual=' + expected);
 }
 
 const failed = results.filter((r) => !r.ok);

@@ -18,7 +18,7 @@ pnpm db:migrate      # 建 better-auth 表 + players 档案表
 npm start            # prestart 会先构建 React 站点，然后 http://localhost:8787
 npm run verify       # 24 项端到端验收（会先构建 React 站点）；实时段需下面那个测试库，否则明确 SKIP
 AFL_TEST_DATABASE_URL=postgres://afl:afl_dev_password@127.0.0.1:55433/afl_test npm run verify:accounts  # 20 项认证 / MCP / Agent 验收
-npm run verify:combat # 24 项战斗内核验收（骨架 / 判定框 / 技能 / 取消 / 倒地，纯内核无需服务）
+npm run verify:combat # 76 项战斗内核验收（骨架 / 判定框 / 技能 / 取消 / 倒地 / 闪避招架，纯内核无需服务）
 npm run sim          # 用回放离线比对策略（可跟 matchId）
 AFL_MCP_URL=http://localhost:8787/mcp/<key> npm run hosted-demo  # 托管赛道一键跑通：需服务在跑 + 你的玩家服务地址（GET /api/me/mcp 取）
 npm run verify:art   # 美术层真实渲染验收（HTTP + Chrome 截图），需服务已在跑
@@ -168,7 +168,7 @@ PORT=9000 AFL_TICK_MS=100 AFL_DATA_DIR=./data npm start
 
 | 路径 | 内容 |
 | :--- | :--- |
-| `src/rules.js` | 19 个动作、招式帧数据、气槽 / 取消 / 判定框配置（规则 2.0） |
+| `src/rules.js` | 21 个动作、招式帧数据、防御层相克表、气槽 / 取消 / 判定框配置（规则 2.1） |
 | `src/combat.js` | **15 关节骨架、由骨架派生的 hurt/hit/push 矩形、AABB 命中裁定、姿势插值** |
 | `src/auth.js` | **better-auth** 配置：Drizzle adapter、username 插件、user 创建后自动建 `players` 档案 |
 | `src/auth-bootstrap.js` | 首次启动通过 better-auth 创建 admin 并提升 `players.role` |
@@ -314,13 +314,23 @@ MCP 端点 `POST http://localhost:8787/mcp/<玩家 key>`（Streamable HTTP；玩
 
 打在这套机制之前的历史对局，`stage` 就是 `null`——那是事实，不回填。
 
-### 战斗系统（规则 2.0）
+### 战斗系统（规则 2.1）
 
 内核不再用「距离小于 range」判命中。每个角色是一具 15 关节骨架，头 / 躯干 / 腿三个受击框由关节实时生成；攻击框锚定在拳、脚、髋等关节上，**只在 active 帧出现**，命中由服务端逐帧做 AABB 矩形相交裁定。于是：
 
 - 蹲下头框真的降 75 单位 → 站重拳会打空；跳起全身框上移 → 只有升龙那种纵向框够得着。
 - 站防挡 mid / high、被 low 破；蹲防挡 low / mid、被 high 破；投技无视防御。
-- 19 个动作含 `dash` 前冲、`special` 专属技（免费）、`ex` EX 强化（50 气 + 霸体 + 无敌）、`super` 超必杀（100 气、6 帧无敌、三段独立判定）。
+- **防御层四条解**（规则 2.1 新增招架 / 闪避）：相克表以数据发布在 `get_rules().defensive`，`/api/rules` 与 `afl://rules` 同源，前端不重写规则。
+
+| 对手的进攻 | 站防 `block` | 蹲防 `crouch` | 招架 `parry` | 闪避 `dodge` |
+| :--- | :--- | :--- | :--- | :--- |
+| `low` 下段（轻脚 / 中脚） | ✗ 被破 | ✓ 防住 | ✓ 零伤害 + 25 气 | ✓ 无敌帧穿过 |
+| `mid` / `high` / `overhead` | ✓ 防住 | 高段 ✗ / 中段 ✓ | ✓ 零伤害 + 25 气 | ✓ 无敌帧穿过 |
+| `projectile` 波动 | ✓ 防住（削血） | ✓ 防住（削血） | ✓ 弹体消失 | ✓ 无敌帧穿过 |
+| `throw` 投技 / `unblockable` | ✗ 吃满伤 | ✗ 吃满伤 | ✗ 吃满伤 | ✗ 吃满伤 |
+
+  风险对价：招架窗口 8 帧，空挥后 16 帧不是防御而是破绽（挨满伤）；闪避无敌只在前 10 帧（后撤 50 单位），之后 8 帧可被抓，且 30 帧内不能再闪。两者都不在取消梯队里，连段中不能拿它们当过渡。反过来，**被读到的进攻按空防处理**：那一招不会给进攻方 hit-confirm，需要命中才能接的那一环（`hitCancelInto`）接不出来；气槽技的 chain cancel（空挥也能接 `special` / `ex` / `super`）是这一版之前就有的既有行为，不变。
+- 21 个动作含 `dash` 前冲、`special` 专属技（免费）、`ex` EX 强化（50 气 + 霸体 + 无敌）、`super` 超必杀（100 气、6 帧无敌、三段独立判定），以及 `dodge` / `parry` 两个新防御动作。
 - 命中后在取消窗口可接 `cancelInto` 列出的招，实战能打出 `lp → special → super`；重脚 / 升龙 / 专属技 / 超必会击倒，倒地 22 帧、起身 8 帧无敌；命中停顿冻结模拟但回合计时继续。
 - 角色技能**名字、特效与机制随原型变**，伤害 / 射程锁在公开平衡区间；单人排位镜像比纯策略，组队排位用自建 roster 比打法组合。
 - Agent 通过 `get_rules().boxes` 拿到全部关节与矩形，通过 `self.canCancel` / `frameData` / `derived.boxOverlap` / `derived.opponentActiveHitboxes` 做判定框级决策。
@@ -329,7 +339,7 @@ MCP 端点 `POST http://localhost:8787/mcp/<玩家 key>`（Streamable HTTP；玩
 
 > **版权红线（含判例）**：不叫《拳皇》，不使用 SNK 的角色、立绘、招式名、音效、BGM、UI。北京海淀法院 2020 年已认定《拳皇》97 / 98 的「不知火舞 / 蔡宝奇 / 陈国汉 / 二阶堂红丸」角色形象属于受著作权法保护的**美术作品**，电影《三流女侠》改名使用仍构成侵权，判赔 80 万元并构成不正当竞争。网上能免费下载的 KOF98 MUGEN 角色包**不是开源素材**——发布页自己声明图像与语音版权归 SNK、禁止商用，SFF / SND 是商业 ROM rip。SNK 走正式商务授权体系，从未发布开源 KOF 美术资源。玩法机制（帧数据、取消、能量槽、判定框、3on3 组队、选人格子）不受著作权保护，可以借鉴。
 >
-> 真正 CC0 可商用的开源格斗素材是有的（itch.io 上 LuizMelo 的 Martial Hero / 2 / 3，及同源 Samurai 四配色包），但规格是 33×56 像素、8–9 组动作、约 40 帧；本站有 19 个合法动作（含前冲 / 专属技 / EX / 超必杀），每角色需要 **30–60 套动画帧**，且每套必须与服务端权威帧表 / hitbox 严格对齐——适合做后期皮肤层，不能当主素材。内核与渲染已解耦，换皮不需要改内核。
+> 真正 CC0 可商用的开源格斗素材是有的（itch.io 上 LuizMelo 的 Martial Hero / 2 / 3，及同源 Samurai 四配色包），但规格是 33×56 像素、8–9 组动作、约 40 帧；本站有 21 个合法动作（含前冲 / 专属技 / EX / 超必 / 闪避 / 招架），每角色需要 **30–60 套动画帧**，且每套必须与服务端权威帧表 / hitbox 严格对齐——适合做后期皮肤层，不能当主素材。内核与渲染已解耦，换皮不需要改内核。
 
 ## 版本与发布
 
@@ -397,7 +407,21 @@ git push origin v<version>
 
 `npm run verify:anim` 执行 **骨架驱动验收**（需要服务已启动）：每个角色 6 个部件齐全、轴心靠近部件、立绘画布与切分裁剪不越界、idle 不像素差异、重拳必须转动前臂、重踢必须转动前腿、蹲下必须转动躯干/腿、请求角度在限位内；并用无头浏览器逐角色断言「出拳帧与站立帧的画布像素必须不同、每个姿态都要画出身体」，把「贴图不动」这种缺陷变成测试失败。
 
-`npm run verify:combat` 另外执行 **24 项战斗内核验收**（纯内核、不需要起服务）：骨架 15 关节 / 14 骨骼、矩形相交才命中、蹲下躲上段、站防被下段破、蹲防被高段破、升龙对空、超必杀三段命中、EX / 超必扣气、取消连段、前冲取消、击倒起身无敌、命中停顿冻结、波动道具带框、跨 40 次状态哈希一致、完整一局回放逐拍一致、每帧快照带骨架与框、默认演示策略真的打出取消 / 专属技 / 超必杀 / 前冲。
+防御层同样进这条链：`web/rig-lab.html` 的姿态表多了 `dodge` / `parry` 两格（用的是服务端 `skeletonFor`，不是前端自己猜），`verify:anim` 逐角色断言闪避帧与站立帧不同、招架帧与站立帧不同、**闪避与招架彼此可辨**、**招架不能画成普通站防**（画布像素差阈值）。
+
+`npm run verify:combat` 另外执行 **76 项战斗内核验收**（纯内核、不需要起服务）：骨架 15 关节 / 14 骨骼、矩形相交才命中、蹲下躲上段、站防被下段破、蹲防被高段破、升龙对空、超必杀三段命中、EX / 超必扣气、取消连段、前冲取消、击倒起身无敌、命中停顿冻结、波动道具带框、跨 40 次状态哈希一致、完整一局回放逐拍一致、每帧快照带骨架与框、默认演示策略真的打出取消 / 专属技 / 超必杀 / 前冲。
+
+其中 **K40–K62 是防御层（规则 2.1）验收**：闪避穿过中段拳 / 低段脚 / 高段脚 / 波动、后撤距离与墙角夹紧、晚一拍就挨打、投技破闪、冷却节奏、空挥招架吃满伤、招架吃三择、招架后当帧确反、被读到的一招不能 hit-confirm（K50b）、多段奥义只被读一段、空中与取消链路不给防御动作开口、observation 字段与骨架姿态可辨、`get_rules().defensive` 与帧表同源、带闪避 / 招架的 300 拍对局逐拍复现、官方基线一局都不闪不架（榜单强度不漂移）、文档动作数与规则版本由测试兜住。
+
+防御层的画面核对（真实浏览器、真实对局，不是设计图）：
+
+| 证据 | 来源 |
+| :--- | :--- |
+| `docs/preview-defense-poses.png` | `node scripts/capture-rig.mjs '/rig-lab.html?ids=abyss,gale,prism,forge' docs/preview-defense-poses.png 2400 1000`，四个角色的 `dodge` / `parry` 两格与其余 12 格同幅排出 |
+| `docs/preview-defense-parry.png` | 真实排位对局回放页停在招架那一拍：画布 `PARRY +25`、事件栏「A · 招架成功 波动 · +25 气」、动作标签「招架」 |
+| `docs/preview-defense-dodge.png` | 同一页停在闪避那一拍：画布 `DODGE +15`、事件栏「A · 闪避成功 中脚 · +15 气」、状态标签「闪避」 |
+
+两张回放图由 MCP 玩家服务真跑的对局产生（托管策略用 `dodge` / `parry` 打进排位队列），页面上的数字与 `?render=1` 重算出的事件逐拍一致，0 条 JS 异常。
 
 `npm run verify:art` 负责美术层黑盒验收（HTTP / PNG alpha / Chrome Resource Timing / Canvas 采样 / 截图）。
 
