@@ -11,29 +11,54 @@ v0.12.0 起内置生产加固层（`src/security.js`）与部署打包（`Docker
 > 适用范围：内部 / 受邀制 / 基准平台部署开箱即用；公网公开服务建议按本文收紧限流并置于
 > TLS 反向代理之后。**水平扩展不在本档范围**（见末尾「已知边界」）。
 
-## 1. 快速开始（Docker Compose）
+## 1. 快速开始（Docker Compose，两条路径）
+
+### 路径 A：用你自己的 Postgres（推荐，云数据库/已有实例）
+
+只需两个值：一个连接 URL（含库凭据）+ 一个签名密钥：
 
 ```bash
-# 密钥必填，无 insecure 默认值
+export DATABASE_URL="postgres://user:pass@your-pg-host:5432/afl"
 export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
-export AFL_ADMIN_PASSWORD="$(openssl rand -hex 16)"
-# 可选：自定义数据库密码 / 对外地址
-export POSTGRES_PASSWORD="$(openssl rand -hex 16)"
 export BETTER_AUTH_URL="https://league.example.com"
+export BETTER_AUTH_TRUSTED_ORIGINS="https://league.example.com"
 
 docker compose up -d --build
 ```
 
-compose 会启动 Postgres 16 与应用两个服务；应用容器先跑 `pnpm db:migrate` 再启动，
-`/app/data`（`league.json` + 回放）与数据库各自挂载命名卷持久化。应用以**非 root**
-用户运行，内置 `HEALTHCHECK` 轮询 `/healthz`。
+### 路径 B：自带 Postgres（单机一键全套）
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+export POSTGRES_PASSWORD="$(openssl rand -hex 16)"   # 仅自带 db 容器用
+export BETTER_AUTH_URL="https://league.example.com"
+export BETTER_AUTH_TRUSTED_ORIGINS="https://league.example.com"
+
+docker compose -f docker-compose.yml -f docker-compose.bundled-db.yml up -d --build
+```
+
+两条路径都会先跑 `bun run db:migrate` 再启动；`/app/data`（`league.json` + 回放）
+与数据库各自持久化。应用以**非 root** 用户运行，内置 `HEALTHCHECK` 轮询 `/healthz`。
+
+### 密钥 vs 公开配置（别混淆）
+
+| 变量 | 本质 | 说明 |
+|---|---|---|
+| `BETTER_AUTH_SECRET` | 🔑 真密钥 | 签名/加密 session，泄露=可伪造登录态，`openssl rand -hex 32` |
+| `DATABASE_URL` | 🔑 含凭据 | 应用唯一的数据库入口，URL 里已含密码 |
+| `POSTGRES_PASSWORD` | 🔑 真密钥（仅路径 B） | 只是自带 db 容器的初始化密码，外部 DB 用户不需要 |
+| `BETTER_AUTH_URL` | 📍 公开配置 | 对外地址（cookie/回调用），填域名即可，不是秘密 |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | 📍 公开配置 | CSRF 白名单，同上 |
+
+**管理员不在环境变量里配置**：首次访问时 Web 自动引导到 `/setup` 页，一次性
+创建管理员（创建即登录；之后 `POST /api/setup` 永久 409，重启不重开）。
 
 ## 2. 加固旋钮（环境变量）
 
 | 变量 | 默认 | 作用 | 公网建议 |
 |---|---|---|---|
 | `AFL_MAX_BODY_BYTES` | `1048576`（1 MiB） | 请求体字节上限，超限返回 **413** 并关闭连接，防内存耗尽 | 按最大合法请求体收紧（策略 DSL 很小，可降至 `262144`） |
-| `AFL_RATE_AUTH` | `300` /分钟/IP | 认证端点（`/api/auth/*`）限流，超限 **429 + Retry-After**，防暴力破解 | 收紧到 `10`–`30` |
+| `AFL_RATE_AUTH` | `300` /分钟/IP | 认证端点（`/api/auth/*`）与首跑 `POST /api/setup` 限流，超限 **429 + Retry-After**，防暴力破解/抢注 | 收紧到 `10`–`30` |
 | `AFL_RATE_GLOBAL` | `3000` /分钟/IP | 其余请求全局限流 | 按容量收紧到 `300`–`600` |
 | `AFL_TRUST_PROXY` | `0` | 为 `1` 时信任 `X-Forwarded-For` 取真实客户端 IP | 置于反代之后时设 `1` |
 
@@ -84,10 +109,11 @@ CSP 目前含 `'unsafe-inline'` 以兼容现有前端；确认前端可改用 no
 ## 6. 验收
 
 ```bash
+pnpm verify:setup      # 9 项：首跑待命/建管即登录/409 锁死(含重启)/400/503/413/429（需临时库权限）
 pnpm verify:security   # 6 项：healthz / 安全头 / 条件 HSTS / 413 / 全局 429 / 认证 429
 pnpm verify            # 9/9 + C4b/C4c/C4d 版本与探针门禁
 pnpm verify:mcp        # 官方 SDK 真实客户端 15/15（需玩家 MCP URL）
-pnpm verify:accounts   # 账号流程 20/20（需 AFL_TEST_DATABASE_URL）
+pnpm verify:accounts   # 账号流程 20/20（需 AFL_TEST_DATABASE_URL；建管已走 setup API）
 ```
 
 `verify:security` 用严格参数（小 body 上限、低限流）独立 spawn 服务，证明 413/429 真的会触发。

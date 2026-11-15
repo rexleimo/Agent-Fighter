@@ -11,6 +11,7 @@
     "verify:ladder": "bun scripts/verify-ladder.mjs",
     "verify:team": "bun scripts/verify-team.mjs",
     "verify:accounts": "bun scripts/verify-accounts.mjs",
+  "verify:setup": "bun scripts/verify-setup.mjs",
     "sheet:moves": "node scripts/move-sheet.mjs",
     "sim": "bun scripts/simulate.js",
     "hosted-demo": "bun scripts/hosted-demo.mjs",

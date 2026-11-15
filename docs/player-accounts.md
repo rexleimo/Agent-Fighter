@@ -33,13 +33,13 @@
 | `POST /api/auth/sign-out` | 退出，better-auth 清理 session cookie |
 | `GET /api/auth/get-session` | 调试用；应用侧读 `/api/me` |
 
-管理员账号在首次启动时创建：
+管理员账号在首次部署时通过 **setup 页面**创建（唯一入口）：
 
-```bash
-AFL_ADMIN_USERNAME=admin AFL_ADMIN_PASSWORD='choose-a-strong-password' npm start
-```
+1. 启动服务后打开任意页面，库中无管理员时会自动引导到 `/setup`。
+2. 表单创建管理员（用户名 + 密码），成功即自动登录进入管理后台。
+3. **一次性**：管理员存在后 `POST /api/setup` 永久返回 409，重启也不会重开。
 
-首次启动会通过 `auth.api.signUpEmail` 创建 better-auth 用户，再把 `players.role` 提升为 `admin`。**`AFL_ADMIN_PASSWORD` 只在首次创建时使用；管理员已存在时不会自动改密码。** 未设置时会生成一次性密码并打印在服务端日志。
+对应 API：`GET /api/setup/status` 返回 `{needsSetup}`；`POST /api/setup` 走认证限流档，通过 `auth.api.signUpEmail` 创建 better-auth 用户后把 `players.role` 提升为 `admin`。没有任何环境变量建管路径。
 
 ## 3. Agent 的操作
 

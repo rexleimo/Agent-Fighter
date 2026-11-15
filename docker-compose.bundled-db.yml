@@ -1,0 +1,31 @@
+# Override: adds a bundled Postgres 16 for single-host deployments.
+#   BETTER_AUTH_SECRET=$(openssl rand -hex 32) \
+#     docker compose -f docker-compose.yml -f docker-compose.bundled-db.yml up -d --build
+# POSTGRES_PASSWORD is only the bundled database's own credential; the app
+# still consumes a single DATABASE_URL. Bring your own database? Skip this
+# file and set DATABASE_URL directly on docker-compose.yml.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: afl
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-afl_dev_password}
+      POSTGRES_DB: afl
+    volumes:
+      - afl-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U afl -d afl"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://afl:${POSTGRES_PASSWORD:-afl_dev_password}@db:5432/afl}
+
+volumes:
+  afl-pg-data:

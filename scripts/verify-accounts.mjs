@@ -122,8 +122,6 @@ async function run() {
       ...process.env,
       PORT: String(PORT),
       AFL_DATA_DIR: TMP,
-      AFL_ADMIN_USERNAME: ADMIN.username,
-      AFL_ADMIN_PASSWORD: ADMIN.password,
       AFL_TICK_MS: '20',
       DATABASE_URL: TEST_DB,
       BETTER_AUTH_URL: BASE,
@@ -136,10 +134,18 @@ async function run() {
   child.stderr.on('data', (chunk) => { serverLog += chunk; });
   await waitForServer(BASE, child);
 
-  const adminLogin = await login(ADMIN);
-  const adminMe = await request('/api/me', { cookie: adminLogin.cookie });
-  check('A1 admin bootstrap login', adminMe.data.player?.role === 'admin', adminMe.data.player?.username);
-  const admin = { cookie: adminLogin.cookie };
+  // First-run setup is the one way an admin is created. On a re-used test
+  // database the setup is already locked (409) and the fixed admin logs in.
+  const setup = await request('/api/setup', { method: 'POST', body: ADMIN });
+  let adminCookie;
+  if (setup.res.status === 200) adminCookie = setup.cookie;
+  else {
+    assert.equal(setup.res.status, 409, 'setup should be locked on a re-used database: ' + JSON.stringify(setup.data));
+    adminCookie = (await login(ADMIN)).cookie;
+  }
+  const adminMe = await request('/api/me', { cookie: adminCookie });
+  check('A1 admin via first-run setup (or locked-setup login)', adminMe.data.player?.role === 'admin', adminMe.data.player?.username);
+  const admin = { cookie: adminCookie };
 
   const created = await request('/api/admin/players', {
     method: 'POST',

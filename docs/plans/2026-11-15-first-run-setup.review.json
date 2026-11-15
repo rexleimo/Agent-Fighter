@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "kind": "rex.standards-spec-review.v1",
+  "fixedPoint": "3ad9d508805972250589539c08a11cb624b4f3d3",
+  "diffRef": "path:docs/plans/2026-11-15-first-run-setup.implementation.diff",
+  "diffScope": "working tree vs HEAD (v0.13.0), 18 files, +1018/-109, non-empty verified",
+  "specSources": [
+    "path:docs/plans/2026-11-15-首次部署体验优化-外部-database-url-直连-首跑-setup-页面.md",
+    "path:docs/plans/2026-11-15-first-run-setup.decision.json",
+    "path:docs/plans/2026-11-15-first-run-setup.delivery.json",
+    "path:docs/plans/2026-11-15-first-run-setup.test-design.md"
+  ],
+  "standardsSources": [
+    "skill:rex-engineering-standards (repo has no CODING_STANDARDS/CONTRIBUTING; AGENTS.md is workflow policy)",
+    "smell-baseline:Fowler-Refactoring-ch3 (all 12 checked)"
+  ],
+  "standardsFindings": [
+    {
+      "id": "S-1",
+      "location": "scripts/verify-accounts.mjs:137-145 + scripts/verify-ladder.mjs:358-369",
+      "smell": "Duplicated Code",
+      "severity": "judgement",
+      "evidence": "setup-or-409-login preamble appears in both scripts with the same logic shape",
+      "fix": "export ensureAdmin(base, credentials) from scripts/lib/harness-auth.mjs (existing shared auth helper owner) and call it from both; low priority, two consumers with distinct request helpers"
+    },
+    {
+      "id": "S-2",
+      "location": "src/server.js (713 lines)",
+      "smell": "file-granularity baseline (§4, soft 400)",
+      "severity": "judgement",
+      "evidence": "pre-existing over-budget route table (~680 lines before); this diff adds 33 cohesive route lines following the established pattern",
+      "fix": "baseline, not a new violation class; future extraction of admin/setup route group into src/routes/ when the file is next restructured"
+    }
+  ],
+  "smellBaselineChecked": {
+    "mysteriousName": "未见（needsSetup/createFirstAdmin/SetupRedirect 名实相符）",
+    "duplicatedCode": "S-1；signUpEmail 在 admin-players 路由与 setup 的相似属偶然相似（玩家 vs 管理员不同知识），不合并",
+    "featureEnvy": "未见",
+    "dataClumps": "未见",
+    "primitiveObsession": "未见（err.code='SETUP_DONE' 为最小类型化错误，够用）",
+    "repeatedSwitches": "未见",
+    "shotgunSurgery": "未见（admin 生命周期单 owner：auth-bootstrap.js）",
+    "divergentChange": "未见",
+    "speculativeGenerality": "未见（无预留参数/重开钩子，锁死即规格）",
+    "messageChains": "未见",
+    "middleMan": "未见（needsSetup 封装 findAdmin 取反 + null 守卫，有信息隐藏）",
+    "refusedBequest": "未见"
+  },
+  "specFindings": [
+    {
+      "id": "P-1",
+      "location": ".env.example",
+      "severity": "hard",
+      "evidence": "delivery work-compose criterion '.env.example 按密钥/公开配置分组更新，删除 AFL_ADMIN_*' 未完成：AIOS 安全门拦截一切 .env* 写入（write 与 edit 均被拒）",
+      "fix": "需用户手动应用替换内容（已在会话中给出）；其余运行时/脚本/文档已零 AFL_ADMIN 残留（rg 验证）"
+    },
+    {
+      "id": "P-2",
+      "location": "README.md:19",
+      "severity": "judgement",
+      "evidence": "'24 项端到端验收' 为存量口径漂移（实际 28/28），先于本 diff 存在",
+      "fix": "顺手修正为 28 项；不属本工作项新增缺陷"
+    }
+  ],
+  "specCoverage": "D1 compose 拆分（S11/S12 实测，含插值缺陷修正为启动期 guard）；D2 唯一建管入口（S1-S8 9/9 + 重启锁死）；D3 API 契约（409/400/503/413/429 全实测）；D4 /setup 页与引导（浏览器三态截图：引导跳转/建管即登录/锁死态）；D5 文档口径（deployment/player-accounts/README 已更新）。无 scope creep。",
+  "regressionEvidence": [
+    "receipt:749edc32-8fdb-4c93-9653-fcdd3c90adf9 (verify-setup 9/9, exit 0)",
+    "receipt:1cbaeef3-5d69-4c2f-88f4-815c563ec4df (refactor 后 verify-setup 9/9, exit 0)",
+    "verify-accounts 20/20; verify-ladder 53/53; verify-security 6/6; verify 28/28(含实时段); lint:web 0; test:web 4/4"
+  ],
+  "verdict": "pass-with-findings",
+  "verdictNote": "两轴均无阻断性代码缺陷；P-1 为外部安全门导致的交付缺口，需用户手动应用 .env.example；S-1/S-2/P-2 为判断级，不阻断。镜像构建仍需标准 Docker 主机实测（本机薄壳，已知边界）。"
+}

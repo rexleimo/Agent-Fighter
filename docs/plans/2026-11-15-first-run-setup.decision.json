@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "kind": "rex.decision-ticket.v1",
+  "id": "decision-ticket:afl-first-run-setup-2026-11-15",
+  "status": "decided",
+  "objective": "首次部署体验优化：外部 DATABASE_URL 直连 + 首跑 setup 页面",
+  "context": "用户上线评审指出 POSTGRES_PASSWORD 对自带外部数据库的用户冗余（应用只读 DATABASE_URL，src/db/client.js:8），且管理员应通过首次部署 setup 页面创建而非环境变量硬建（src/auth-bootstrap.js）。",
+  "decisions": [
+    {
+      "id": "D1",
+      "title": "compose 拆分为 app-only 主文件 + bundled-db override",
+      "chosen": "docker-compose.yml 只保留 app，DATABASE_URL 用 :? 必填；自带 Postgres 移入 docker-compose.bundled-db.yml（db 服务 + depends_on + 默认 DATABASE_URL/POSTGRES_PASSWORD）",
+      "rejected": "compose profiles：app.depends_on 引用带 profile 的 db 在 profile 未启用时 compose 直接报错，无法表达可选依赖",
+      "evidence": ["path:docker-compose.yml", "path:src/db/client.js"]
+    },
+    {
+      "id": "D2",
+      "title": "setup 触发语义：setup 页为唯一建管入口（用户 2026-11-15 拍板）",
+      "chosen": "needsSetup = auth 已配置且库中无 admin。彻底移除 AFL_ADMIN_USERNAME / AFL_ADMIN_PASSWORD：启动不再建号，setup 页（API）是唯一管理员创建入口。verify-accounts.mjs / verify-ladder.mjs 改为启动后 POST /api/setup 建管（409 时回退登录既有 admin）。已有 admin 的部署行为零变化",
+      "rejected": "保留 env 作 headless 覆盖（初版方案）：用户明确裁定无必要，双入口徒增文档与攻击面；自动化走 setup API 同样可脚本化",
+      "evidence": ["path:src/auth-bootstrap.js", "path:src/server.js", "path:scripts/verify-accounts.mjs", "path:scripts/verify-ladder.mjs"]
+    },
+    {
+      "id": "D3",
+      "title": "setup API 契约与一次性锁死",
+      "chosen": "GET /api/setup/status 免鉴权返回 {needsSetup}；POST /api/setup 走 auth 限流档 + body 上限，进程内互斥 + 建号前二次 findAdmin() 复查，已有 admin 一律 409，成功即种 admin session cookie。admin 存在后永久锁死，无重开机制",
+      "rejected": "DB 级唯一约束锁：单实例架构下进程内锁 + 复查已闭环，避免 schema 迁移；多实例属已知边界外",
+      "evidence": ["path:src/server.js", "path:docs/deployment.md"]
+    },
+    {
+      "id": "D4",
+      "title": "前端 /setup 页与引导",
+      "chosen": "新增 frontend/src/pages/Setup.tsx，/setup 加入 server.js SPA_ROUTES；App 启动查 /api/setup/status，needsSetup 时引导跳转，成功后跳 /account",
+      "rejected": "服务端渲染独立 setup HTML：与现有 React SPA 架构割裂，双份样式维护",
+      "evidence": ["path:frontend/src/App.tsx", "path:src/server.js"]
+    },
+    {
+      "id": "D5",
+      "title": "文档口径：密钥 vs 公开配置",
+      "chosen": "deployment.md 快速开始改为两条路径（外部 DB：DATABASE_URL+BETTER_AUTH_SECRET 两个值；自带 DB：override 文件），并新增表格区分真密钥（BETTER_AUTH_SECRET/POSTGRES_PASSWORD）与公开配置（BETTER_AUTH_URL/TRUSTED_ORIGINS）",
+      "rejected": "维持现状：用户已两次误读，文档缺陷有实证",
+      "evidence": ["path:docs/deployment.md"]
+    }
+  ]
+}

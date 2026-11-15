@@ -1,5 +1,7 @@
-import type { ReactNode } from 'react';
-import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom';
+import { useEffect, type ReactNode } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api } from './lib/api';
 import { Sprite } from './components/Sprite';
 import { TopBar } from './components/TopBar';
 import { Footer } from './components/Footer';
@@ -13,6 +15,7 @@ import { ConnectPage } from './pages/ConnectPage';
 import { LivePage } from './pages/LivePage';
 import { ReplayPage } from './pages/ReplayPage';
 import { TrainingPage } from './pages/TrainingPage';
+import { SetupPage } from './pages/SetupPage';
 
 const VIEW_TO_PATH: Record<string, string> = {
   lobby: '/lobby',
@@ -39,14 +42,35 @@ function RootRoute() {
   return <Page id="view-live"><LivePage /></Page>;
 }
 
+/** First-run guidance: while no admin exists, every page leads to /setup. */
+function SetupRedirect() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const statusQuery = useQuery({
+    queryKey: ['setup-status'],
+    queryFn: () => api<{ needsSetup: boolean }>('/api/setup/status'),
+    retry: false,
+    staleTime: 30_000,
+  });
+  const needsSetup = statusQuery.data?.needsSetup ?? false;
+  useEffect(() => {
+    if (needsSetup && location.pathname !== '/setup') {
+      navigate('/setup', { replace: true });
+    }
+  }, [needsSetup, location.pathname, navigate]);
+  return null;
+}
+
 export function App() {
   return (
     <>
       <Sprite />
       <TopBar />
+      <SetupRedirect />
       <main>
         <Routes>
           <Route path="/" element={<RootRoute />} />
+          <Route path="/setup" element={<SetupPage />} />
           <Route path="/lobby" element={<Page id="view-lobby"><LobbyPage /></Page>} />
           <Route path="/fighters" element={<Page id="view-fighters"><FightersPage /></Page>} />
           <Route path="/board" element={<Page id="view-board"><BoardPage /></Page>} />

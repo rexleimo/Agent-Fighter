@@ -12,7 +12,7 @@ v0.2 新增三条：**现成 AI 客户端可直接接入的托管策略赛道**�
 
 ```bash
 pnpm install         # 安装 React / Vite / Drizzle 依赖
-cp .env.example .env # 填入 DATABASE_URL / BETTER_AUTH_SECRET / AFL_ADMIN_PASSWORD
+cp .env.example .env # 填入 DATABASE_URL / BETTER_AUTH_SECRET（管理员在首次访问的 /setup 页创建）
 pnpm db:up           # 启动独立 Postgres 容器（端口 55433，不碰本机已有库）
 pnpm db:migrate      # 建 better-auth 表 + players 档案表
 npm start            # prestart 会先构建 React 站点，然后 http://localhost:8787
@@ -79,7 +79,7 @@ Agent 连上后调用 `get_my_profile` 确认身份，再 `set_team(teamName, ["
 
 认证由 **better-auth** 处理：注册走 `/api/auth/sign-up/email`（页面用 `用户名@players.local` 作为内部登录邮箱），登录走 `/api/auth/sign-in/username`，退出走 `/api/auth/sign-out`；session 是 better-auth 的 HttpOnly cookie。`players` 表不存密码，只存角色、Agent 和 MCP key。
 
-管理员（后台 `admin` 账号）可以在同一页面的「后台 · 玩家管理」里创建玩家、分配 / 轮换 MCP 服务。管理员账号首次启动时由 `AFL_ADMIN_USERNAME` / `AFL_ADMIN_PASSWORD` 创建；未设置密码时会生成一次性密码并打印在服务端日志里。旧的全局 `/mcp` 仍保留为匿名沙盒，仅用于本地调试与旧验收脚本，正式接入请用玩家专属 URL。
+管理员（后台 `admin` 账号）可以在同一页面的「后台 · 玩家管理」里创建玩家、分配 / 轮换 MCP 服务。管理员账号在首次部署时通过 `/setup` 页面创建（一次性，创建后永久锁死，无需环境变量）。旧的全局 `/mcp` 仍保留为匿名沙盒，仅用于本地调试与旧验收脚本，正式接入请用玩家专属 URL。
 
 **对接前先选路径**：
 

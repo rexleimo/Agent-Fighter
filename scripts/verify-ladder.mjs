@@ -203,8 +203,6 @@ const child = spawn(process.execPath, ['src/server.js'], {
     AFL_TICK_MS: '8',
     AFL_DATA_DIR: dirB,
     DATABASE_URL: TEST_DB,
-    AFL_ADMIN_USERNAME: process.env.AFL_ADMIN_USERNAME || 'admin',
-    AFL_ADMIN_PASSWORD: process.env.AFL_ADMIN_PASSWORD || 'admin-test-pass-123',
     BETTER_AUTH_URL: BASE,
     BETTER_AUTH_TRUSTED_ORIGINS: BASE + ',http://localhost:' + PORT,
   },
@@ -301,8 +299,8 @@ try {
 
 async function partC() {
   const ADMIN = {
-    username: process.env.AFL_ADMIN_USERNAME || 'admin',
-    password: process.env.AFL_ADMIN_PASSWORD || 'admin-test-pass-123',
+    username: 'admin',
+    password: 'admin-test-pass-123',
   };
   const PASS = 'ladder-pass-123';
   const stamp = Date.now().toString(36);
@@ -355,9 +353,17 @@ async function partC() {
     return null;
   }
 
-  const admin = await login(ADMIN);
-  assert.equal(admin.res.status, 200, 'admin login against the test database');
-  const adminCookie = admin.cookie;
+  // First-run setup creates the admin; on a re-used test database it is
+  // locked (409) and the fixed admin logs in instead.
+  const setup = await req('/api/setup', { method: 'POST', body: ADMIN });
+  let adminCookie;
+  if (setup.res.status === 200) adminCookie = setup.cookie;
+  else {
+    assert.equal(setup.res.status, 409, 'setup should be locked on a re-used database: ' + JSON.stringify(setup.data));
+    const admin = await login(ADMIN);
+    assert.equal(admin.res.status, 200, 'admin login against the test database');
+    adminCookie = admin.cookie;
+  }
 
   // X plays the official template, Y deliberately does nothing: the pair must
   // produce one decisive, counted ladder result between two real registrants.

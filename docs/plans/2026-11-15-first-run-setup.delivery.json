@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "kind": "rex.delivery-ticket.v1",
+  "status": "ready",
+  "objective": "外部 DATABASE_URL 直连（compose 拆分）+ 首跑一次性 setup 页面（API+UI，唯一建管入口）+ 文档与验收同步",
+  "decisionTicketRef": "artifact:decision-ticket:afl-first-run-setup-2026-11-15",
+  "workItems": [
+    {
+      "id": "work-compose",
+      "title": "compose 拆分：app-only 主文件 + bundled-db override",
+      "outcome": "外部 DB 用户只配 DATABASE_URL + BETTER_AUTH_SECRET 即可起服务；自带 DB 用户用 override 文件一条命令起全套",
+      "completionCriteria": [
+        "docker-compose.yml 仅含 app，DATABASE_URL :? 必填，无 POSTGRES_PASSWORD / AFL_ADMIN_* 引用",
+        "docker-compose.bundled-db.yml 含 db + depends_on + 默认连接串",
+        ".env.example 按 密钥/公开配置 分组更新，删除 AFL_ADMIN_*"
+      ],
+      "verification": "docker compose -f docker-compose.yml config 与 -f docker-compose.yml -f docker-compose.bundled-db.yml config 插值校验通过（镜像构建需标准 Docker 主机，本机薄壳无法验证）",
+      "evidenceRefs": [],
+      "dependsOn": []
+    },
+    {
+      "id": "work-setup-api",
+      "title": "首跑 setup 后端：移除 env 建号 + /api/setup/*",
+      "outcome": "无 admin 时服务进入 setup 待命；POST /api/setup 一次性建 admin 并种 session，之后 409。AFL_ADMIN_USERNAME/AFL_ADMIN_PASSWORD 彻底移除（用户 2026-11-15 裁定：setup 页为唯一建管入口）",
+      "completionCriteria": [
+        "auth-bootstrap.js：删除 env 建号路径，改为 needsSetup 探测；全仓运行时不再读 AFL_ADMIN_*",
+        "GET /api/setup/status 返回 {needsSetup}；POST /api/setup 走 auth 限流 + body 上限 + 进程内互斥 + 二次 findAdmin 复查",
+        "已有 admin 后 POST 恒 409，无任何重开路径",
+        "密码 >=8 位，username 规范化复用 normalizeUsername"
+      ],
+      "verification": "bun scripts/verify-setup.mjs（work-verify 交付）",
+      "evidenceRefs": [],
+      "dependsOn": []
+    },
+    {
+      "id": "work-setup-ui",
+      "title": "首跑 setup 前端：/setup 页 + 引导",
+      "outcome": "全新部署打开浏览器即被引导到 setup 页，表单建 admin 后直接进入已登录的管理员会话",
+      "completionCriteria": [
+        "frontend/src/pages/Setup.tsx：用户名/显示名/密码/确认，错误提示，成功跳 /account",
+        "/setup 加入 server.js SPA_ROUTES；App 启动查 status 并引导",
+        "已有 admin 时 /setup 显示已完成态，不可再提交"
+      ],
+      "verification": "pnpm build:web + 浏览器冒烟（needsSetup→建号→锁死→刷新不回退）",
+      "evidenceRefs": [],
+      "dependsOn": ["work-setup-api"]
+    },
+    {
+      "id": "work-docs",
+      "title": "deployment.md / player-accounts.md / README 口径重写",
+      "outcome": "文档明确 密钥 vs 公开配置、外部 DB / 自带 DB 两条路径、setup 页唯一建管流程",
+      "completionCriteria": [
+        "快速开始两条路径命令可照抄执行",
+        "密钥/公开配置表落地（回应用户两次误读）",
+        "setup 一次性语义写清；全部文档不再出现 AFL_ADMIN_*"
+      ],
+      "verification": "人工对照 compose/API 实际行为逐条核对 + rg AFL_ADMIN 仅剩历史计划文档",
+      "evidenceRefs": [],
+      "dependsOn": ["work-compose", "work-setup-api"]
+    },
+    {
+      "id": "work-verify",
+      "title": "verify-setup 脚本 + 验收脚本迁移 + 全量回归",
+      "outcome": "setup 全场景自动化验收 + 既有门禁零回归",
+      "completionCriteria": [
+        "scripts/verify-setup.mjs：空库 needsSetup=true → POST 建号成功种 cookie → status=false → 二次 POST 409 → 重启后仍锁死",
+        "verify-accounts.mjs / verify-ladder.mjs 迁移到 setup API 建管（409 回退登录既有 admin），回归全绿",
+        "bun scripts/verify.js 9/9 + C4b/c/d",
+        "pnpm verify:security 6/6",
+        "pnpm verify:accounts 20/20"
+      ],
+      "verification": "上述命令输出全绿，证据附到计划",
+      "evidenceRefs": [],
+      "dependsOn": ["work-setup-api", "work-setup-ui"]
+    }
+  ],
+  "frontier": {
+    "ready": ["work-compose", "work-setup-api"],
+    "blocked": [
+      { "id": "work-setup-ui", "reason": "等待 work-setup-api 接口冻结" },
+      { "id": "work-docs", "reason": "等待 compose 与 API 定稿" },
+      { "id": "work-verify", "reason": "等待 API/UI 实现" }
+    ]
+  },
+  "parallelGroups": [["work-compose", "work-setup-api"]],
+  "convergenceGate": {
+    "condition": "全部 work items 完成且 work-verify 各组命令全绿",
+    "verification": "bun scripts/verify-setup.mjs && bun scripts/verify.js && pnpm verify:security && pnpm verify:accounts && pnpm verify:ladder",
+    "requiredEvidenceRefs": ["command:verify-setup", "command:verify", "command:verify-security", "command:verify-accounts", "command:verify-ladder"]
+  },
+  "completionClaim": "soft"
+}

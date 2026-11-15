@@ -1,0 +1,17 @@
+{
+  "kind": "behavior-delta",
+  "decisionRef": "artifact:testability-decision:afl-first-run-setup-2026-11-15",
+  "redCandidate": {
+    "publicEntry": "GET /api/setup/status on a freshly migrated empty database (real spawned server, throwaway Postgres DB)",
+    "setup": "scripts/verify-setup.mjs creates afl_setup_<run> on the test Postgres server (docker start afl-pg, 127.0.0.1:55433), runs db:migrate against it, spawns bun src/server.js on a free port with an isolated AFL_DATA_DIR, probes public HTTP only, then DROPs the throwaway databases",
+    "command": {
+      "executable": "bun",
+      "args": ["scripts/verify-setup.mjs"],
+      "cwd": "/Users/rex/codes/Agent-Fighter"
+    },
+    "expected": "S1: GET /api/setup/status -> 200 {needsSetup:true}; S2-S8: one-shot admin creation, 409 lock (incl. across restart), 400 weak password, 503 when auth off, 413 body cap, 429 + Retry-After auth limiter",
+    "observed": "0/9 passed; every setup probe returned 404 (route does not exist yet); infrastructure verified working: server boots, throwaway DB created/migrated/dropped cleanly",
+    "failureReason": "The /api/setup/* public endpoints do not exist in the current implementation; admin creation is env-bootstrapped at startup (src/server.js:37), so the first-run setup behavior is genuinely new and honestly RED",
+    "receiptRef": "receipt:ca5cd41f-372c-4289-ba79-ae6ceec22a60"
+  }
+}

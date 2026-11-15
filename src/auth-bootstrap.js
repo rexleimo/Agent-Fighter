@@ -1,51 +1,66 @@
-import { randomBytes } from 'node:crypto';
-import { normalizeUsername } from './player-shared.js';
+import { normalizeUsername, cleanDisplayName } from './player-shared.js';
 
 /**
- * Create the first admin through Better Auth (so the password hash and
- * account row are standard), then promote the profile row to admin.
+ * First-run setup: the ONE way an administrator is created.
+ *
+ * While the player store has no admin, the server offers POST /api/setup
+ * (and the web app guides visitors to /setup). Once an admin exists the
+ * setup is locked forever — there is no reopen path, by design. The lock is
+ * the database state itself (an admin row), so it survives restarts.
+ *
+ * A process-level mutex serializes concurrent setup attempts; combined with
+ * the findAdmin() re-check inside the critical section this closes the
+ * land-grab race on the single-instance architecture (docs/deployment.md §7).
  */
-export async function bootstrapAdmin({ auth, players }) {
-  if (!auth) return null;
-  const existing = await players.findAdmin();
-  if (existing) return existing;
 
-  const username = normalizeUsername(process.env.AFL_ADMIN_USERNAME || 'admin');
-  const password = process.env.AFL_ADMIN_PASSWORD || randomBytes(15).toString('base64url');
-  const email = `${username}@players.local`;
+export async function needsSetup({ players }) {
+  if (!players) return false;
+  return !(await players.findAdmin());
+}
 
-  let result;
-  try {
-    result = await auth.api.signUpEmail({
-      body: {
-        email,
-        password,
-        name: '联赛管理员',
+let setupLock = Promise.resolve();
+
+export function createFirstAdmin({ auth, players, input }) {
+  const run = setupLock.then(async () => {
+    const existing = await players.findAdmin();
+    if (existing) {
+      const err = new Error('setup is already complete');
+      err.code = 'SETUP_DONE';
+      throw err;
+    }
+
+    const username = normalizeUsername(input?.username);
+    const password = String(input?.password || '');
+    if (password.length < 8) throw new Error('password must be at least 8 characters');
+    if (password.length > 128) throw new Error('password must be at most 128 characters');
+    const displayName = cleanDisplayName(input?.displayName, username);
+    const email = `${username}@players.local`;
+
+    // Standard better-auth signup so the password hash and account row are
+    // indistinguishable from any other account; returnHeaders carries the
+    // auto-sign-in session cookie back to the caller.
+    const result = await auth.api.signUpEmail({
+      body: { email, password, name: displayName, username },
+      returnHeaders: true,
+    });
+    const user = result.response?.user ?? result.user;
+    if (!user?.id) throw new Error('admin signup did not return a user');
+
+    let profile = await players.playerByUserId(user.id);
+    if (!profile) {
+      profile = await players.createProfile({
+        userId: user.id,
         username,
-      },
-    });
-  } catch (err) {
-    console.error('[afl] admin bootstrap failed:', err?.message ?? err);
-    throw new Error('could not create the admin account; check AFL_ADMIN_USERNAME / AFL_ADMIN_PASSWORD and the auth schema');
-  }
-
-  let profile = await players.playerByUserId(result.user.id);
-  if (!profile) {
-    profile = await players.createProfile({
-      userId: result.user.id,
-      username,
-      displayName: '联赛管理员',
-      role: 'admin',
-    });
-  } else {
-    profile = await players.setRole(profile.id, 'admin');
-  }
-
-  if (process.env.AFL_ADMIN_PASSWORD) {
-    console.log('[afl] admin account "' + username + '" created from AFL_ADMIN_PASSWORD');
-  } else {
-    console.log('[afl] admin account "' + username + '" password: ' + password);
-    console.log('[afl] set AFL_ADMIN_PASSWORD (and AFL_ADMIN_USERNAME) to choose your own credentials');
-  }
-  return profile;
+        displayName,
+        role: 'admin',
+      });
+    } else {
+      profile = await players.setRole(profile.id, 'admin');
+    }
+    console.log('[afl] admin account "' + username + '" created through first-run setup');
+    return { profile, headers: result.headers };
+  });
+  // Keep the chain alive even when this attempt fails validation.
+  setupLock = run.catch(() => {});
+  return run;
 }

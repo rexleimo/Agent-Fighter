@@ -1,0 +1,1402 @@
+diff --git a/README.md b/README.md
+index 2fa0b88..1a47d69 100644
+--- a/README.md
++++ b/README.md
+@@ -12,7 +12,7 @@ v0.2 新增三条：**现成 AI 客户端可直接接入的托管策略赛道**
+ 
+ ```bash
+ pnpm install         # 安装 React / Vite / Drizzle 依赖
+-cp .env.example .env # 填入 DATABASE_URL / BETTER_AUTH_SECRET / AFL_ADMIN_PASSWORD
++cp .env.example .env # 填入 DATABASE_URL / BETTER_AUTH_SECRET（管理员在首次访问的 /setup 页创建）
+ pnpm db:up           # 启动独立 Postgres 容器（端口 55433，不碰本机已有库）
+ pnpm db:migrate      # 建 better-auth 表 + players 档案表
+ npm start            # prestart 会先构建 React 站点，然后 http://localhost:8787
+@@ -79,7 +79,7 @@ Agent 连上后调用 `get_my_profile` 确认身份，再 `set_team(teamName, ["
+ 
+ 认证由 **better-auth** 处理：注册走 `/api/auth/sign-up/email`（页面用 `用户名@players.local` 作为内部登录邮箱），登录走 `/api/auth/sign-in/username`，退出走 `/api/auth/sign-out`；session 是 better-auth 的 HttpOnly cookie。`players` 表不存密码，只存角色、Agent 和 MCP key。
+ 
+-管理员（后台 `admin` 账号）可以在同一页面的「后台 · 玩家管理」里创建玩家、分配 / 轮换 MCP 服务。管理员账号首次启动时由 `AFL_ADMIN_USERNAME` / `AFL_ADMIN_PASSWORD` 创建；未设置密码时会生成一次性密码并打印在服务端日志里。旧的全局 `/mcp` 仍保留为匿名沙盒，仅用于本地调试与旧验收脚本，正式接入请用玩家专属 URL。
++管理员（后台 `admin` 账号）可以在同一页面的「后台 · 玩家管理」里创建玩家、分配 / 轮换 MCP 服务。管理员账号在首次部署时通过 `/setup` 页面创建（一次性，创建后永久锁死，无需环境变量）。旧的全局 `/mcp` 仍保留为匿名沙盒，仅用于本地调试与旧验收脚本，正式接入请用玩家专属 URL。
+ 
+ **对接前先选路径**：
+ 
+diff --git a/docker-compose.bundled-db.yml b/docker-compose.bundled-db.yml
+new file mode 100644
+index 0000000..34fd42c
+--- /dev/null
++++ b/docker-compose.bundled-db.yml
+@@ -0,0 +1,31 @@
++# Override: adds a bundled Postgres 16 for single-host deployments.
++#   BETTER_AUTH_SECRET=$(openssl rand -hex 32) \
++#     docker compose -f docker-compose.yml -f docker-compose.bundled-db.yml up -d --build
++# POSTGRES_PASSWORD is only the bundled database's own credential; the app
++# still consumes a single DATABASE_URL. Bring your own database? Skip this
++# file and set DATABASE_URL directly on docker-compose.yml.
++services:
++  db:
++    image: postgres:16-alpine
++    environment:
++      POSTGRES_USER: afl
++      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-afl_dev_password}
++      POSTGRES_DB: afl
++    volumes:
++      - afl-pg-data:/var/lib/postgresql/data
++    healthcheck:
++      test: ["CMD-SHELL", "pg_isready -U afl -d afl"]
++      interval: 5s
++      timeout: 5s
++      retries: 10
++    restart: unless-stopped
++
++  app:
++    depends_on:
++      db:
++        condition: service_healthy
++    environment:
++      DATABASE_URL: ${DATABASE_URL:-postgres://afl:${POSTGRES_PASSWORD:-afl_dev_password}@db:5432/afl}
++
++volumes:
++  afl-pg-data:
+diff --git a/docker-compose.yml b/docker-compose.yml
+index a2ed942..7f40e3f 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -1,43 +1,32 @@
+-# Minimum safe deployment unit: app + Postgres.
+-#   BETTER_AUTH_SECRET=... AFL_ADMIN_PASSWORD=... docker compose up -d --build
+-# Secrets are REQUIRED (no insecure defaults). Put the app behind a TLS reverse
+-# proxy for public exposure and set AFL_TRUST_PROXY=1 so rate limiting sees the
+-# real client IP. See docs/deployment.md.
++# Minimum deployment unit: the app alone, against YOUR Postgres.
++#   DATABASE_URL=postgres://... BETTER_AUTH_SECRET=$(openssl rand -hex 32) \
++#     docker compose up -d --build
++# Want a bundled Postgres too? Layer the override:
++#   BETTER_AUTH_SECRET=$(openssl rand -hex 32) \
++#     docker compose -f docker-compose.yml -f docker-compose.bundled-db.yml up -d --build
++# Put the app behind a TLS reverse proxy for public exposure and set
++# AFL_TRUST_PROXY=1 so rate limiting sees the real client IP.
++# The administrator is created once through the /setup page on first visit.
++# See docs/deployment.md.
+ services:
+-  db:
+-    image: postgres:16-alpine
+-    environment:
+-      POSTGRES_USER: afl
+-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-afl_dev_password}
+-      POSTGRES_DB: afl
+-    volumes:
+-      - afl-pg-data:/var/lib/postgresql/data
+-    healthcheck:
+-      test: ["CMD-SHELL", "pg_isready -U afl -d afl"]
+-      interval: 5s
+-      timeout: 5s
+-      retries: 10
+-    restart: unless-stopped
+-
+   app:
+     build: .
+-    depends_on:
+-      db:
+-        condition: service_healthy
+     environment:
+-      DATABASE_URL: postgres://afl:${POSTGRES_PASSWORD:-afl_dev_password}@db:5432/afl
++      # Required, but enforced at container start (not interpolation): the
++      # bundled-db override supplies a default here, and compose interpolates
++      # each file BEFORE merging, so a :? guard would break the override path.
++      DATABASE_URL: ${DATABASE_URL:-}
+       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET (e.g. openssl rand -hex 32)}
+       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8787}
+       BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-http://localhost:8787}
+-      AFL_ADMIN_USERNAME: ${AFL_ADMIN_USERNAME:-admin}
+-      AFL_ADMIN_PASSWORD: ${AFL_ADMIN_PASSWORD:?set AFL_ADMIN_PASSWORD}
+       PORT: "8787"
+       # Hardening knobs — defaults are test-friendly; tighten for public exposure.
+       AFL_MAX_BODY_BYTES: ${AFL_MAX_BODY_BYTES:-1048576}
+       AFL_RATE_AUTH: ${AFL_RATE_AUTH:-300}
+       AFL_RATE_GLOBAL: ${AFL_RATE_GLOBAL:-3000}
+       AFL_TRUST_PROXY: ${AFL_TRUST_PROXY:-0}
+-    command: sh -c "bun run db:migrate && bun src/server.js"
++    command: >-
++      sh -c 'test -n "$$DATABASE_URL" || { echo "DATABASE_URL is required: set it (your Postgres URL), or layer docker-compose.bundled-db.yml" >&2; exit 1; }; bun run db:migrate && bun src/server.js'
+     ports:
+       - "${PORT:-8787}:8787"
+     volumes:
+@@ -45,5 +34,4 @@ services:
+     restart: unless-stopped
+ 
+ volumes:
+-  afl-pg-data:
+-  afl-data:
+\ No newline at end of file
++  afl-data:
+diff --git a/docs/deployment.md b/docs/deployment.md
+index cc0a4b6..4d96c70 100644
+--- a/docs/deployment.md
++++ b/docs/deployment.md
+@@ -11,29 +11,54 @@ v0.12.0 起内置生产加固层（`src/security.js`）与部署打包（`Docker
+ > 适用范围：内部 / 受邀制 / 基准平台部署开箱即用；公网公开服务建议按本文收紧限流并置于
+ > TLS 反向代理之后。**水平扩展不在本档范围**（见末尾「已知边界」）。
+ 
+-## 1. 快速开始（Docker Compose）
++## 1. 快速开始（Docker Compose，两条路径）
++
++### 路径 A：用你自己的 Postgres（推荐，云数据库/已有实例）
++
++只需两个值：一个连接 URL（含库凭据）+ 一个签名密钥：
+ 
+ ```bash
+-# 密钥必填，无 insecure 默认值
++export DATABASE_URL="postgres://user:pass@your-pg-host:5432/afl"
+ export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+-export AFL_ADMIN_PASSWORD="$(openssl rand -hex 16)"
+-# 可选：自定义数据库密码 / 对外地址
+-export POSTGRES_PASSWORD="$(openssl rand -hex 16)"
+ export BETTER_AUTH_URL="https://league.example.com"
++export BETTER_AUTH_TRUSTED_ORIGINS="https://league.example.com"
+ 
+ docker compose up -d --build
+ ```
+ 
+-compose 会启动 Postgres 16 与应用两个服务；应用容器先跑 `pnpm db:migrate` 再启动，
+-`/app/data`（`league.json` + 回放）与数据库各自挂载命名卷持久化。应用以**非 root**
+-用户运行，内置 `HEALTHCHECK` 轮询 `/healthz`。
++### 路径 B：自带 Postgres（单机一键全套）
++
++```bash
++export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
++export POSTGRES_PASSWORD="$(openssl rand -hex 16)"   # 仅自带 db 容器用
++export BETTER_AUTH_URL="https://league.example.com"
++export BETTER_AUTH_TRUSTED_ORIGINS="https://league.example.com"
++
++docker compose -f docker-compose.yml -f docker-compose.bundled-db.yml up -d --build
++```
++
++两条路径都会先跑 `bun run db:migrate` 再启动；`/app/data`（`league.json` + 回放）
++与数据库各自持久化。应用以**非 root** 用户运行，内置 `HEALTHCHECK` 轮询 `/healthz`。
++
++### 密钥 vs 公开配置（别混淆）
++
++| 变量 | 本质 | 说明 |
++|---|---|---|
++| `BETTER_AUTH_SECRET` | 🔑 真密钥 | 签名/加密 session，泄露=可伪造登录态，`openssl rand -hex 32` |
++| `DATABASE_URL` | 🔑 含凭据 | 应用唯一的数据库入口，URL 里已含密码 |
++| `POSTGRES_PASSWORD` | 🔑 真密钥（仅路径 B） | 只是自带 db 容器的初始化密码，外部 DB 用户不需要 |
++| `BETTER_AUTH_URL` | 📍 公开配置 | 对外地址（cookie/回调用），填域名即可，不是秘密 |
++| `BETTER_AUTH_TRUSTED_ORIGINS` | 📍 公开配置 | CSRF 白名单，同上 |
++
++**管理员不在环境变量里配置**：首次访问时 Web 自动引导到 `/setup` 页，一次性
++创建管理员（创建即登录；之后 `POST /api/setup` 永久 409，重启不重开）。
+ 
+ ## 2. 加固旋钮（环境变量）
+ 
+ | 变量 | 默认 | 作用 | 公网建议 |
+ |---|---|---|---|
+ | `AFL_MAX_BODY_BYTES` | `1048576`（1 MiB） | 请求体字节上限，超限返回 **413** 并关闭连接，防内存耗尽 | 按最大合法请求体收紧（策略 DSL 很小，可降至 `262144`） |
+-| `AFL_RATE_AUTH` | `300` /分钟/IP | 认证端点（`/api/auth/*`）限流，超限 **429 + Retry-After**，防暴力破解 | 收紧到 `10`–`30` |
++| `AFL_RATE_AUTH` | `300` /分钟/IP | 认证端点（`/api/auth/*`）与首跑 `POST /api/setup` 限流，超限 **429 + Retry-After**，防暴力破解/抢注 | 收紧到 `10`–`30` |
+ | `AFL_RATE_GLOBAL` | `3000` /分钟/IP | 其余请求全局限流 | 按容量收紧到 `300`–`600` |
+ | `AFL_TRUST_PROXY` | `0` | 为 `1` 时信任 `X-Forwarded-For` 取真实客户端 IP | 置于反代之后时设 `1` |
+ 
+@@ -84,10 +109,11 @@ CSP 目前含 `'unsafe-inline'` 以兼容现有前端；确认前端可改用 no
+ ## 6. 验收
+ 
+ ```bash
++pnpm verify:setup      # 9 项：首跑待命/建管即登录/409 锁死(含重启)/400/503/413/429（需临时库权限）
+ pnpm verify:security   # 6 项：healthz / 安全头 / 条件 HSTS / 413 / 全局 429 / 认证 429
+ pnpm verify            # 9/9 + C4b/C4c/C4d 版本与探针门禁
+ pnpm verify:mcp        # 官方 SDK 真实客户端 15/15（需玩家 MCP URL）
+-pnpm verify:accounts   # 账号流程 20/20（需 AFL_TEST_DATABASE_URL）
++pnpm verify:accounts   # 账号流程 20/20（需 AFL_TEST_DATABASE_URL；建管已走 setup API）
+ ```
+ 
+ `verify:security` 用严格参数（小 body 上限、低限流）独立 spawn 服务，证明 413/429 真的会触发。
+diff --git a/docs/plans/2026-11-15-first-run-setup.decision.json b/docs/plans/2026-11-15-first-run-setup.decision.json
+new file mode 100644
+index 0000000..e2ef079
+--- /dev/null
++++ b/docs/plans/2026-11-15-first-run-setup.decision.json
+@@ -0,0 +1,45 @@
++{
++  "schemaVersion": 1,
++  "kind": "rex.decision-ticket.v1",
++  "id": "decision-ticket:afl-first-run-setup-2026-11-15",
++  "status": "decided",
++  "objective": "首次部署体验优化：外部 DATABASE_URL 直连 + 首跑 setup 页面",
++  "context": "用户上线评审指出 POSTGRES_PASSWORD 对自带外部数据库的用户冗余（应用只读 DATABASE_URL，src/db/client.js:8），且管理员应通过首次部署 setup 页面创建而非环境变量硬建（src/auth-bootstrap.js）。",
++  "decisions": [
++    {
++      "id": "D1",
++      "title": "compose 拆分为 app-only 主文件 + bundled-db override",
++      "chosen": "docker-compose.yml 只保留 app，DATABASE_URL 用 :? 必填；自带 Postgres 移入 docker-compose.bundled-db.yml（db 服务 + depends_on + 默认 DATABASE_URL/POSTGRES_PASSWORD）",
++      "rejected": "compose profiles：app.depends_on 引用带 profile 的 db 在 profile 未启用时 compose 直接报错，无法表达可选依赖",
++      "evidence": ["path:docker-compose.yml", "path:src/db/client.js"]
++    },
++    {
++      "id": "D2",
++      "title": "setup 触发语义：setup 页为唯一建管入口（用户 2026-11-15 拍板）",
++      "chosen": "needsSetup = auth 已配置且库中无 admin。彻底移除 AFL_ADMIN_USERNAME / AFL_ADMIN_PASSWORD：启动不再建号，setup 页（API）是唯一管理员创建入口。verify-accounts.mjs / verify-ladder.mjs 改为启动后 POST /api/setup 建管（409 时回退登录既有 admin）。已有 admin 的部署行为零变化",
++      "rejected": "保留 env 作 headless 覆盖（初版方案）：用户明确裁定无必要，双入口徒增文档与攻击面；自动化走 setup API 同样可脚本化",
++      "evidence": ["path:src/auth-bootstrap.js", "path:src/server.js", "path:scripts/verify-accounts.mjs", "path:scripts/verify-ladder.mjs"]
++    },
++    {
++      "id": "D3",
++      "title": "setup API 契约与一次性锁死",
++      "chosen": "GET /api/setup/status 免鉴权返回 {needsSetup}；POST /api/setup 走 auth 限流档 + body 上限，进程内互斥 + 建号前二次 findAdmin() 复查，已有 admin 一律 409，成功即种 admin session cookie。admin 存在后永久锁死，无重开机制",
++      "rejected": "DB 级唯一约束锁：单实例架构下进程内锁 + 复查已闭环，避免 schema 迁移；多实例属已知边界外",
++      "evidence": ["path:src/server.js", "path:docs/deployment.md"]
++    },
++    {
++      "id": "D4",
++      "title": "前端 /setup 页与引导",
++      "chosen": "新增 frontend/src/pages/Setup.tsx，/setup 加入 server.js SPA_ROUTES；App 启动查 /api/setup/status，needsSetup 时引导跳转，成功后跳 /account",
++      "rejected": "服务端渲染独立 setup HTML：与现有 React SPA 架构割裂，双份样式维护",
++      "evidence": ["path:frontend/src/App.tsx", "path:src/server.js"]
++    },
++    {
++      "id": "D5",
++      "title": "文档口径：密钥 vs 公开配置",
++      "chosen": "deployment.md 快速开始改为两条路径（外部 DB：DATABASE_URL+BETTER_AUTH_SECRET 两个值；自带 DB：override 文件），并新增表格区分真密钥（BETTER_AUTH_SECRET/POSTGRES_PASSWORD）与公开配置（BETTER_AUTH_URL/TRUSTED_ORIGINS）",
++      "rejected": "维持现状：用户已两次误读，文档缺陷有实证",
++      "evidence": ["path:docs/deployment.md"]
++    }
++  ]
++}
+diff --git a/docs/plans/2026-11-15-first-run-setup.delivery.json b/docs/plans/2026-11-15-first-run-setup.delivery.json
+new file mode 100644
+index 0000000..57d9e49
+--- /dev/null
++++ b/docs/plans/2026-11-15-first-run-setup.delivery.json
+@@ -0,0 +1,92 @@
++{
++  "schemaVersion": 1,
++  "kind": "rex.delivery-ticket.v1",
++  "status": "ready",
++  "objective": "外部 DATABASE_URL 直连（compose 拆分）+ 首跑一次性 setup 页面（API+UI，唯一建管入口）+ 文档与验收同步",
++  "decisionTicketRef": "artifact:decision-ticket:afl-first-run-setup-2026-11-15",
++  "workItems": [
++    {
++      "id": "work-compose",
++      "title": "compose 拆分：app-only 主文件 + bundled-db override",
++      "outcome": "外部 DB 用户只配 DATABASE_URL + BETTER_AUTH_SECRET 即可起服务；自带 DB 用户用 override 文件一条命令起全套",
++      "completionCriteria": [
++        "docker-compose.yml 仅含 app，DATABASE_URL :? 必填，无 POSTGRES_PASSWORD / AFL_ADMIN_* 引用",
++        "docker-compose.bundled-db.yml 含 db + depends_on + 默认连接串",
++        ".env.example 按 密钥/公开配置 分组更新，删除 AFL_ADMIN_*"
++      ],
++      "verification": "docker compose -f docker-compose.yml config 与 -f docker-compose.yml -f docker-compose.bundled-db.yml config 插值校验通过（镜像构建需标准 Docker 主机，本机薄壳无法验证）",
++      "evidenceRefs": [],
++      "dependsOn": []
++    },
++    {
++      "id": "work-setup-api",
++      "title": "首跑 setup 后端：移除 env 建号 + /api/setup/*",
++      "outcome": "无 admin 时服务进入 setup 待命；POST /api/setup 一次性建 admin 并种 session，之后 409。AFL_ADMIN_USERNAME/AFL_ADMIN_PASSWORD 彻底移除（用户 2026-11-15 裁定：setup 页为唯一建管入口）",
++      "completionCriteria": [
++        "auth-bootstrap.js：删除 env 建号路径，改为 needsSetup 探测；全仓运行时不再读 AFL_ADMIN_*",
++        "GET /api/setup/status 返回 {needsSetup}；POST /api/setup 走 auth 限流 + body 上限 + 进程内互斥 + 二次 findAdmin 复查",
++        "已有 admin 后 POST 恒 409，无任何重开路径",
++        "密码 >=8 位，username 规范化复用 normalizeUsername"
++      ],
++      "verification": "bun scripts/verify-setup.mjs（work-verify 交付）",
++      "evidenceRefs": [],
++      "dependsOn": []
++    },
++    {
++      "id": "work-setup-ui",
++      "title": "首跑 setup 前端：/setup 页 + 引导",
++      "outcome": "全新部署打开浏览器即被引导到 setup 页，表单建 admin 后直接进入已登录的管理员会话",
++      "completionCriteria": [
++        "frontend/src/pages/Setup.tsx：用户名/显示名/密码/确认，错误提示，成功跳 /account",
++        "/setup 加入 server.js SPA_ROUTES；App 启动查 status 并引导",
++        "已有 admin 时 /setup 显示已完成态，不可再提交"
++      ],
++      "verification": "pnpm build:web + 浏览器冒烟（needsSetup→建号→锁死→刷新不回退）",
++      "evidenceRefs": [],
++      "dependsOn": ["work-setup-api"]
++    },
++    {
++      "id": "work-docs",
++      "title": "deployment.md / player-accounts.md / README 口径重写",
++      "outcome": "文档明确 密钥 vs 公开配置、外部 DB / 自带 DB 两条路径、setup 页唯一建管流程",
++      "completionCriteria": [
++        "快速开始两条路径命令可照抄执行",
++        "密钥/公开配置表落地（回应用户两次误读）",
++        "setup 一次性语义写清；全部文档不再出现 AFL_ADMIN_*"
++      ],
++      "verification": "人工对照 compose/API 实际行为逐条核对 + rg AFL_ADMIN 仅剩历史计划文档",
++      "evidenceRefs": [],
++      "dependsOn": ["work-compose", "work-setup-api"]
++    },
++    {
++      "id": "work-verify",
++      "title": "verify-setup 脚本 + 验收脚本迁移 + 全量回归",
++      "outcome": "setup 全场景自动化验收 + 既有门禁零回归",
++      "completionCriteria": [
++        "scripts/verify-setup.mjs：空库 needsSetup=true → POST 建号成功种 cookie → status=false → 二次 POST 409 → 重启后仍锁死",
++        "verify-accounts.mjs / verify-ladder.mjs 迁移到 setup API 建管（409 回退登录既有 admin），回归全绿",
++        "bun scripts/verify.js 9/9 + C4b/c/d",
++        "pnpm verify:security 6/6",
++        "pnpm verify:accounts 20/20"
++      ],
++      "verification": "上述命令输出全绿，证据附到计划",
++      "evidenceRefs": [],
++      "dependsOn": ["work-setup-api", "work-setup-ui"]
++    }
++  ],
++  "frontier": {
++    "ready": ["work-compose", "work-setup-api"],
++    "blocked": [
++      { "id": "work-setup-ui", "reason": "等待 work-setup-api 接口冻结" },
++      { "id": "work-docs", "reason": "等待 compose 与 API 定稿" },
++      { "id": "work-verify", "reason": "等待 API/UI 实现" }
++    ]
++  },
++  "parallelGroups": [["work-compose", "work-setup-api"]],
++  "convergenceGate": {
++    "condition": "全部 work items 完成且 work-verify 各组命令全绿",
++    "verification": "bun scripts/verify-setup.mjs && bun scripts/verify.js && pnpm verify:security && pnpm verify:accounts && pnpm verify:ladder",
++    "requiredEvidenceRefs": ["command:verify-setup", "command:verify", "command:verify-security", "command:verify-accounts", "command:verify-ladder"]
++  },
++  "completionClaim": "soft"
++}
+diff --git a/docs/plans/2026-11-15-first-run-setup.test-design.md b/docs/plans/2026-11-15-first-run-setup.test-design.md
+new file mode 100644
+index 0000000..8a4307b
+--- /dev/null
++++ b/docs/plans/2026-11-15-first-run-setup.test-design.md
+@@ -0,0 +1,100 @@
++# 首次部署体验优化（外部 DB 直连 + 首跑 setup）· Test design
++
++> Activation: `06ecef51-da7e-47b9-af38-a415fb368ce1`
++> Command: `software.testing.design` / `design-tests`
++> Provider: `rex-test-design`
++> Date: 2026-11-15
++> 需求原文：「POSTGRES_PASSWORD 冗余，连接 URL 已含凭据；AFL_ADMIN_PASSWORD 应改为
++> 首次部署 setup 设置页；AFL_ADMIN_USERNAME / AFL_ADMIN_PASSWORD 没有必要存在。」
++> Decision Ticket: `docs/plans/2026-11-15-first-run-setup.decision.json`（D2 已按用户裁定修订）
++
++## 0. 先查证：现状事实（不是猜测）
++
++| 事实 | 证据 |
++| :--- | :--- |
++| 应用唯一 DB 入口是 `DATABASE_URL`；`POSTGRES_PASSWORD` 只被 compose db 容器消费 | `src/db/client.js:8-9`、`src/auth.js:10`、`docker-compose.yml` |
++| admin 由启动时 env/随机密码硬建；已有 admin 则跳过 | `src/server.js:37` → `src/auth-bootstrap.js:8-50` |
++| `verify-accounts.mjs` 依赖 env 建管，且**明确容忍非空库**（固定 admin + 随机玩家名） | `scripts/verify-accounts.mjs:19-23,125-126` |
++| `verify-ladder.mjs` partC 同样依赖 env 建管 | `scripts/verify-ladder.mjs:206-207,304-305` |
++| 认证限流档可直接复用（`/api/auth/*` 走 `limiters.auth`） | `src/server.js:299` |
++| `verify-security.mjs` 以 `DATABASE_URL=''` 关闭账号跑严格参数 | 记忆 20261114165647529 + `scripts/verify-security.mjs` |
++| 迁移可用 `drizzle-kit migrate` + `DATABASE_URL` 覆盖指向临时库 | `package.json db:migrate`、`drizzle.config.js` |
++| 单实例架构，setup 竞态进程内锁即可闭环 | `docs/deployment.md` §7 |
++
++## 1. Test scope contract
++
++### 1.1 用户目标
++
++1. 外部 DB 用户只配 `DATABASE_URL` + `BETTER_AUTH_SECRET` 就能起服务（compose 不再强制 `POSTGRES_PASSWORD`）。
++2. 全新部署打开浏览器 → setup 页一次性创建管理员 → 直接进入已登录管理员会话。
++3. `AFL_ADMIN_USERNAME` / `AFL_ADMIN_PASSWORD` 从运行时与文档中彻底消失。
++
++### 1.2 明确非目标
++
++- 不做多实例/水平扩展下的 setup 竞态（已知边界，单实例进程内锁）。
++- 不改 better-auth 的登录/注册/session 机制本身。
++- 不做「重置管理员/重开 setup」功能——锁死是特性。
++- 不在本机验证 Docker 镜像构建（本机薄壳无 dockerd；只做 compose 插值校验）。
++- 不动对战/联赛/回放任何行为。
++
++### 1.3 范围内行为（可观察）
++
++- `GET /api/setup/status` 的 `needsSetup` 真值表：auth 关闭→false；无 admin→true；有 admin→false。
++- `POST /api/setup`：空库建号成功（种 session cookie、role=admin）；此后恒 409；弱密码 400；超 body 上限 413；限流档生效 429。
++- 重启后（同库）setup 仍锁死。
++- 既有验收（accounts 20/20、ladder、security 6/6、verify 9/9+C4）在**迁移到 setup API 建管后**全绿。
++- compose 两种组合插值正确：app-only 缺 `DATABASE_URL` 报错；bundled override 提供默认连接串。
++
++### 1.4 范围外行为
++
++- 玩家自助注册/登录/MCP key 流程的语义（只作为回归边界，不得改期望值）。
++- 前端其余页面；美术资产管线。
++
++### 1.5 允许修改的测试缝
++
++- 新增 `scripts/verify-setup.mjs`（真实 spawn + 临时 Postgres 库）。
++- `scripts/verify-accounts.mjs` / `verify-ladder.mjs`：**仅改建管方式**（env → setup API，409 回退登录），断言数量与期望值不得减少或放宽（A1 语义改为「setup 建管或既有 admin 登录成功且 role=admin」）。
++- `package.json` 增加 `verify:setup` 入口；`scripts/verify.js` 套件登记（如适用）。
++- 前端冒烟为人工/浏览器观察，不新增 UI 自动化框架。
++
++### 1.6 完成判据
++
++- `bun scripts/verify-setup.mjs` 全绿（S1–S8）。
++- `pnpm verify:accounts` 20/20、`pnpm verify:ladder` 全绿、`pnpm verify:security` 6/6、`bun scripts/verify.js` 9/9+C4b/c/d。
++- `rg AFL_ADMIN src scripts docker-compose*.yml .env.example docs/deployment.md docs/player-accounts.md README.md` 零命中（历史计划文档除外）。
++- compose 两组合 `docker compose config` 校验通过。
++
++### 1.7 否定条款（防假通过）
++
++- 禁止删除/跳过既有断言、放宽期望值、或用 mock 替换真实 HTTP/DB 来换取绿色。
++- 禁止用「实现后写测试只测实现路径」反推目标；S1–S8 先于实现冻结。
++- setup 锁死断言（S4/S5）不得以 404/403 等弱形式替代明确 409。
++
++## 2. 验收行为 → 可观察断言映射
++
++| # | 验收行为 | 公共入口 | 断言 |
++| :-- | :--- | :--- | :--- |
++| S1 | 全新库进入 setup 待命 | spawn server（临时空库，已 migrate，无 AFL_ADMIN_*）→ `GET /api/setup/status` | 200 且 `needsSetup===true` |
++| S2 | setup 建管成功即登录 | `POST /api/setup {username,password,displayName}` | 2xx；响应种 session cookie；携 cookie `GET /api/me` → `player.role==='admin'` |
++| S3 | 建管后状态关闭 | `GET /api/setup/status` | `needsSetup===false` |
++| S4 | 一次性锁死 | 再次 `POST /api/setup`（不同用户名） | 409；库中 admin 数不变（用 `GET /api/admin/players` 以 S2 cookie 验证仅 1 admin） |
++| S5 | 重启仍锁死 | kill + 重 spawn 同库 → status + POST | `needsSetup===false`；POST 409 |
++| S6 | 输入校验 | 空库阶段 POST 弱密码（<8 位） | 400；随后合法 POST 仍成功（失败不留半状态） |
++| S7 | auth 关闭时不暴露 setup | spawn `DATABASE_URL=''` → status | `needsSetup===false`；POST 503 |
++| S8 | 限流/体限真实生效 | 严格参数 spawn（低 `AFL_RATE_AUTH`、小 `AFL_MAX_BODY_BYTES`）→ 连发 POST / 超大 body | 429+Retry-After；413 |
++| S9 | 既有账号流程零回归 | `pnpm verify:accounts`（建管已迁移 setup API） | 20/20，A1 语义更新但强度不降 |
++| S10 | 天梯真实 matchmaking 零回归 | `pnpm verify:ladder` | 全绿 |
++| S11 | compose 外部 DB 路径 | `DATABASE_URL=... BETTER_AUTH_SECRET=... docker compose --env-file /dev/null -f docker-compose.yml config` | 插值成功、无 db 服务；缺 BETTER_AUTH_SECRET 时非零退出；缺 DATABASE_URL 时容器启动 guard 非零退出（compose 逐文件先插值后合并，override 默认值救不了主文件 :?，故 DB 必填改为启动期硬校验，行为仍是拒绝启动） |
++| S12 | compose 自带 DB 路径 | `BETTER_AUTH_SECRET=... docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.bundled-db.yml config` | db+app 两服务、depends_on 健康条件、默认连接串一致（只需 secret 一个必填值） |
++
++## 3. 测试缝选择与最小纵向切片
++
++- **缝：真实进程 + 真实 Postgres**（沿用 verify-accounts 模式：freePort + spawn `process.execPath src/server.js` + 独立 `AFL_DATA_DIR`）。不用 supertest/mock——setup 的价值恰在跨重启持久与真实 cookie。
++- **空库构造**：在 `AFL_TEST_DATABASE_URL` 同一 PG 实例上 `CREATE DATABASE afl_setup_<run>` → spawn `bun run db:migrate`（env 覆盖 DATABASE_URL）→ 跑 S1–S6 → `DROP DATABASE`。可独立清理，不碰 dev 库。
++- **最小纵向切片**：S1→S2→S4（待命→建管→锁死）独立可失败，代表了本目标的全部新风险面；S5 证明锁死是持久语义而非内存标志。
++- **UI 冒烟**（S2/S3 的浏览器侧）：needsSetup 引导跳转 → 表单建号 → 跳 /account 已登录 → 刷新不回 setup。人工观察记录截图。
++- **已有 sediment**：accounts A1–A20、ladder partC、security 6 项全部保留为回归边界；仅建管前置步骤迁移，断言不动。
++
++## 4. Testability 预判（供 decide-testability 阶段）
++
++S1–S8 均为**新用户可观察行为**（现状：无 `/api/setup/*` 路由 → 404；env 建管使空库启动后 `needsSetup` 概念不存在）。预期 `behavior-delta`：公共入口 `GET /api/setup/status` 在空库场景当前返回 404，可真实复现失败。RED receipt 在 decide-testability 阶段用 `rex-harness receipt` 采集，本阶段不预造。
+diff --git a/docs/plans/2026-11-15-first-run-setup.testability.json b/docs/plans/2026-11-15-first-run-setup.testability.json
+new file mode 100644
+index 0000000..11543e3
+--- /dev/null
++++ b/docs/plans/2026-11-15-first-run-setup.testability.json
+@@ -0,0 +1,17 @@
++{
++  "kind": "behavior-delta",
++  "decisionRef": "artifact:testability-decision:afl-first-run-setup-2026-11-15",
++  "redCandidate": {
++    "publicEntry": "GET /api/setup/status on a freshly migrated empty database (real spawned server, throwaway Postgres DB)",
++    "setup": "scripts/verify-setup.mjs creates afl_setup_<run> on the test Postgres server (docker start afl-pg, 127.0.0.1:55433), runs db:migrate against it, spawns bun src/server.js on a free port with an isolated AFL_DATA_DIR, probes public HTTP only, then DROPs the throwaway databases",
++    "command": {
++      "executable": "bun",
++      "args": ["scripts/verify-setup.mjs"],
++      "cwd": "/Users/rex/codes/Agent-Fighter"
++    },
++    "expected": "S1: GET /api/setup/status -> 200 {needsSetup:true}; S2-S8: one-shot admin creation, 409 lock (incl. across restart), 400 weak password, 503 when auth off, 413 body cap, 429 + Retry-After auth limiter",
++    "observed": "0/9 passed; every setup probe returned 404 (route does not exist yet); infrastructure verified working: server boots, throwaway DB created/migrated/dropped cleanly",
++    "failureReason": "The /api/setup/* public endpoints do not exist in the current implementation; admin creation is env-bootstrapped at startup (src/server.js:37), so the first-run setup behavior is genuinely new and honestly RED",
++    "receiptRef": "receipt:ca5cd41f-372c-4289-ba79-ae6ceec22a60"
++  }
++}
+diff --git "a/docs/plans/2026-11-15-\351\246\226\346\254\241\351\203\250\347\275\262\344\275\223\351\252\214\344\274\230\345\214\226-\345\244\226\351\203\250-database-url-\347\233\264\350\277\236-\351\246\226\350\267\221-setup-\351\241\265\351\235\242.md" "b/docs/plans/2026-11-15-\351\246\226\346\254\241\351\203\250\347\275\262\344\275\223\351\252\214\344\274\230\345\214\226-\345\244\226\351\203\250-database-url-\347\233\264\350\277\236-\351\246\226\350\267\221-setup-\351\241\265\351\235\242.md"
+new file mode 100644
+index 0000000..141225e
+--- /dev/null
++++ "b/docs/plans/2026-11-15-\351\246\226\346\254\241\351\203\250\347\275\262\344\275\223\351\252\214\344\274\230\345\214\226-\345\244\226\351\203\250-database-url-\347\233\264\350\277\236-\351\246\226\350\267\221-setup-\351\241\265\351\235\242.md"
+@@ -0,0 +1,94 @@
++# 首次部署体验优化：外部 DATABASE_URL 直连 + 首跑 setup 页面
++
++> AIOS Planning Contract (schema v3)
++> created: 2026-11-15T05:30:49.641Z
++> client: pi
++> source: mcp:aios_plan_start
++> Provider: rex-planning（software.planning.sequence / activation 46740bc3）
++> Decision Ticket: `docs/plans/2026-11-15-first-run-setup.decision.json`
++> Delivery Ticket: `docs/plans/2026-11-15-first-run-setup.delivery.json`
++
++## Objective
++
++用户上线评审发现两个部署体验问题（均已查证）：
++
++1. **`POSTGRES_PASSWORD` 冗余**：应用只读 `DATABASE_URL`（`src/db/client.js:8`、
++   `src/auth.js:10`）；`POSTGRES_PASSWORD` 只服务于 compose 附带的 db 容器。
++   自带外部 PG 的用户被迫配一个多余密码并起一个多余容器。
++2. **管理员靠环境变量硬建**：`src/server.js:37` 启动即 `bootstrapAdmin`，
++   无首跑引导。应改为 WordPress/Ghost 式一次性 setup 页面；
++   `AFL_ADMIN_PASSWORD` 降级为可选 headless 覆盖（自动化部署用）。
++
++## 已确认事实（查证于 2026-11-15）
++
++| 事实 | 证据 |
++|---|---|
++| 应用唯一 DB 入口是 `DATABASE_URL` | `src/db/client.js:8-9`、`src/auth.js:10` |
++| `POSTGRES_PASSWORD` 仅 compose db 容器初始化 + 拼 URL 用 | `docker-compose.yml` |
++| admin 启动时硬建；已有 admin 则跳过；无 env 时随机密码打日志 | `src/auth-bootstrap.js:8-50` |
++| admin 权限面：列玩家(含 MCP key)/开账号/发 MCP key | `src/server.js:468-535` |
++| SPA 路由白名单在 server.js，前端页面在 `frontend/src/pages/` | `src/server.js:32` |
++| 认证限流档已存在，可复用给 setup 端点 | `src/server.js:299`（`limiters.auth`） |
++| 单实例架构（内存+文件），setup 竞态可用进程内锁闭环 | `docs/deployment.md` §7 |
++
++## 关键决策（详见 Decision Ticket）
++
++- **D1 compose 拆分**：`docker-compose.yml` 只留 app，`DATABASE_URL` 必填（`:?`）；
++  自带 db 移入 override 文件 `docker-compose.bundled-db.yml`（含 db、depends_on、
++  默认 URL）。不用 profile：`depends_on` 引用带 profile 的服务在未启用时会报错，
++  override 文件是 compose 官方推荐组合方式。
++- **D2 setup 语义（用户 2026-11-15 拍板修订）**：`needsSetup = auth 已配置 && 库中无 admin`。
++  **彻底移除 `AFL_ADMIN_USERNAME` / `AFL_ADMIN_PASSWORD`**，setup 页（API）是唯一建管入口；
++  `verify-accounts.mjs` / `verify-ladder.mjs` 迁移到 setup API 建管。
++- **D3 setup API**：`GET /api/setup/status`（免鉴权，返回 `{needsSetup}`）；
++  `POST /api/setup`（走 auth 限流档 + body 上限；进程内互斥 + 建号前二次
++  `findAdmin()` 复查；已有 admin 一律 409；成功即种 admin session cookie）。
++  admin 一旦存在永久锁死，无任何重开机制。
++- **D4 前端**：新增 `/setup` 页（React），App 启动查 status，needsSetup 时引导跳转；
++  成功后跳 `/account`。`/setup` 加入 `SPA_ROUTES`。
++- **D5 兼容**：已有部署（库里已有 admin）行为零变化；env 建管路径整体删除，
++  文档（deployment/player-accounts/README/.env.example/compose）同步清理。
++
++## Work items（纵向切片，依赖图见 Delivery Ticket）
++
++- **work-compose**（独立）：compose 拆分 + `.env.example` 更新。
++  验证：`docker compose config` 两种组合均通过插值校验（本机无 dockerd，
++  构建验证留待标准 Docker 主机，见已知边界）。
++- **work-setup-api**（独立，关键路径）：`auth-bootstrap.js` 改造 +
++  `/api/setup/*` 端点 + 进程内锁。验证：`scripts/verify-setup.mjs`（新增）。
++- **work-setup-ui**（依赖 work-setup-api 的接口冻结）：`Setup.tsx` + 路由 +
++  status 引导。验证：`pnpm build:web` + 浏览器冒烟（needsSetup → 建号 → 锁死）。
++- **work-docs**（依赖 work-compose + work-setup-api 定稿）：`docs/deployment.md`
++  重写快速开始（外部 DB / 自带 DB 两条路径）+「密钥 vs 公开配置」表。
++- **work-verify**（依赖 work-setup-api；UI 冒烟依赖 work-setup-ui）：
++  `verify-setup.mjs` 全场景 + 回归 `verify` 9/9、`verify:security` 6/6、
++  `verify:accounts` 20/20。
++
++关键路径：work-setup-api → work-setup-ui → work-verify。
++work-compose 与 work-setup-api 可并行。
++
++## Tasks（scaffold 映射）
++
++- [x] **t1-understand**: 目标重述 + 约束查证（上表）
++- [x] **t2-plan**: 执行图 + 决策/交付 ticket 落盘
++- [ ] **t3-implement**: work-compose / work-setup-api / work-setup-ui / work-docs
++- [ ] **t4-verify**: work-verify 全量证据
++
++## Progress
++
++- status: active（规划完成，待批准进入实现）
++
++## Decision Log
++
++- 2026-11-15 D1–D5 如上；Decision Ticket 独立落盘。
++
++## Acceptance
++
++- 外部 DB 用户只需 `DATABASE_URL` + `BETTER_AUTH_SECRET` 即可 compose 起服务。
++- 全新部署打开浏览器即进 setup 页，一次性建 admin，之后 409 锁死。
++- 全仓运行时不再读 `AFL_ADMIN_*`；验收脚本走 setup API；已有部署零变化。
++- 验收证据：verify-setup 全绿 + verify/security/accounts 回归全绿。
++
++## Verification evidence
++
++- （实现后附命令与产物路径）
+diff --git a/docs/player-accounts.md b/docs/player-accounts.md
+index 3a1362b..8aa3dfe 100644
+--- a/docs/player-accounts.md
++++ b/docs/player-accounts.md
+@@ -33,13 +33,13 @@
+ | `POST /api/auth/sign-out` | 退出，better-auth 清理 session cookie |
+ | `GET /api/auth/get-session` | 调试用；应用侧读 `/api/me` |
+ 
+-管理员账号在首次启动时创建：
++管理员账号在首次部署时通过 **setup 页面**创建（唯一入口）：
+ 
+-```bash
+-AFL_ADMIN_USERNAME=admin AFL_ADMIN_PASSWORD='choose-a-strong-password' npm start
+-```
++1. 启动服务后打开任意页面，库中无管理员时会自动引导到 `/setup`。
++2. 表单创建管理员（用户名 + 密码），成功即自动登录进入管理后台。
++3. **一次性**：管理员存在后 `POST /api/setup` 永久返回 409，重启也不会重开。
+ 
+-首次启动会通过 `auth.api.signUpEmail` 创建 better-auth 用户，再把 `players.role` 提升为 `admin`。**`AFL_ADMIN_PASSWORD` 只在首次创建时使用；管理员已存在时不会自动改密码。** 未设置时会生成一次性密码并打印在服务端日志。
++对应 API：`GET /api/setup/status` 返回 `{needsSetup}`；`POST /api/setup` 走认证限流档，通过 `auth.api.signUpEmail` 创建 better-auth 用户后把 `players.role` 提升为 `admin`。没有任何环境变量建管路径。
+ 
+ ## 3. Agent 的操作
+ 
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index cefd78d..8fd5ecb 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -1,5 +1,7 @@
+-import type { ReactNode } from 'react';
+-import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom';
++import { useEffect, type ReactNode } from 'react';
++import { Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
++import { useQuery } from '@tanstack/react-query';
++import { api } from './lib/api';
+ import { Sprite } from './components/Sprite';
+ import { TopBar } from './components/TopBar';
+ import { Footer } from './components/Footer';
+@@ -13,6 +15,7 @@ import { ConnectPage } from './pages/ConnectPage';
+ import { LivePage } from './pages/LivePage';
+ import { ReplayPage } from './pages/ReplayPage';
+ import { TrainingPage } from './pages/TrainingPage';
++import { SetupPage } from './pages/SetupPage';
+ 
+ const VIEW_TO_PATH: Record<string, string> = {
+   lobby: '/lobby',
+@@ -39,14 +42,35 @@ function RootRoute() {
+   return <Page id="view-live"><LivePage /></Page>;
+ }
+ 
++/** First-run guidance: while no admin exists, every page leads to /setup. */
++function SetupRedirect() {
++  const navigate = useNavigate();
++  const location = useLocation();
++  const statusQuery = useQuery({
++    queryKey: ['setup-status'],
++    queryFn: () => api<{ needsSetup: boolean }>('/api/setup/status'),
++    retry: false,
++    staleTime: 30_000,
++  });
++  const needsSetup = statusQuery.data?.needsSetup ?? false;
++  useEffect(() => {
++    if (needsSetup && location.pathname !== '/setup') {
++      navigate('/setup', { replace: true });
++    }
++  }, [needsSetup, location.pathname, navigate]);
++  return null;
++}
++
+ export function App() {
+   return (
+     <>
+       <Sprite />
+       <TopBar />
++      <SetupRedirect />
+       <main>
+         <Routes>
+           <Route path="/" element={<RootRoute />} />
++          <Route path="/setup" element={<SetupPage />} />
+           <Route path="/lobby" element={<Page id="view-lobby"><LobbyPage /></Page>} />
+           <Route path="/fighters" element={<Page id="view-fighters"><FightersPage /></Page>} />
+           <Route path="/board" element={<Page id="view-board"><BoardPage /></Page>} />
+diff --git a/frontend/src/pages/SetupPage.tsx b/frontend/src/pages/SetupPage.tsx
+new file mode 100644
+index 0000000..e20457c
+--- /dev/null
++++ b/frontend/src/pages/SetupPage.tsx
+@@ -0,0 +1,183 @@
++import { useState } from 'react';
++import { useForm } from 'react-hook-form';
++import { zodResolver } from '@hookform/resolvers/zod';
++import { z } from 'zod';
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
++import { Link, useNavigate } from 'react-router-dom';
++import { api, post } from '../lib/api';
++import { PasswordStrength } from '../components/account/PasswordStrength';
++
++/**
++ * First-run setup: the ONE place an administrator is created. The server
++ * locks this permanently once an admin exists (409); this page then only
++ * shows the completed state.
++ */
++
++const setupSchema = z.object({
++  username: z.string()
++    .trim()
++    .min(3, '用户名至少 3 位')
++    .max(32, '用户名最多 32 位')
++    .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, '只能使用字母、数字、_ 或 -，且以字母或数字开头'),
++  displayName: z.string().trim().max(32, '显示名最多 32 位').optional(),
++  password: z.string().min(8, '密码至少 8 位').max(128, '密码最多 128 位'),
++  confirm: z.string(),
++}).refine((v) => v.password === v.confirm, { path: ['confirm'], message: '两次输入的密码不一致' });
++
++type FormValues = z.infer<typeof setupSchema>;
++type SetupStatus = { needsSetup: boolean };
++
++export function SetupPage() {
++  const navigate = useNavigate();
++  const queryClient = useQueryClient();
++  const [showPassword, setShowPassword] = useState(false);
++
++  const statusQuery = useQuery({
++    queryKey: ['setup-status'],
++    queryFn: () => api<SetupStatus>('/api/setup/status'),
++    retry: false,
++  });
++
++  const form = useForm<FormValues>({
++    resolver: zodResolver(setupSchema),
++    defaultValues: { username: '', displayName: '', password: '', confirm: '' },
++    mode: 'onBlur',
++  });
++  const password = form.watch('password') ?? '';
++  const errors = form.formState.errors;
++
++  const setup = useMutation({
++    mutationFn: (values: FormValues) => post('/api/setup', {
++      username: values.username,
++      password: values.password,
++      displayName: values.displayName || values.username,
++    }),
++    onSuccess: () => {
++      queryClient.invalidateQueries({ queryKey: ['setup-status'] });
++      queryClient.invalidateQueries({ queryKey: ['me'] });
++      navigate('/account', { replace: true });
++    },
++  });
++
++  if (statusQuery.isLoading) {
++    return <div className="acc-loading panel">正在检查部署状态…</div>;
++  }
++  if (statusQuery.isError) {
++    return (
++      <div className="acc-loading panel">
++        部署状态读取失败：{statusQuery.error instanceof Error ? statusQuery.error.message : '未知错误'}
++        <button className="ghost-btn" type="button" onClick={() => statusQuery.refetch()}>重试</button>
++      </div>
++    );
++  }
++  if (!statusQuery.data?.needsSetup) {
++    return (
++      <div className="auth-shell">
++        <section className="auth-card panel">
++          <div className="auth-card-head">
++            <div>
++              <div className="auth-kicker mono">SETUP COMPLETE</div>
++              <h3>初始化已完成</h3>
++            </div>
++          </div>
++          <p className="auth-lead">管理员已经创建，首次设置永久关闭。请直接登录管理后台。</p>
++          <div className="acc-actions">
++            <Link className="ghost-btn" to="/account">前往玩家入口</Link>
++          </div>
++        </section>
++      </div>
++    );
++  }
++
++  return (
++    <div className="auth-shell">
++      <aside className="auth-aside">
++        <div className="auth-kicker mono">FIRST RUN · AFL</div>
++        <h2>首次部署，<br />创建管理员。</h2>
++        <p className="auth-lead">
++          这是联赛的第一次启动。管理员负责给参赛玩家开账号、发放 MCP 接入密钥。
++          设置只开放这一次——创建成功后本页永久关闭。
++        </p>
++        <ol className="auth-steps">
++          <li><b>01</b><div><strong>创建管理员</strong><span>用户名 + 强密码，立即生效</span></div></li>
++          <li><b>02</b><div><strong>进入管理后台</strong><span>创建后自动登录</span></div></li>
++          <li><b>03</b><div><strong>发放玩家账号</strong><span>受邀制：账号与 MCP 由你发放</span></div></li>
++        </ol>
++        <div className="auth-tags"><span>一次性设置</span><span>创建后锁死</span><span>无需环境变量</span></div>
++      </aside>
++
++      <section className="auth-card panel">
++        <div className="auth-card-head">
++          <div className="auth-emblem" aria-hidden="true">
++            <svg className="ic"><use href="#i-user" /></svg>
++          </div>
++          <div>
++            <div className="auth-kicker mono">CREATE ADMIN</div>
++            <h3>创建管理员账号</h3>
++          </div>
++        </div>
++
++        <form className="auth-form" noValidate onSubmit={form.handleSubmit((values) => setup.mutate(values))}>
++          <label className="auth-field">
++            <span>管理员用户名</span>
++            <div className="auth-input">
++              <svg className="ic"><use href="#i-user" /></svg>
++              <input
++                autoFocus
++                autoComplete="username"
++                maxLength={32}
++                placeholder="3-32 位字母 / 数字 / _ / -"
++                {...form.register('username')}
++              />
++            </div>
++            {errors.username ? <small className="auth-field-error">{errors.username.message}</small> : <small>登录名不区分大小写，创建后不可修改</small>}
++          </label>
++          <label className="auth-field">
++            <span>显示名 <em>可选</em></span>
++            <div className="auth-input">
++              <svg className="ic"><use href="#i-user" /></svg>
++              <input autoComplete="nickname" maxLength={32} placeholder="联赛管理员" {...form.register('displayName')} />
++            </div>
++            {errors.displayName && <small className="auth-field-error">{errors.displayName.message}</small>}
++          </label>
++          <label className="auth-field">
++            <span>密码</span>
++            <div className="auth-input">
++              <svg className="ic"><use href="#i-lock" /></svg>
++              <input
++                autoComplete="new-password"
++                type={showPassword ? 'text' : 'password'}
++                placeholder="至少 8 位"
++                {...form.register('password')}
++              />
++              <button
++                type="button"
++                className="auth-reveal"
++                aria-label={showPassword ? '隐藏密码' : '显示密码'}
++                onClick={() => setShowPassword((v) => !v)}
++              >
++                {showPassword ? '隐藏' : '显示'}
++              </button>
++            </div>
++            {errors.password ? <small className="auth-field-error">{errors.password.message}</small> : <small>密码由 better-auth 哈希保存，服务端不存明文</small>}
++            <PasswordStrength value={password} />
++          </label>
++          <label className="auth-field">
++            <span>确认密码</span>
++            <div className="auth-input">
++              <svg className="ic"><use href="#i-lock" /></svg>
++              <input autoComplete="new-password" type={showPassword ? 'text' : 'password'} {...form.register('confirm')} />
++            </div>
++            {errors.confirm && <small className="auth-field-error">{errors.confirm.message}</small>}
++          </label>
++
++          {setup.error && <div className="auth-error" role="alert">{setup.error.message}</div>}
++
++          <button className="primary-btn auth-submit" type="submit" disabled={setup.isPending}>
++            {setup.isPending ? '创建中…' : '创建管理员并进入后台'}
++          </button>
++        </form>
++      </section>
++    </div>
++  );
++}
+diff --git a/package.json b/package.json
+index a316ee4..4636988 100644
+--- a/package.json
++++ b/package.json
+@@ -11,6 +11,7 @@
+     "verify:ladder": "bun scripts/verify-ladder.mjs",
+     "verify:team": "bun scripts/verify-team.mjs",
+     "verify:accounts": "bun scripts/verify-accounts.mjs",
++  "verify:setup": "bun scripts/verify-setup.mjs",
+     "sheet:moves": "node scripts/move-sheet.mjs",
+     "sim": "bun scripts/simulate.js",
+     "hosted-demo": "bun scripts/hosted-demo.mjs",
+diff --git a/scripts/verify-accounts.mjs b/scripts/verify-accounts.mjs
+index 488158e..d751d61 100644
+--- a/scripts/verify-accounts.mjs
++++ b/scripts/verify-accounts.mjs
+@@ -122,8 +122,6 @@ async function run() {
+       ...process.env,
+       PORT: String(PORT),
+       AFL_DATA_DIR: TMP,
+-      AFL_ADMIN_USERNAME: ADMIN.username,
+-      AFL_ADMIN_PASSWORD: ADMIN.password,
+       AFL_TICK_MS: '20',
+       DATABASE_URL: TEST_DB,
+       BETTER_AUTH_URL: BASE,
+@@ -136,10 +134,18 @@ async function run() {
+   child.stderr.on('data', (chunk) => { serverLog += chunk; });
+   await waitForServer(BASE, child);
+ 
+-  const adminLogin = await login(ADMIN);
+-  const adminMe = await request('/api/me', { cookie: adminLogin.cookie });
+-  check('A1 admin bootstrap login', adminMe.data.player?.role === 'admin', adminMe.data.player?.username);
+-  const admin = { cookie: adminLogin.cookie };
++  // First-run setup is the one way an admin is created. On a re-used test
++  // database the setup is already locked (409) and the fixed admin logs in.
++  const setup = await request('/api/setup', { method: 'POST', body: ADMIN });
++  let adminCookie;
++  if (setup.res.status === 200) adminCookie = setup.cookie;
++  else {
++    assert.equal(setup.res.status, 409, 'setup should be locked on a re-used database: ' + JSON.stringify(setup.data));
++    adminCookie = (await login(ADMIN)).cookie;
++  }
++  const adminMe = await request('/api/me', { cookie: adminCookie });
++  check('A1 admin via first-run setup (or locked-setup login)', adminMe.data.player?.role === 'admin', adminMe.data.player?.username);
++  const admin = { cookie: adminCookie };
+ 
+   const created = await request('/api/admin/players', {
+     method: 'POST',
+diff --git a/scripts/verify-ladder.mjs b/scripts/verify-ladder.mjs
+index f293f9d..bd80efd 100644
+--- a/scripts/verify-ladder.mjs
++++ b/scripts/verify-ladder.mjs
+@@ -203,8 +203,6 @@ const child = spawn(process.execPath, ['src/server.js'], {
+     AFL_TICK_MS: '8',
+     AFL_DATA_DIR: dirB,
+     DATABASE_URL: TEST_DB,
+-    AFL_ADMIN_USERNAME: process.env.AFL_ADMIN_USERNAME || 'admin',
+-    AFL_ADMIN_PASSWORD: process.env.AFL_ADMIN_PASSWORD || 'admin-test-pass-123',
+     BETTER_AUTH_URL: BASE,
+     BETTER_AUTH_TRUSTED_ORIGINS: BASE + ',http://localhost:' + PORT,
+   },
+@@ -301,8 +299,8 @@ try {
+ 
+ async function partC() {
+   const ADMIN = {
+-    username: process.env.AFL_ADMIN_USERNAME || 'admin',
+-    password: process.env.AFL_ADMIN_PASSWORD || 'admin-test-pass-123',
++    username: 'admin',
++    password: 'admin-test-pass-123',
+   };
+   const PASS = 'ladder-pass-123';
+   const stamp = Date.now().toString(36);
+@@ -355,9 +353,17 @@ async function partC() {
+     return null;
+   }
+ 
+-  const admin = await login(ADMIN);
+-  assert.equal(admin.res.status, 200, 'admin login against the test database');
+-  const adminCookie = admin.cookie;
++  // First-run setup creates the admin; on a re-used test database it is
++  // locked (409) and the fixed admin logs in instead.
++  const setup = await req('/api/setup', { method: 'POST', body: ADMIN });
++  let adminCookie;
++  if (setup.res.status === 200) adminCookie = setup.cookie;
++  else {
++    assert.equal(setup.res.status, 409, 'setup should be locked on a re-used database: ' + JSON.stringify(setup.data));
++    const admin = await login(ADMIN);
++    assert.equal(admin.res.status, 200, 'admin login against the test database');
++    adminCookie = admin.cookie;
++  }
+ 
+   // X plays the official template, Y deliberately does nothing: the pair must
+   // produce one decisive, counted ladder result between two real registrants.
+diff --git a/scripts/verify-setup.mjs b/scripts/verify-setup.mjs
+new file mode 100644
+index 0000000..edf7932
+--- /dev/null
++++ b/scripts/verify-setup.mjs
+@@ -0,0 +1,253 @@
++/**
++ * First-run setup acceptance (S1–S8, docs/plans/2026-11-15-first-run-setup.test-design.md).
++ *
++ * Real process + real Postgres: a throwaway database is created on the test
++ * server, migrated, and probed through public HTTP only. The setup page/API is
++ * the ONE way an admin is created; once an admin exists it is locked forever
++ * (409), including across restarts.
++ *
++ *   S1 empty DB -> needsSetup=true
++ *   S6 weak password -> 400, still needsSetup
++ *   S2 POST /api/setup -> admin created, session cookie, /api/me role=admin
++ *   S3 status -> needsSetup=false
++ *   S4 second POST -> 409, exactly one admin
++ *   S5 restart same DB -> still locked (status false, POST 409)
++ *   S7 auth disabled (DATABASE_URL='') -> status false, POST 503
++ *   S8 strict spawn -> oversized body 413, auth-limiter 429 + Retry-After
++ *
++ * Requires AFL_TEST_DATABASE_URL (or DATABASE_URL) pointing at a disposable
++ * Postgres server; the script CREATEs/DROPs its own databases and never touches
++ * the source database.
++ */
++import fs from 'node:fs';
++import net from 'node:net';
++import os from 'node:os';
++import path from 'node:path';
++import { spawn } from 'node:child_process';
++import { fileURLToPath } from 'node:url';
++import pg from 'pg';
++
++const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
++const SOURCE_DB = process.env.AFL_TEST_DATABASE_URL || process.env.DATABASE_URL || '';
++if (!SOURCE_DB) {
++  console.error('AFL_TEST_DATABASE_URL (or DATABASE_URL) is required: a disposable Postgres server URL.');
++  process.exit(1);
++}
++
++const RUN = Date.now().toString(36).slice(-6);
++const ADMIN = { username: 'setup_admin_' + RUN, password: 'setup-pass-123', displayName: 'Setup Admin ' + RUN };
++const results = [];
++function check(name, ok, detail = '') {
++  results.push({ name, ok });
++  console.log((ok ? '  PASS  ' : '  FAIL  ') + name + (detail ? '  |  ' + detail : ''));
++  return ok;
++}
++
++function freePort() {
++  return new Promise((resolve, reject) => {
++    const s = net.createServer();
++    s.on('error', reject);
++    s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); });
++  });
++}
++
++function cookieHeader(res) {
++  const lines = typeof res.headers.getSetCookie === 'function'
++    ? res.headers.getSetCookie()
++    : [res.headers.get('set-cookie')].filter(Boolean);
++  return lines.map((line) => line.split(';')[0]).join('; ');
++}
++
++async function waitForServer(base, child) {
++  const started = Date.now();
++  while (Date.now() - started < 20000) {
++    if (child.exitCode != null) throw new Error('server exited with code ' + child.exitCode);
++    try {
++      const res = await fetch(base + '/api/state');
++      if (res.ok) return;
++    } catch { /* not up yet */ }
++    await new Promise((r) => setTimeout(r, 150));
++  }
++  throw new Error('server did not become ready');
++}
++
++function withDatabase(url, name) {
++  const u = new URL(url);
++  u.pathname = '/' + name;
++  return u.toString();
++}
++
++async function adminQuery(sql) {
++  // Connect to the built-in 'postgres' database to CREATE/DROP throwaway DBs.
++  const client = new pg.Client({ connectionString: withDatabase(SOURCE_DB, 'postgres') });
++  await client.connect();
++  try { return await client.query(sql); } finally { await client.end(); }
++}
++
++async function createDatabase(name) {
++  await adminQuery('CREATE DATABASE ' + name);
++  const url = withDatabase(SOURCE_DB, name);
++  await new Promise((resolve, reject) => {
++    const mig = spawn(process.execPath, ['run', 'db:migrate'], {
++      cwd: ROOT,
++      env: { ...process.env, DATABASE_URL: url },
++      stdio: ['ignore', 'pipe', 'pipe'],
++    });
++    let log = '';
++    mig.stdout.on('data', (d) => { log += d; });
++    mig.stderr.on('data', (d) => { log += d; });
++    mig.on('exit', (code) => code === 0 ? resolve() : reject(new Error('db:migrate exited ' + code + '\n' + log)));
++  });
++  return url;
++}
++
++const children = new Set();
++async function spawnServer({ dbUrl, extraEnv = {} }) {
++  const port = await freePort();
++  const base = 'http://127.0.0.1:' + port;
++  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'afl-setup-'));
++  const child = spawn(process.execPath, ['src/server.js'], {
++    cwd: ROOT,
++    env: {
++      ...process.env,
++      PORT: String(port),
++      AFL_DATA_DIR: dir,
++      AFL_TICK_MS: '20',
++      DATABASE_URL: dbUrl,
++      BETTER_AUTH_SECRET: 'setup-test-secret-setup-test-secret-32',
++      BETTER_AUTH_URL: base,
++      BETTER_AUTH_TRUSTED_ORIGINS: base,
++      ...extraEnv,
++    },
++    stdio: ['ignore', 'pipe', 'pipe'],
++  });
++  children.add(child);
++  let log = '';
++  child.stdout.on('data', (d) => { log += d; });
++  child.stderr.on('data', (d) => { log += d; });
++  await waitForServer(base, child);
++  return { child, base, log: () => log };
++}
++
++function stopServer(server) {
++  children.delete(server.child);
++  server.child.kill();
++}
++
++async function request(base, pathname, { method = 'GET', body, cookie, rawBody } = {}) {
++  const headers = { 'Content-Type': 'application/json', Origin: base };
++  if (cookie) headers.Cookie = cookie;
++  const res = await fetch(base + pathname, {
++    method,
++    headers,
++    body: rawBody !== undefined ? rawBody : (body === undefined ? undefined : JSON.stringify(body)),
++  });
++  const text = await res.text();
++  let data;
++  try { data = JSON.parse(text); } catch { data = text; }
++  return { res, data, cookie: cookieHeader(res) };
++}
++
++const databases = [];
++async function run() {
++  const dbMain = 'afl_setup_' + RUN;
++  const dbStrict = 'afl_setup_strict_' + RUN;
++  databases.push(dbMain, dbStrict);
++  const mainUrl = await createDatabase(dbMain);
++
++  // ---- S1/S6/S2/S3/S4 on a fresh, empty database --------------------------
++  let server = await spawnServer({ dbUrl: mainUrl });
++  const base = server.base;
++
++  const s1 = await request(base, '/api/setup/status');
++  check('S1 empty DB needs setup', s1.res.status === 200 && s1.data.needsSetup === true,
++    'status=' + s1.res.status + ' body=' + JSON.stringify(s1.data));
++
++  const weak = await request(base, '/api/setup', { method: 'POST', body: { username: ADMIN.username, password: 'short' } });
++  const still = await request(base, '/api/setup/status');
++  check('S6 weak password rejected, no half-state', weak.res.status === 400 && still.data.needsSetup === true,
++    'status=' + weak.res.status);
++
++  const created = await request(base, '/api/setup', { method: 'POST', body: ADMIN });
++  let adminCookie = created.cookie;
++  const me = adminCookie ? await request(base, '/api/me', { cookie: adminCookie }) : { data: {} };
++  check('S2 setup creates admin and signs in', created.res.status === 200
++    && Boolean(adminCookie) && me.data.player?.role === 'admin'
++    && me.data.player?.username === ADMIN.username,
++    'status=' + created.res.status + ' role=' + me.data.player?.role);
++
++  const s3 = await request(base, '/api/setup/status');
++  check('S3 status closes after setup', s3.res.status === 200 && s3.data.needsSetup === false,
++    JSON.stringify(s3.data));
++
++  const again = await request(base, '/api/setup', {
++    method: 'POST',
++    body: { username: 'intruder_' + RUN, password: 'intruder-pass-123' },
++  });
++  const roster = adminCookie ? await request(base, '/api/admin/players', { cookie: adminCookie }) : { data: {} };
++  const admins = (roster.data.players || []).filter((p) => p.role === 'admin');
++  check('S4 second setup locked with 409, one admin', again.res.status === 409 && admins.length === 1,
++    'status=' + again.res.status + ' admins=' + admins.length);
++
++  // ---- S5: lock survives a restart on the same database -------------------
++  stopServer(server);
++  server = await spawnServer({ dbUrl: mainUrl });
++  const s5status = await request(server.base, '/api/setup/status');
++  const s5post = await request(server.base, '/api/setup', {
++    method: 'POST',
++    body: { username: 'restart_' + RUN, password: 'restart-pass-123' },
++  });
++  check('S5 restart keeps setup locked', s5status.data.needsSetup === false && s5post.res.status === 409,
++    'needsSetup=' + s5status.data.needsSetup + ' post=' + s5post.res.status);
++  stopServer(server);
++
++  // ---- S7: auth disabled -> setup inert -----------------------------------
++  server = await spawnServer({ dbUrl: '', extraEnv: { DATABASE_URL: '' } });
++  const s7status = await request(server.base, '/api/setup/status');
++  const s7post = await request(server.base, '/api/setup', { method: 'POST', body: ADMIN });
++  check('S7 auth off: status false, POST 503', s7status.res.status === 200
++    && s7status.data.needsSetup === false && s7post.res.status === 503,
++    'status=' + s7status.res.status + '/' + s7post.res.status);
++  stopServer(server);
++
++  // ---- S8: body cap and auth rate limiter really fire ---------------------
++  const strictUrl = await createDatabase(dbStrict);
++  server = await spawnServer({
++    dbUrl: strictUrl,
++    extraEnv: { AFL_RATE_AUTH: '3', AFL_RATE_GLOBAL: '0', AFL_MAX_BODY_BYTES: '2048' },
++  });
++  const big = await request(server.base, '/api/setup', {
++    method: 'POST',
++    rawBody: JSON.stringify({ username: 'big_' + RUN, password: 'x'.repeat(4096) }),
++  });
++  check('S8a oversized setup body -> 413', big.res.status === 413, 'status=' + big.res.status);
++  let got429 = null;
++  for (let i = 0; i < 6 && !got429; i++) {
++    const attempt = await request(server.base, '/api/setup', {
++      method: 'POST', body: { username: 'flood_' + RUN + '_' + i, password: 'flood-pass-123' },
++    });
++    if (attempt.res.status === 429) got429 = attempt;
++  }
++  check('S8b setup floods -> 429 + Retry-After', Boolean(got429) && Boolean(got429.res.headers.get('retry-after')),
++    got429 ? 'retry-after=' + got429.res.headers.get('retry-after') : 'no 429 within 6 attempts');
++  stopServer(server);
++}
++
++let failure = null;
++try {
++  await run();
++} catch (err) {
++  failure = err;
++  console.error('verify-setup aborted:', err?.message ?? err);
++} finally {
++  for (const child of children) child.kill();
++  for (const name of databases) {
++    try { await adminQuery('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)'); }
++    catch (err) { console.error('cleanup failed for ' + name + ':', err?.message ?? err); }
++  }
++}
++
++const passed = results.filter((r) => r.ok).length;
++console.log('\nverify-setup: ' + passed + '/' + results.length + ' passed');
++if (failure || passed !== results.length || results.length === 0) process.exit(1);
++console.log('first-run setup acceptance: OK');
+diff --git a/src/auth-bootstrap.js b/src/auth-bootstrap.js
+index 3ca9c51..4d32b72 100644
+--- a/src/auth-bootstrap.js
++++ b/src/auth-bootstrap.js
+@@ -1,51 +1,66 @@
+-import { randomBytes } from 'node:crypto';
+-import { normalizeUsername } from './player-shared.js';
++import { normalizeUsername, cleanDisplayName } from './player-shared.js';
+ 
+ /**
+- * Create the first admin through Better Auth (so the password hash and
+- * account row are standard), then promote the profile row to admin.
++ * First-run setup: the ONE way an administrator is created.
++ *
++ * While the player store has no admin, the server offers POST /api/setup
++ * (and the web app guides visitors to /setup). Once an admin exists the
++ * setup is locked forever — there is no reopen path, by design. The lock is
++ * the database state itself (an admin row), so it survives restarts.
++ *
++ * A process-level mutex serializes concurrent setup attempts; combined with
++ * the findAdmin() re-check inside the critical section this closes the
++ * land-grab race on the single-instance architecture (docs/deployment.md §7).
+  */
+-export async function bootstrapAdmin({ auth, players }) {
+-  if (!auth) return null;
+-  const existing = await players.findAdmin();
+-  if (existing) return existing;
+ 
+-  const username = normalizeUsername(process.env.AFL_ADMIN_USERNAME || 'admin');
+-  const password = process.env.AFL_ADMIN_PASSWORD || randomBytes(15).toString('base64url');
+-  const email = `${username}@players.local`;
++export async function needsSetup({ players }) {
++  if (!players) return false;
++  return !(await players.findAdmin());
++}
+ 
+-  let result;
+-  try {
+-    result = await auth.api.signUpEmail({
+-      body: {
+-        email,
+-        password,
+-        name: '联赛管理员',
+-        username,
+-      },
+-    });
+-  } catch (err) {
+-    console.error('[afl] admin bootstrap failed:', err?.message ?? err);
+-    throw new Error('could not create the admin account; check AFL_ADMIN_USERNAME / AFL_ADMIN_PASSWORD and the auth schema');
+-  }
++let setupLock = Promise.resolve();
+ 
+-  let profile = await players.playerByUserId(result.user.id);
+-  if (!profile) {
+-    profile = await players.createProfile({
+-      userId: result.user.id,
+-      username,
+-      displayName: '联赛管理员',
+-      role: 'admin',
++export function createFirstAdmin({ auth, players, input }) {
++  const run = setupLock.then(async () => {
++    const existing = await players.findAdmin();
++    if (existing) {
++      const err = new Error('setup is already complete');
++      err.code = 'SETUP_DONE';
++      throw err;
++    }
++
++    const username = normalizeUsername(input?.username);
++    const password = String(input?.password || '');
++    if (password.length < 8) throw new Error('password must be at least 8 characters');
++    if (password.length > 128) throw new Error('password must be at most 128 characters');
++    const displayName = cleanDisplayName(input?.displayName, username);
++    const email = `${username}@players.local`;
++
++    // Standard better-auth signup so the password hash and account row are
++    // indistinguishable from any other account; returnHeaders carries the
++    // auto-sign-in session cookie back to the caller.
++    const result = await auth.api.signUpEmail({
++      body: { email, password, name: displayName, username },
++      returnHeaders: true,
+     });
+-  } else {
+-    profile = await players.setRole(profile.id, 'admin');
+-  }
++    const user = result.response?.user ?? result.user;
++    if (!user?.id) throw new Error('admin signup did not return a user');
+ 
+-  if (process.env.AFL_ADMIN_PASSWORD) {
+-    console.log('[afl] admin account "' + username + '" created from AFL_ADMIN_PASSWORD');
+-  } else {
+-    console.log('[afl] admin account "' + username + '" password: ' + password);
+-    console.log('[afl] set AFL_ADMIN_PASSWORD (and AFL_ADMIN_USERNAME) to choose your own credentials');
+-  }
+-  return profile;
++    let profile = await players.playerByUserId(user.id);
++    if (!profile) {
++      profile = await players.createProfile({
++        userId: user.id,
++        username,
++        displayName,
++        role: 'admin',
++      });
++    } else {
++      profile = await players.setRole(profile.id, 'admin');
++    }
++    console.log('[afl] admin account "' + username + '" created through first-run setup');
++    return { profile, headers: result.headers };
++  });
++  // Keep the chain alive even when this attempt fails validation.
++  setupLock = run.catch(() => {});
++  return run;
+ }
+diff --git a/src/server.js b/src/server.js
+index 2502bc6..fb05c22 100644
+--- a/src/server.js
++++ b/src/server.js
+@@ -12,7 +12,7 @@ import { League } from './league.js';
+ import { RoomManager } from './rooms.js';
+ import { toNodeHandler, fromNodeHeaders } from 'better-auth/node';
+ import { auth } from './auth.js';
+-import { bootstrapAdmin } from './auth-bootstrap.js';
++import { needsSetup, createFirstAdmin } from './auth-bootstrap.js';
+ import { getPlayerStore } from './players.js';
+ import { normalizeUsername } from './player-shared.js';
+ import { attachWebSocketServer } from './ws.js';
+@@ -28,14 +28,15 @@ const WEB_DIST = path.join(WEB_DIR, 'dist');
+ const WEB_DIST_INDEX = path.join(WEB_DIST, 'index.html');
+ // Client-side routes served by the React app. The game assets and the
+ // read-only docs/sdk trees below keep their own prefixes.
+-const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/guide', '/training', '/library']);
++const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/guide', '/training', '/library', '/setup']);
+ const PORT = Number(process.env.PORT || 8787);
+ const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+ const league = new League();
+ const players = auth ? await getPlayerStore() : null;
+ const handleAuth = auth ? toNodeHandler(auth) : null;
+-if (auth) await bootstrapAdmin({ auth, players });
+-else console.log('[afl] DATABASE_URL is not set: Better Auth is disabled; run pnpm db:up && pnpm db:migrate to enable accounts.');
++if (auth) {
++  if (await needsSetup({ players })) console.log('[afl] no admin yet: open /setup to create the administrator (one-time).');
++} else console.log('[afl] DATABASE_URL is not set: Better Auth is disabled; run pnpm db:up && pnpm db:migrate to enable accounts.');
+ const manager = new RoomManager(league);
+ const handleMCP = createMCPHandler(league, manager, players);
+ // The hosted (MCP-only) track stays watchable through the exhibition rotation:
+@@ -295,8 +296,9 @@ const server = http.createServer(async (req, res) => {
+     json(res, 200, { status: 'ok', version: VERSION, uptimeSec: Math.round(process.uptime()), accounts: Boolean(players) });
+     return;
+   }
+-  // Per-IP rate limit: stricter on auth (brute force), generous elsewhere.
+-  const limiter = p.startsWith('/api/auth/') ? limiters.auth : limiters.global;
++  // Per-IP rate limit: stricter on auth + first-run setup (brute force /
++  // land-grab), generous elsewhere.
++  const limiter = (p.startsWith('/api/auth/') || p === '/api/setup') ? limiters.auth : limiters.global;
+   const rl = limiter.check(clientIp(req));
+   if (!rl.allowed) {
+     json(res, 429, { error: 'rate limit exceeded', retryAfterSec: rl.retryAfter }, { 'Retry-After': String(rl.retryAfter) });
+@@ -339,6 +341,24 @@ const server = http.createServer(async (req, res) => {
+     res.end();
+     return;
+   }
++  /* ------------------------------------------------- first-run setup */
++  if (p === '/api/setup/status' && req.method === 'GET') {
++    json(res, 200, { needsSetup: await needsSetup({ players }) });
++    return;
++  }
++  if (p === '/api/setup' && req.method === 'POST') {
++    if (!players || !auth) { json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' }); return; }
++    const args = await readJson(req);
++    try {
++      const { profile, headers } = await createFirstAdmin({ auth, players, input: args });
++      const cookies = typeof headers?.getSetCookie === 'function' ? headers.getSetCookie() : [];
++      json(res, 200, { player: players.publicPlayer(profile) }, cookies.length ? { 'Set-Cookie': cookies } : {});
++    } catch (err) {
++      if (err?.code === 'SETUP_DONE') json(res, 409, { error: 'setup is already complete' });
++      else json(res, 400, { error: err?.message || 'setup failed' });
++    }
++    return;
++  }
+   /* ------------------------------------------------- player session */
+   if (p === '/api/me' && req.method === 'GET') {
+     if (!players) { json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' }); return; }
+@@ -678,6 +698,7 @@ attachWebSocketServer(server, {
+ server.listen(PORT, () => {
+   console.log('[afl] server listening on http://localhost:' + PORT);
+   if (auth) console.log('[afl] Better Auth         POST /api/auth/*  (sign-up/email, sign-in/username, sign-out)');
++  if (auth) console.log('[afl] first-run setup     GET  /api/setup/status  POST /api/setup  (locked once an admin exists)');
+   console.log('[afl] per-player MCP     POST /mcp/<key>  (assign in 玩家入口)');
+   console.log('[afl] ' + (auth ? 'legacy MCP         POST /mcp  (closed: player accounts active)' : 'legacy MCP         POST /mcp  (anonymous dev sandbox)'));
+   console.log('[afl] Agent skill         GET  http://localhost:' + PORT + '/SKILL.md');

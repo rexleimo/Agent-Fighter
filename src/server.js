@@ -12,7 +12,7 @@ import { League } from './league.js';
 import { RoomManager } from './rooms.js';
 import { toNodeHandler, fromNodeHeaders } from 'better-auth/node';
 import { auth } from './auth.js';
-import { bootstrapAdmin } from './auth-bootstrap.js';
+import { needsSetup, createFirstAdmin } from './auth-bootstrap.js';
 import { getPlayerStore } from './players.js';
 import { normalizeUsername } from './player-shared.js';
 import { attachWebSocketServer } from './ws.js';
@@ -28,14 +28,15 @@ const WEB_DIST = path.join(WEB_DIR, 'dist');
 const WEB_DIST_INDEX = path.join(WEB_DIST, 'index.html');
 // Client-side routes served by the React app. The game assets and the
 // read-only docs/sdk trees below keep their own prefixes.
-const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/guide', '/training', '/library']);
+const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/guide', '/training', '/library', '/setup']);
 const PORT = Number(process.env.PORT || 8787);
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
 const league = new League();
 const players = auth ? await getPlayerStore() : null;
 const handleAuth = auth ? toNodeHandler(auth) : null;
-if (auth) await bootstrapAdmin({ auth, players });
-else console.log('[afl] DATABASE_URL is not set: Better Auth is disabled; run pnpm db:up && pnpm db:migrate to enable accounts.');
+if (auth) {
+  if (await needsSetup({ players })) console.log('[afl] no admin yet: open /setup to create the administrator (one-time).');
+} else console.log('[afl] DATABASE_URL is not set: Better Auth is disabled; run pnpm db:up && pnpm db:migrate to enable accounts.');
 const manager = new RoomManager(league);
 const handleMCP = createMCPHandler(league, manager, players);
 // The hosted (MCP-only) track stays watchable through the exhibition rotation:
@@ -295,8 +296,9 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { status: 'ok', version: VERSION, uptimeSec: Math.round(process.uptime()), accounts: Boolean(players) });
     return;
   }
-  // Per-IP rate limit: stricter on auth (brute force), generous elsewhere.
-  const limiter = p.startsWith('/api/auth/') ? limiters.auth : limiters.global;
+  // Per-IP rate limit: stricter on auth + first-run setup (brute force /
+  // land-grab), generous elsewhere.
+  const limiter = (p.startsWith('/api/auth/') || p === '/api/setup') ? limiters.auth : limiters.global;
   const rl = limiter.check(clientIp(req));
   if (!rl.allowed) {
     json(res, 429, { error: 'rate limit exceeded', retryAfterSec: rl.retryAfter }, { 'Retry-After': String(rl.retryAfter) });
@@ -337,6 +339,24 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS' });
     res.end();
+    return;
+  }
+  /* ------------------------------------------------- first-run setup */
+  if (p === '/api/setup/status' && req.method === 'GET') {
+    json(res, 200, { needsSetup: await needsSetup({ players }) });
+    return;
+  }
+  if (p === '/api/setup' && req.method === 'POST') {
+    if (!players || !auth) { json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' }); return; }
+    const args = await readJson(req);
+    try {
+      const { profile, headers } = await createFirstAdmin({ auth, players, input: args });
+      const cookies = typeof headers?.getSetCookie === 'function' ? headers.getSetCookie() : [];
+      json(res, 200, { player: players.publicPlayer(profile) }, cookies.length ? { 'Set-Cookie': cookies } : {});
+    } catch (err) {
+      if (err?.code === 'SETUP_DONE') json(res, 409, { error: 'setup is already complete' });
+      else json(res, 400, { error: err?.message || 'setup failed' });
+    }
     return;
   }
   /* ------------------------------------------------- player session */
@@ -678,6 +698,7 @@ attachWebSocketServer(server, {
 server.listen(PORT, () => {
   console.log('[afl] server listening on http://localhost:' + PORT);
   if (auth) console.log('[afl] Better Auth         POST /api/auth/*  (sign-up/email, sign-in/username, sign-out)');
+  if (auth) console.log('[afl] first-run setup     GET  /api/setup/status  POST /api/setup  (locked once an admin exists)');
   console.log('[afl] per-player MCP     POST /mcp/<key>  (assign in 玩家入口)');
   console.log('[afl] ' + (auth ? 'legacy MCP         POST /mcp  (closed: player accounts active)' : 'legacy MCP         POST /mcp  (anonymous dev sandbox)'));
   console.log('[afl] Agent skill         GET  http://localhost:' + PORT + '/SKILL.md');
