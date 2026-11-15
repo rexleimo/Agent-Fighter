@@ -4,7 +4,7 @@
 FROM node:24-alpine AS build
 WORKDIR /app
 RUN corepack enable
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build:web
@@ -26,9 +26,13 @@ COPY sdk ./sdk
 COPY drizzle ./drizzle
 COPY drizzle.config.js ./
 # oven/bun ships an unprivileged `bun` user; /app/data is the persistence mount.
+# The entrypoint starts as root only to fix volume ownership, then drops to bun
+# (bind mounts and some volume backends do not inherit image ownership).
 RUN mkdir -p /app/data && chown -R bun:bun /app
-USER bun
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD bun -e "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["bun", "src/server.js"]

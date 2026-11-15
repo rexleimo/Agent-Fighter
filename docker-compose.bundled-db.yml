@@ -11,6 +11,9 @@ services:
       POSTGRES_USER: afl
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-afl_dev_password}
       POSTGRES_DB: afl
+      # Subdirectory PGDATA: some volume backends (e.g. Apple Containerization)
+      # mount a non-empty root; harmless on standard Docker volumes.
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - afl-pg-data:/var/lib/postgresql/data
     healthcheck:
