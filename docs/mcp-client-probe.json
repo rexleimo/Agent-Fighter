@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-11-15T01:31:43.426Z",
+  "generatedAt": "2026-11-15T06:27:07.006Z",
   "base": "http://127.0.0.1:8787",
   "client": "official @modelcontextprotocol/sdk Client + StreamableHTTPClientTransport",
   "checks": [
     {
       "name": "M1 官方 MCP SDK 完成 initialize + notifications/initialized 握手",
       "ok": true,
-      "detail": "server=agent-fighting-league v0.13.0 sdk=1.32.2"
+      "detail": "server=agent-fighting-league v0.14.0 sdk=1.32.2"
     },
     {
       "name": "M2 标准 tools/list + resources/list + prompts/list 可用",
@@ -41,27 +41,27 @@
     {
       "name": "M8 join_queue 真的进入排位队列并开出房间",
       "ok": true,
-      "detail": "queuePosition=1 roomId=r_mwh5sq7l_3 opponent=Blue Wave"
+      "detail": "queuePosition=1 roomId=r_mwhgclch_3 opponent=Blue Wave"
     },
     {
       "name": "M9 托管策略真的打完一整局并写入战绩",
       "ok": true,
-      "detail": "matchId=r_mwh5sq7l_3_mwh5sq7l_1 ticks=219 result=draw reason=ko"
+      "detail": "matchId=r_mwhgclch_3_mwhgclci_1 ticks=219 result=draw reason=ko"
     },
     {
       "name": "M10 WebSocket 观战收到服务端实拍 tick（非前端造数）",
       "ok": true,
-      "detail": "demoTicks=86 rankedTicks=215"
+      "detail": "demoTicks=56 rankedTicks=215"
     },
     {
       "name": "M11 默认观战页血量真实变化、有技能动作（内置策略，非外部 AI）",
       "ok": true,
-      "detail": "hp {\"hpA\":1000,\"hpB\":826} -> {\"hpA\":938,\"hpB\":381} skillActions=38"
+      "detail": "hp {\"hpA\":278,\"hpB\":175} -> {\"hpA\":1000,\"hpB\":1000} skillActions=30"
     },
     {
       "name": "M12 回放状态哈希链逐拍一致（确定性内核，非随机数）",
       "ok": true,
-      "detail": "ticks=219 mismatches=0 seed=3889340342 events=177"
+      "detail": "ticks=219 mismatches=0 seed=3873769493 events=177"
     },
     {
       "name": "M13 回放里出现技能 / 血量下降 / 明确胜负",
@@ -76,14 +76,14 @@
     {
       "name": "M15 战绩与榜单口径一致（排位局计分；官方陪练局真实但不计榜）",
       "ok": true,
-      "detail": "不计榜(sparring) matches=0 practice=904 rating=1500 delta=0"
+      "detail": "不计榜(sparring) matches=0 practice=941 rating=1500 delta=0"
     }
   ],
   "evidence": {
     "handshake": {
       "serverInfo": {
         "name": "agent-fighting-league",
-        "version": "0.13.0"
+        "version": "0.14.0"
       },
       "capabilities": {
         "prompts": {
@@ -186,11 +186,11 @@
       "note": "离线模拟，不是排行榜数据"
     },
     "spectate": {
-      "demoRoomTicks": 86,
+      "demoRoomTicks": 56,
       "demoHelloPresence": {
         "onlineAgents": 0,
         "waiting": 0,
-        "spectators": 4,
+        "spectators": 1,
         "totalRooms": 3,
         "finishedRooms": 0,
         "queue": []
@@ -199,45 +199,45 @@
     },
     "demoRoom": {
       "actions": {
-        "block": 79,
-        "special": 3,
-        "lp": 6,
-        "ex": 5,
-        "fireball": 17,
-        "mk": 6,
-        "mp": 8,
-        "hp": 4,
-        "throw": 5,
+        "block": 29,
+        "fireball": 11,
+        "lk": 4,
+        "jump": 3,
+        "mp": 2,
+        "dp": 4,
+        "special": 6,
+        "ex": 2,
+        "hp": 3,
+        "walk_f": 9,
+        "dash": 3,
+        "crouch": 3,
         "super": 3,
-        "walk_f": 4,
-        "walk_b": 8,
-        "dash": 2,
-        "hk": 5,
-        "crouch": 4,
-        "lk": 6,
-        "jump": 4,
-        "dp": 3
+        "mk": 24,
+        "lp": 2,
+        "hk": 1,
+        "walk_b": 2,
+        "throw": 1
       },
       "firstHp": {
-        "hpA": 1000,
-        "hpB": 826
+        "hpA": 278,
+        "hpB": 175
       },
       "lastHp": {
-        "hpA": 938,
-        "hpB": 381
+        "hpA": 1000,
+        "hpB": 1000
       },
       "hpChanged": true,
-      "skillActions": 38
+      "skillActions": 30
     },
     "match": {
-      "matchId": "r_mwh5sq7l_3_mwh5sq7l_1",
+      "matchId": "r_mwhgclch_3_mwhgclci_1",
       "result": "draw",
       "reason": "ko",
       "winner": "draw",
       "hpA": 0,
       "hpB": 0,
       "ticks": 219,
-      "seed": 3889340342,
+      "seed": 3873769493,
       "stateHashMismatches": 0,
       "actionCounts": {
         "fireball": 62,
@@ -369,13 +369,13 @@
         "wins": 0,
         "losses": 0,
         "draws": 0,
-        "practiceMatches": 904,
+        "practiceMatches": 941,
         "competitor": true,
         "official": false,
         "modelCalls": 0,
         "timeouts": 0,
         "budgetExceeded": 0,
-        "hostedTicksEvaluated": 268965,
+        "hostedTicksEvaluated": 279885,
         "trainingRuns": 0,
         "versionHash": "d80b2807e6f6",
         "strategyHash": "d80b2807e6f62c30",

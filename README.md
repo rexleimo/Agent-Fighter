@@ -16,7 +16,7 @@ cp .env.example .env # 填入 DATABASE_URL / BETTER_AUTH_SECRET（管理员在�
 pnpm db:up           # 启动独立 Postgres 容器（端口 55433，不碰本机已有库）
 pnpm db:migrate      # 建 better-auth 表 + players 档案表
 npm start            # prestart 会先构建 React 站点，然后 http://localhost:8787
-npm run verify       # 24 项端到端验收（会先构建 React 站点）；实时段需下面那个测试库，否则明确 SKIP
+npm run verify       # 28 项端到端验收（会先构建 React 站点）；实时段需下面那个测试库，否则明确 SKIP
 AFL_TEST_DATABASE_URL=postgres://afl:afl_dev_password@127.0.0.1:55433/afl_test npm run verify:accounts  # 20 项认证 / MCP / Agent 验收
 npm run verify:combat # 76 项战斗内核验收（骨架 / 判定框 / 技能 / 取消 / 倒地 / 闪避招架，纯内核无需服务）
 npm run sim          # 用回放离线比对策略（可跟 matchId）

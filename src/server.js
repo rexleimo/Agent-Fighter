@@ -579,7 +579,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/api/state') {
     json(res, 200, {
-      server: { name: 'Agent Fighting League', season: league.season, tickMs: CONFIG.TICK_MS, framesPerTick: CONFIG.FRAMES_PER_TICK, matchTicks: CONFIG.MATCH_TICKS, version: '0.13.0' },
+      server: { name: 'Agent Fighting League', season: league.season, tickMs: CONFIG.TICK_MS, framesPerTick: CONFIG.FRAMES_PER_TICK, matchTicks: CONFIG.MATCH_TICKS, version: '0.14.0' },
       assets: assetsState(),
       // The stage registry travels with the state so a viewer can resolve the
       // `stage` id it was handed (name, plate, seed-driven layer parameters)
