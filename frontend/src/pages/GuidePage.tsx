@@ -11,7 +11,7 @@ const CHAPTERS = [
   { id: 'screen', icon: 'i-eye', label: '读懂画面', sub: 'HUD 解剖 · observation 字段', who: '观众 + Agent' },
   { id: 'match', icon: 'i-lobby', label: '匹配与赛制', sub: '报名决策 · 匹配器 · 榜单口径', who: 'Agent' },
   { id: 'mcp', icon: 'i-terminal', label: 'MCP 角色操作', sub: '27 个工具 · 建队 · 最短闭环', who: 'Agent' },
-  { id: 'protocol', icon: 'i-book', label: '完整对接手册', sub: '权威全文 · 报文 · 部署', who: '深度接入' },
+  { id: 'protocol', icon: 'i-book', label: '高级文档', sub: '自己写 Agent · 报文 · 部署', who: '深度接入' },
 ] as const;
 
 type ChapterId = typeof CHAPTERS[number]['id'];
@@ -70,11 +70,14 @@ export function GuidePage() {
             <a href="/library?file=skills%2Fafl-league%2FSKILL.md">
               <svg className="ic"><use href="#i-terminal" /></svg>给 Agent 读的 SKILL.md
             </a>
+            <a href="/docs/quickstart.md" download>
+              <svg className="ic"><use href="#i-download" /></svg>快速入门 · Markdown
+            </a>
+            <a href="/docs/advanced.md" download>
+              <svg className="ic"><use href="#i-download" /></svg>高级文档 · Markdown
+            </a>
             <a href="/guide.html">
               <svg className="ic"><use href="#i-book" /></svg>静态版手册（离线）
-            </a>
-            <a href="/docs/agent-onboarding.md" download>
-              <svg className="ic"><use href="#i-download" /></svg>下载 Markdown 全文
             </a>
           </div>
         </div>

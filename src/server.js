@@ -28,7 +28,7 @@ const WEB_DIST = path.join(WEB_DIR, 'dist');
 const WEB_DIST_INDEX = path.join(WEB_DIST, 'index.html');
 // Client-side routes served by the React app. The game assets and the
 // read-only docs/sdk trees below keep their own prefixes.
-const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/guide', '/training', '/library', '/setup']);
+const SPA_ROUTES = new Set(['/lobby', '/fighters', '/board', '/replay', '/connect', '/account', '/me', '/guide', '/training', '/library', '/setup']);
 const PORT = Number(process.env.PORT || 8787);
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
 const league = new League();
@@ -406,6 +406,7 @@ const server = http.createServer(async (req, res) => {
         // ground needs one, so say which state we are in instead of failing raw.
         hasStrategy: Boolean(agent.hostedStrategy),
         ruleCount: agent.hostedStrategy ? agent.hostedStrategy.rules.length : 0,
+        ratingHistory: (agent.history || []).slice(-24).map((h) => ({ matchId: h.matchId, result: h.result, rating: h.rating })),
       },
       queue,
       room,
@@ -414,6 +415,72 @@ const server = http.createServer(async (req, res) => {
       cost: playerCost(agent.id),
     });
     return;
+  }
+  /* Account deletion with league-side cleanup. Better Auth removes the user
+     (the player profile cascades in Postgres); this also forgets the agent,
+     its token, match record and replay files so no orphan data is published. */
+  if (p === '/api/me/delete' && req.method === 'POST') {
+    if (!auth || !players) { json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' }); return; }
+    const player = await sessionPlayer(req);
+    if (!player) { json(res, 401, { error: 'not logged in' }); return; }
+    const body = await readJson(req);
+    const agentId = player.agentId || null;
+    try {
+      const deleted = await auth.api.deleteUser({
+        body: { password: String(body?.password || ''), callbackURL: '/' },
+        headers: fromNodeHeaders(req.headers),
+        returnHeaders: true,
+      });
+      const purged = agentId ? league.purgeAgentData(agentId) : { matches: 0 };
+      const cookies = typeof deleted?.headers?.getSetCookie === 'function' ? deleted.headers.getSetCookie() : [];
+      json(res, 200, { ok: true, purged }, cookies.length ? { 'Set-Cookie': cookies } : {});
+    } catch (err) {
+      json(res, 400, { error: err?.message || 'account deletion failed' });
+    }
+    return;
+  }
+  /* Player's own replay feed — session-bound, never a public demo list. The
+     match rows are the real records written by recordMatch, filtered to this
+     account's agent; the replay file is fetched on demand by matchId. */
+  if (p === '/api/me/matches' && req.method === 'GET') {
+    if (!players) { json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' }); return; }
+    const player = await sessionPlayer(req);
+    if (!player) { json(res, 401, { error: 'not logged in' }); return; }
+    const agent = player.agentId ? league.agentById(player.agentId) : null;
+    if (!agent) { json(res, 200, { agentId: player.agentId || null, matches: [] }); return; }
+    const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+    json(res, 200, league.getMyMatches({ token: agent.token, limit }));
+    return;
+  }
+  /* Profile fields owned by Better Auth (not the game profile store). */
+  if (p === '/api/me/profile' && req.method === 'GET') {
+    if (!auth || !players) { json(res, 503, { error: 'auth is not configured' }); return; }
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+    if (!session?.user) { json(res, 401, { error: 'not logged in' }); return; }
+    json(res, 200, { email: session.user.email, image: session.user.image || '' });
+    return;
+  }
+  /* View/edit the submitted hosted strategy from the user center. Validation
+     uses the same DSL as submit_strategy; the session authenticates the owner. */
+  if (p === '/api/me/strategy') {
+    if (!players) { json(res, 503, { error: 'auth is not configured' }); return; }
+    const player = await sessionPlayer(req);
+    if (!player) { json(res, 401, { error: 'not logged in' }); return; }
+    const ready = await ensurePlayerAgent(player);
+    const agent = ready.agentId ? league.agentById(ready.agentId) : null;
+    if (!agent) { json(res, 404, { error: 'agent not ready' }); return; }
+    if (req.method === 'GET') {
+      json(res, 200, { strategy: agent.hostedStrategy || null, versionHash: agent.versionHash, ruleCount: agent.hostedStrategy?.rules?.length ?? 0 });
+      return;
+    }
+    if (req.method === 'PUT') {
+      const body = await readJson(req);
+      try {
+        const result = league.submitStrategy({ token: agent.token, strategy: body.strategy, autoRequeue: body.autoRequeue !== false });
+        json(res, 200, result);
+      } catch (err) { json(res, 400, { error: err?.message || 'invalid strategy' }); }
+      return;
+    }
   }
   /** What this agent actually consumed, from server-observed counters only. */
   function playerCost(agentId) {
@@ -619,7 +686,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (p === '/api/matches') {
-    json(res, 200, { matches: league.recentMatches(40) });
+    // The replay page asks for the player-only feed; the unfiltered endpoint
+    // stays the default so verification scripts still see demo exhibitions.
+    const playerOnly = url.searchParams.get('scope') === 'player';
+    json(res, 200, { matches: playerOnly ? league.recentPlayerMatches(40) : league.recentMatches(40) });
     return;
   }
   if (p === '/api/agents') {

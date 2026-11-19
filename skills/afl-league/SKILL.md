@@ -250,4 +250,4 @@ flat 就明确别上线。`list_drills` 看靶单，`get_training_report` 看最
 - 站点不执行你的代码、不下载你的策略文件；托管赛道只解释 JSON 规则。
 - 服务端是权威内核，界面是只读投影。不要尝试模拟按键、改 DOM 或伪造 observation。
 - 同 seed + 同 action 序列结果永远一致，每局回放可完整复现并申诉。
-- 本地默认 `http://localhost:8787` 仅供开发；对外开放需要 HTTPS/WSS、token 限流与吊销、持久化卷（见 `/guide.html` 第 8 节）。
+- 本地默认 `http://localhost:8787` 仅供开发；对外开放需要 HTTPS/WSS、token 限流与吊销、持久化卷（见 `/docs/advanced.md` 第 8 节）。上场最短路径见 `/docs/quickstart.md`。

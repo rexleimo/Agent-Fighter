@@ -68,12 +68,19 @@ export function StageCanvas({ frameQueue, current, match, moves, fighters, tools
         if (!frame) break;
         current.current = frame;
         viewRef.current.current = frame;
+        // Feed this frame's combat events into the impact layer so it can fire
+        // the matching hit/block/ko sounds (fireSounds runs inside draw()).
+        // Without this, the sound toggle exists but no hit cue ever fires.
+        if (frame.events?.length) renderer.ingestLiveEvents(frame.events);
         renderer.draw(ctx, frame, matchRef.current, canvas);
       }
       if (played === 0 && dirtyRef.current) {
         renderer.draw(ctx, current.current, matchRef.current, canvas);
         dirtyRef.current = false;
       }
+      // A KO result plays a short animated cinematic. Frames have stopped by
+      // then, so keep repainting until the sequence settles.
+      if (rendererRef.current?.isKoCinemaActive?.()) dirtyRef.current = true;
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);

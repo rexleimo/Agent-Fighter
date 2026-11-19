@@ -1,5 +1,6 @@
 import { ACTIONS } from './rules.js';
 import { hashObject } from './replay.js';
+import { createDuelist } from './ai/duelist.js';
 
 /**
  * The KOF-style ladder: every normal can be canceled into the next link,
@@ -146,6 +147,33 @@ export const BUILTIN_AGENTS = [
     policy: randomPolicy,
     defaultAction: 'block',
     versionHash: versionOf('random', randomPolicy.toString()),
+  },
+  {
+    // Aggressive exhibition AI: relentless pressure, hit-confirmed combos.
+    // Dedicated to the demo rooms so the showpiece is two fighters actually
+    // fighting, not a defender waiting to be hit.
+    id: 'duelist_rush',
+    name: 'Rush',
+    label: '疾风连打',
+    kind: 'rule',
+    track: 'rule_only',
+    description: '全力压制：贴身快拳起手，命中确认后连段接专属技与超必杀，对空升龙、对手防御就改用投技',
+    policy: createDuelist('rushdown'),
+    defaultAction: 'walk_f',
+    versionHash: versionOf('duelist_rush', 'duelist-rushdown-v1'),
+  },
+  {
+    // Aggressive exhibition AI with spacing: whiff-punish, fireball mix-ups,
+    // still closes and combos — the second half of a believable fought match.
+    id: 'duelist_foot',
+    name: 'Volt',
+    label: '游走反击',
+    kind: 'rule',
+    track: 'rule_only',
+    description: '距离博弈：中距离发波与牵制，抓对手挥空用重拳确反，近身后一样连段接超必杀',
+    policy: createDuelist('footsies'),
+    defaultAction: 'walk_f',
+    versionHash: versionOf('duelist_foot', 'duelist-footsies-v1'),
   },
 ];
 

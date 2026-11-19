@@ -340,7 +340,7 @@ async function verifyEndToEnd() {
     check('C13 策略版本：同文件 hash 可复现、非法 hash 被拒', v1.versionHash === v2.versionHash && v1.strategyHash === sha && badRejected, 'versionHash=' + v1.versionHash);
 
     // C14 - onboarding docs / examples are actually served, path traversal blocked
-    const docPaths = ['/guide.html', '/guide.css', '/docs/agent-onboarding.md', '/examples/starter/agent.mjs', '/examples/starter/SKILL.md', '/examples/starter/README.md', '/examples/llm-agent/agent.mjs', '/sdk/agent-client.mjs'];
+    const docPaths = ['/guide.html', '/guide.css', '/docs/advanced.md', '/examples/starter/agent.mjs', '/examples/starter/SKILL.md', '/examples/starter/README.md', '/examples/llm-agent/agent.mjs', '/sdk/agent-client.mjs'];
     const codes = [];
     for (const p of docPaths) codes.push((await fetch(BASE + p)).status);
     const traversal = (await fetch(BASE + '/docs/%2e%2e/data/league.json')).status;
@@ -359,7 +359,7 @@ async function verifyEndToEnd() {
         });
         legacyCodes.push(r.status);
       }
-      const docFiles = ['docs/agent-onboarding.md', 'docs/player-accounts.md', 'README.md', 'skills/afl-league/SKILL.md'];
+      const docFiles = ['docs/advanced.md', 'docs/player-accounts.md', 'README.md', 'skills/afl-league/SKILL.md'];
       const offenders = [];
       for (const rel of docFiles) {
         const file = path.join(ROOT, rel);
@@ -398,7 +398,7 @@ async function verifyEndToEnd() {
         if (m.ranked && m.opponentOfficial) contradictions.push('计榜局出现了官方基线对手');
       }
       const missing = Object.keys(documented).filter((k) => !seen.has(k));
-      const docTable = fs.readFileSync(path.join(ROOT, 'docs/agent-onboarding.md'), 'utf8');
+      const docTable = fs.readFileSync(path.join(ROOT, 'docs/advanced.md'), 'utf8');
       const docPairs = [...docTable.matchAll(/^\s*\| `(rating|sparring|code|showcase)` \| `(true|false)` \| `(true|false)` \|/gm)];
       const docWrong = docPairs.filter((x) => {
         const want = documented[x[1]];

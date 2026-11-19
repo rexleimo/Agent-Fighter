@@ -78,6 +78,7 @@ export function App() {
           <Route path="/training" element={<Page id="view-training"><TrainingPage /></Page>} />
           <Route path="/connect" element={<Page id="view-connect"><ConnectPage /></Page>} />
           <Route path="/account" element={<AccountPage />} />
+          <Route path="/me" element={<AccountPage />} />
           <Route path="/guide" element={<GuidePage />} />
           <Route path="/library" element={<Page id="view-library"><LibraryPage /></Page>} />
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -3,6 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
+// Self-hosted OFL pixel fonts (Vite bundles the woff2 into web/dist/app).
+// Import order: fonts -> base tokens -> component styles -> app polish (last wins).
+import '@fontsource/press-start-2p/400.css';      // arcade display (Latin): brand, titles, eyebrows
+import '@fontsource/vt323/400.css';               // terminal mono (Latin): HUD numbers, codes
+import '@fontsource/fusion-pixel-12px-proportional-sc/400.css'; // pixel CJK body (full Chinese coverage)
 import '../../web/styles.css';
 import '../../web/team.css';
 import '../../web/account.css';

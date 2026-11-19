@@ -22,6 +22,7 @@ const PART_TYPES = new Set([
 
 const SOUND_TYPES = new Set([
   'hit', 'block', 'cancel', 'armor', 'counter', 'super_start', 'ko', 'wakeup', 'evade', 'parry',
+  'move_start', // quiet swing whoosh so a strike has a wind-up before the impact
 ]);
 
 /**
@@ -138,7 +139,10 @@ export function createImpactFx({
     for (const p of parts) {
       if (p.sounded || p.born > now) continue;
       p.sounded = true;
-      if (SOUND_TYPES.has(p.type)) onSound(p.type);
+      // Pass the whole event so the audio layer can scale a hit by its damage
+      // and combo count, and skip defensive move_start swings. p carries every
+      // field the server emitted (damage, combo, move, by, on, ...).
+      if (SOUND_TYPES.has(p.type)) onSound(p.type, p);
     }
   }
 

@@ -11,8 +11,9 @@ function readText(rel) {
   try { return fs.readFileSync(path.join(ROOT, rel), 'utf8'); } catch { return ''; }
 }
 
-const SKILL_MD = readText('skills/afl-league/SKILL.md') || '# Agent Fighting League\nRead /guide.html for the full onboarding manual.';
-const ONBOARDING_MD = readText('docs/agent-onboarding.md');
+const SKILL_MD = readText('skills/afl-league/SKILL.md') || '# Agent Fighting League\nRead /docs/quickstart.md first, then /docs/advanced.md.';
+const QUICKSTART_MD = readText('docs/quickstart.md');
+const ADVANCED_MD = readText('docs/advanced.md');
 
 function ok(id, result) {
   return { jsonrpc: '2.0', id, result };
@@ -33,7 +34,8 @@ const RESOURCES = [
   { uri: 'afl://stages', name: 'Stages · 舞台与场景', description: 'The arena registry, how the server picks one per match, and why a client must never choose it.', mimeType: 'text/markdown' },
   { uri: 'afl://costs', name: 'Cost model · 计费项', description: 'What is free, what the player pays, what the platform pays - and why training costs nothing.', mimeType: 'text/markdown' },
   { uri: 'afl://training', name: 'Training ground · 训练场', description: 'Drill roster, the zero-LLM guarantee, diagnostics, version A/B, and what the numbers do NOT mean.', mimeType: 'text/markdown' },
-  { uri: 'afl://onboarding', name: 'Full onboarding manual', description: 'The complete Chinese onboarding handbook rendered at /guide.html.', mimeType: 'text/markdown' },
+  { uri: 'afl://quickstart', name: 'Quickstart · 5 分钟接入', description: 'The short path to get an agent fighting: both tracks, first-match wait, and quick troubleshooting. Read this first.', mimeType: 'text/markdown' },
+  { uri: 'afl://onboarding', name: 'Advanced manual · 自己写 Agent', description: 'The complete Chinese advanced handbook: protocol, observation fields, frame data, DSL, matchmaking and deployment.', mimeType: 'text/markdown' },
   { uri: 'afl://troubleshooting', name: 'Troubleshooting', description: 'Common integration failures and fixes.', mimeType: 'text/markdown' },
 ];
 
@@ -427,7 +429,8 @@ export function createMCPHandler(league, manager = null, accounts = null) {
       case 'afl://stages': return { text: STAGES_MD, mimeType: 'text/markdown' };
       case 'afl://costs': return { text: COSTS_MD, mimeType: 'text/markdown' };
       case 'afl://training': return { text: TRAINING_MD, mimeType: 'text/markdown' };
-      case 'afl://onboarding': return { text: ONBOARDING_MD, mimeType: 'text/markdown' };
+      case 'afl://quickstart': return { text: QUICKSTART_MD, mimeType: 'text/markdown' };
+      case 'afl://onboarding': return { text: ADVANCED_MD, mimeType: 'text/markdown' };
       case 'afl://troubleshooting': return { text: TROUBLE_MD, mimeType: 'text/markdown' };
       default: return null;
     }
@@ -452,7 +455,7 @@ export function createMCPHandler(league, manager = null, accounts = null) {
           'MCP-only agent clients (Claude Code / CodeBuddy / Cursor / OpenCode / ...) should use the HOSTED track:',
           'get_my_profile -> register_agent (or skip on a bound service) -> set_team -> get_strategy_template -> start_training (free, zero model calls, never on the ladder) -> compare_strategies -> submit_strategy -> join_queue(format="team"). Read afl://costs to see what is free and what is the player\'s own model bill.',
           'The league interprets the declarative strategy server-side, so no long-lived WebSocket process is needed.',
-          'Start by reading the resource afl://skill. ranks are per-room: ranked (wins-first ladder), scrim (unranked by code), demo (showcase).',
+          'Start by reading afl://quickstart for the short path, then afl://skill for the full workflow and afl://onboarding for the advanced manual. First match can take up to ~60s while the current demo room finishes - that is normal, not a stall. ranks are per-room: ranked (wins-first ladder), scrim (unranked by code), demo (showcase).',
           'afl://costs says what costs what: training and every read surface are free, only an external agent calling a model each tick creates a bill and that bill comes from the player\'s provider, not the league. afl://training explains the practice ground (own bot drills, zero LLM, never on the ladder).',
         ].join(' '),
       });

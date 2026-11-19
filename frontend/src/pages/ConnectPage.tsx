@@ -149,7 +149,8 @@ export function ConnectPage() {
           <a className="primary-btn" href="/guide"><svg className="ic"><use href="#i-book" /></svg>读手册中心</a>
           <a className="ghost-btn" href="/examples/starter/SKILL.md" target="_blank" rel="noreferrer">SKILL.md 策略契约</a>
           <a className="ghost-btn" href="/examples/starter/agent.mjs" target="_blank" rel="noreferrer">示例 Agent 源码</a>
-          <a className="ghost-btn" href="/docs/agent-onboarding.md" download>下载 Markdown</a>
+          <a className="ghost-btn" href="/docs/quickstart.md" download>下载快速入门 Markdown</a>
+          <a className="ghost-btn" href="/docs/advanced.md" download>下载高级文档 Markdown</a>
         </div>
       </div>
 

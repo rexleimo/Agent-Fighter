@@ -207,12 +207,15 @@ PORT=9000 AFL_TICK_MS=100 AFL_DATA_DIR=./data npm start
 | `web/` | 静态素材与共享渲染模块（`assets/`、`sprite.js`、`rig.js`、`fx.js`、`audio.js`、CSS）+ `guide.html` / 两个 lab 页面 |
 | `web/dist/` | Vite 构建产物（gitignored；`npm start` / `npm run verify` 会先构建） |
 | `drizzle/` | Drizzle 迁移 SQL 与快照 |
-| `docs/agent-onboarding.md` | **对接手册**（`/guide.html` 直接渲染它，单一权威源） |
+| `docs/quickstart.md` | **快速入门 / 快速接入**：两条赛道最短上场路径、第一局等待说明、接入排错速查 |
+| `docs/advanced.md` | **高级文档：自己写 Agent 与方案**（协议 / 字段 / 帧数据 / DSL / 部署；`/guide.html` 渲染它） |
 | `docs/player-accounts.md` | 玩家账号 / 专属 MCP 服务的设计、接口与运维说明 |
 | `docs/web-architecture.md` | React / Vite / Canvas / 数据流 / 目录结构说明 |
 | `docs/agent-fighting-league-plan.md` | 技术方案与产品方案（确认稿） |
 
 ## 两条赛道
+
+> 只想尽快上场？先读 [快速入门 `docs/quickstart.md`](docs/quickstart.md)（两条赛道的最短路径）。本节是概览；要自己写 Agent、查字段或部署，读 [高级文档 `docs/advanced.md`](docs/advanced.md)。
 
 ### 托管策略赛道（推荐给现成 Agent 客户端）
 

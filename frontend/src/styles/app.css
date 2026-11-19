@@ -16,11 +16,12 @@
   position: relative;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   padding: 34px 34px 28px;
+  /* Single accent only (DESIGN.md): one green glow + neutral surface, no second hue. */
   background:
-    radial-gradient(520px 260px at 12% 0%, rgba(53, 214, 164, .13), transparent 62%),
-    radial-gradient(420px 240px at 100% 100%, rgba(91, 140, 255, .10), transparent 60%),
+    radial-gradient(560px 280px at 8% 0%, var(--accent-soft), transparent 60%),
+    radial-gradient(480px 320px at 100% 100%, var(--white-05), transparent 62%),
     var(--surface);
 }
 
@@ -36,7 +37,7 @@
 }
 
 .auth-kicker {
-  font-size: 10px;
+  font-size: 13px;
   letter-spacing: .18em;
   color: var(--accent);
 }
@@ -80,10 +81,10 @@
 
 .auth-steps b {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--accent);
-  border: 1px solid rgba(53, 214, 164, .35);
+  border: 1px solid var(--accent-soft);
   background: var(--accent-soft);
   border-radius: 6px;
   padding: 4px 0;
@@ -99,7 +100,7 @@
 .auth-steps span {
   display: block;
   color: var(--dim);
-  font-size: 11px;
+  font-size: 13px;
   margin-top: 2px;
 }
 
@@ -113,7 +114,7 @@
 
 .auth-tags span {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 13px;
   color: var(--muted);
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -141,7 +142,7 @@
   place-items: center;
   color: var(--accent);
   background: var(--accent-soft);
-  border: 1px solid rgba(53, 214, 164, .28);
+  border: 1px solid var(--accent-soft);
 }
 
 .auth-emblem .ic { width: 20px; height: 20px; }
@@ -181,7 +182,7 @@
 .auth-form { display: flex; flex-direction: column; gap: 14px; }
 
 .auth-field { display: flex; flex-direction: column; gap: 6px; }
-.auth-field > span { font-size: 11px; color: var(--muted); }
+.auth-field > span { font-size: 13px; color: var(--muted); }
 .auth-field > span em { font-style: normal; color: var(--dim); }
 
 .auth-input {
@@ -218,13 +219,13 @@
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
   padding: 4px;
 }
 
 .auth-reveal:hover { color: var(--text); }
 
-.auth-field small { color: var(--dim); font-size: 10.5px; }
+.auth-field small { color: var(--dim); font-size: 13px; }
 .auth-field-error { color: var(--red) !important; }
 
 .auth-strength { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
@@ -233,7 +234,7 @@
 .auth-strength-bars i.on.bad { background: var(--red); }
 .auth-strength-bars i.on.ok { background: var(--amber); }
 .auth-strength-bars i.on.good { background: var(--accent); }
-.auth-strength span { font-size: 10.5px; color: var(--dim); }
+.auth-strength span { font-size: 13px; color: var(--dim); }
 .auth-strength b { font-weight: 500; }
 .auth-strength b.bad { color: var(--red); }
 .auth-strength b.ok { color: var(--amber); }
@@ -245,7 +246,7 @@
   background: var(--red-soft);
   color: var(--red);
   padding: 8px 11px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .auth-submit { width: 100%; margin-top: 2px; }
@@ -254,7 +255,7 @@
   margin-top: 14px;
   text-align: center;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 13px;
 }
 
 .auth-foot.muted { color: var(--dim); margin-top: 6px; }
@@ -295,7 +296,7 @@
 .guide-page p, .guide-page li { color: var(--muted); line-height: 1.8; }
 .guide-page code { color: var(--accent); font-family: var(--mono); font-size: .92em; }
 .guide-page pre { background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 12px; overflow-x: auto; }
-.guide-page table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+.guide-page table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
 .guide-page th, .guide-page td { border: 1px solid var(--line); padding: 7px 9px; text-align: left; }
 .guide-page th { background: var(--surface-2); color: var(--text); }
 
@@ -304,4 +305,342 @@
   .auth-aside { padding: 26px 22px 22px; }
   .auth-aside h2 { font-size: 28px; }
   .auth-card { padding: 20px 18px; }
+}
+
+/* ============================================================================
+   Pixel-arcade polish — loaded last, wins over legacy stylesheets.
+   Implements DESIGN.md primitives without touching any component/JSX.
+   ============================================================================ */
+
+/* Brand wordmark + nav: arcade display font for that 8-bit league feel. */
+.brand-name { font-family: var(--display); font-size: 13px; letter-spacing: .02em; }
+.brand-sub { font-family: var(--sans); }
+.season-chip { font-family: var(--display); font-size: 13px; letter-spacing: 0; }
+.nav-btn { font-family: var(--sans); }
+
+/* ── Live page: KOF-style HUD fused onto the game canvas ───────────────────
+   The matchup (names, HP/meter, round, timer, 3v3 roster) now floats over the
+   stage instead of stacking in panels above it. The stage fills the viewport
+   and the decision feeds stay below the fold. */
+@keyframes bh-bar-in { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.broadcast-hud {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;           /* clicks pass through to the canvas/tools */
+  line-height: 1.2;
+  font-family: var(--sans);
+}
+.bh-top {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: grid;
+  grid-template-columns: 1fr 92px 1fr;
+  gap: 10px;
+  padding: 44px 18px 0;           /* clear the channel/frame topbar */
+}
+.bh-side { min-width: 0; }
+.bh-identity { display: flex; align-items: baseline; gap: 10px; }
+.bh-b .bh-identity { flex-direction: row-reverse; }
+.bh-name {
+  font-family: var(--display);
+  font-size: clamp(10px, 1.15vw, 15px);
+  color: var(--ink, var(--text));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 1px 1px 0 #000, 0 0 6px rgba(0,0,0,.8);
+}
+.bh-elo { font-size: 13px; color: var(--accent); }
+.bh-b .bh-elo { color: var(--blue); }
+/* HP bar — KOF-style segmented fill with a crisp outline. */
+.bh-hpbar {
+  position: relative;
+  height: 15px;
+  margin-top: 4px;
+  border: 2px solid var(--line);
+  background: rgba(0,0,0,.55);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.6);
+}
+.bh-hpbar i {
+  display: block; height: 100%;
+  background: linear-gradient(180deg, var(--accent) 0 55%, var(--accent-hover) 55% 100%);
+  transform-origin: left center;
+  animation: bh-bar-in .5s ease-out both;
+  transition: width .12s linear;
+}
+.bh-b .bh-hpbar i {
+  margin-left: auto; transform-origin: right center;
+  background: linear-gradient(180deg, var(--blue) 0 55%, #8aa9ff 55% 100%);
+}
+.bh-subline { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+.bh-b .bh-subline { flex-direction: row-reverse; }
+.bh-label { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 0 4px #000; }
+/* Power gauge — 3 stocks, fused under the HP bar (KOF-style charge meter). */
+.bh-power { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.bh-power-b { flex-direction: row-reverse; }
+.bh-power-label { font-size: 13px; letter-spacing: .12em; color: var(--dim); }
+.bh-power-stocks { display: flex; gap: 3px; }
+.bh-stock {
+  position: relative; width: 34px; height: 7px;
+  border: 1px solid var(--line); background: rgba(0,0,0,.55); overflow: hidden;
+}
+.bh-stock i { display: block; height: 100%; background: var(--amber); transition: width .12s linear; }
+.bh-stock.full { border-color: var(--amber); box-shadow: 0 0 6px rgba(255,194,96,.5); }
+.bh-stock.full i { background: linear-gradient(180deg, #ffd98a, var(--amber)); }
+.bh-power-b .bh-stock i { margin-left: auto; }
+/* 3v3 roster slots as portrait thumbnails under each gauge. */
+.bh-pips { display: flex; gap: 5px; margin-top: 6px; }
+.bh-b .bh-pips { justify-content: flex-end; }
+.bh-pip {
+  position: relative; width: 52px; height: 58px; overflow: hidden;
+  border: 1px solid var(--line-soft); border-bottom: 3px solid var(--pip, var(--dim));
+  background: linear-gradient(180deg, var(--surface-2), var(--bg));
+}
+.bh-pip.bench { opacity: .6; }
+.bh-pip.fallen { opacity: .35; filter: grayscale(1); }
+.bh-pip.active { border-color: var(--accent-line); border-bottom-color: var(--pip, var(--accent)); box-shadow: 0 0 0 1px var(--accent-line), 0 0 8px rgba(0,217,146,.25); }
+/* The card art is a 378x480 full-body plate with the head near the top.
+   Scale it up and offset so the face fills the thumbnail (verified crop). */
+.bh-pip-face {
+  position: absolute; left: -49px; top: -6px; width: 150px; height: auto;
+  image-rendering: auto; pointer-events: none;
+}
+.bh-pip-code {
+  position: absolute; left: 0; right: 0; bottom: 2px;
+  font-size: 13px; color: var(--text); text-align: center;
+  text-shadow: 0 0 3px #000, 1px 1px 0 #000;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bh-pip-bar { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: rgba(0,0,0,.55); z-index: 1; }
+.bh-pip-bar i { display: block; height: 100%; background: var(--pip, var(--accent)); transition: width .15s linear; }
+/* Center round + timer + VS. */
+.bh-center { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.bh-round { font-size: 13px; letter-spacing: .1em; color: var(--muted); }
+.bh-timer {
+  font-family: var(--display);
+  font-size: clamp(22px, 3vw, 40px);
+  color: var(--ink, var(--text));
+  text-shadow: 2px 2px 0 #000, 0 0 10px rgba(0,0,0,.9);
+}
+.bh-vs { font-family: var(--display); font-size: 13px; color: var(--amber); letter-spacing: .08em; }
+
+/* ── Single broadcast status rail ───────────────────────────────────────────
+   One phase-aware card replaces the three stacked strips. Left: an unmistakable
+   phase label + one-line note + (during a roster window) countdown and side
+   chips. Right: numeric metric tiles and the room switch. */
+@keyframes sr-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes sr-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+.view > .status-rail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 7px;
+  background: var(--surface);
+  animation: sr-in .18s ease-out both;
+}
+.view > .status-rail.sr-demo { border-left-color: var(--dim); }
+.view > .status-rail.sr-ranked { border-left-color: var(--accent); }
+.view > .status-rail.sr-scrim { border-left-color: var(--blue); }
+.view > .status-rail.sr-intermission { border-left-color: var(--amber); border-color: var(--amber-soft); }
+
+.status-rail .sr-main { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.status-rail .sr-led {
+  flex: none; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent);
+}
+.view > .status-rail.sr-demo .sr-led { background: var(--muted); box-shadow: 0 0 8px var(--muted); }
+.view > .status-rail.sr-scrim .sr-led { background: var(--blue); box-shadow: 0 0 8px var(--blue); }
+.view > .status-rail.sr-intermission .sr-led {
+  background: var(--amber); box-shadow: 0 0 8px var(--amber);
+  animation: sr-pulse 1s ease-in-out infinite;
+}
+
+.status-rail .sr-identity { min-width: 0; }
+.status-rail .sr-kicker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.status-rail .sr-badge { font-size: 13px; letter-spacing: .14em; color: var(--accent); }
+.view > .status-rail.sr-demo .sr-badge { color: var(--muted); }
+.view > .status-rail.sr-scrim .sr-badge { color: var(--blue); }
+.view > .status-rail.sr-intermission .sr-badge { color: var(--amber); }
+.status-rail .sr-source-tag {
+  font-size: 13px; letter-spacing: .08em; padding: 1px 6px;
+  border: 1px solid var(--line); border-radius: 3px; color: var(--dim);
+  white-space: nowrap;
+}
+.status-rail .sr-title {
+  margin: 3px 0 0; font-family: var(--display); font-size: clamp(16px, 1.5vw, 20px);
+  line-height: 1.2; color: var(--text); letter-spacing: .01em;
+}
+.status-rail .sr-note {
+  margin: 3px 0 0; font-size: 13px; line-height: 1.4; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.status-rail .sr-side { display: flex; align-items: center; gap: 12px; }
+.status-rail .sr-metrics { display: flex; gap: 6px; }
+.status-rail .sr-metric {
+  min-width: 64px; padding: 6px 8px; text-align: center;
+  border: 1px solid var(--line-soft); border-radius: 5px; background: var(--surface-2);
+}
+.status-rail .sr-metric b { display: block; font-size: 18px; line-height: 1; color: var(--text); font-weight: 400; }
+.status-rail .sr-metric span { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.status-rail .sr-metric.alert b { color: var(--amber); }
+.status-rail .sr-action { flex: none; }
+
+/* Roster-window phase detail: countdown ring + per-side lock chips. */
+.status-rail .sr-phase-detail {
+  display: flex; align-items: center; gap: 12px; flex: none;
+  padding-left: 14px; border-left: 1px solid var(--amber-soft);
+}
+.status-rail .sr-countdown { position: relative; width: 48px; height: 48px; flex: none; }
+.status-rail .sr-ring { width: 100%; height: 100%; transform: rotate(-90deg); }
+.status-rail .sr-ring-track { fill: none; stroke: rgba(255,255,255,.10); stroke-width: 3; }
+.status-rail .sr-ring-value {
+  fill: none; stroke: var(--amber); stroke-width: 3;
+  transition: stroke-dasharray .1s linear;
+}
+.status-rail .sr-ring-label {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 13px; color: var(--amber);
+}
+.status-rail .sr-ring-label small { font-size: 13px; margin-left: 1px; }
+.status-rail .sr-sides { display: flex; flex-direction: column; gap: 4px; }
+.status-rail .sr-side { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.status-rail .sr-side i { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); flex: none; }
+.status-rail .sr-side b { color: var(--text); font-weight: 400; }
+.status-rail .sr-side.done i { background: var(--accent); }
+.status-rail .sr-side.done b { color: var(--accent); }
+
+@media (max-width: 1024px) {
+  .view > .status-rail { grid-template-columns: 1fr; }
+  .status-rail .sr-side { justify-content: space-between; }
+}
+@media (max-width: 640px) {
+  .status-rail .sr-side { flex-wrap: wrap; gap: 8px; }
+  .status-rail .sr-metrics { flex: 1 1 100%; flex-wrap: nowrap; gap: 4px; }
+  .status-rail .sr-metric { min-width: 0; flex: 1; padding: 5px 3px; }
+  .status-rail .sr-metric span { font-size: 13px; }
+  .status-rail .sr-phase-detail { padding-left: 0; border-left: 0; }
+  .status-rail .sr-main { flex-wrap: wrap; }
+}
+/* Stage fills the viewport; cap by height so the whole fight is one screen. */
+@media (min-width: 1025px) {
+  .view > .stage-shell #stage,
+  .view > .stage-shell #replayCanvas {
+    height: min(calc(100vh - 210px), 53vw);
+    width: auto;
+    max-width: 100%;
+    margin: 0 auto;
+  }
+}
+
+/* ── Topbar overflow: never let nav or status push past the viewport ──────── */
+.topbar { min-width: 0; overflow: hidden; }
+.topbar .brand { flex-shrink: 0; }
+.topbar .nav { min-width: 0; flex: 1 1 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.topbar .nav::-webkit-scrollbar { display: none; }
+.topbar .nav-group { flex: none; }
+.topbar .top-status { flex-shrink: 0; }
+/* From mid widths down, drop the watcher count and season chip first. */
+@media (max-width: 1320px) {
+  .topbar .watchers { display: none; }
+}
+@media (max-width: 1180px) {
+  .topbar .season-chip { display: none; }
+}
+
+/* Primary CTA: green fill, near-black ink, square corners, hard offset shadow. */
+.primary-btn,
+.auth-submit {
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 1px solid var(--accent);
+  font-family: var(--sans);
+  font-weight: 400;
+  box-shadow: 3px 3px 0 var(--accent-line-strong);
+  transition: transform .1s steps(2), box-shadow .1s steps(2);
+}
+.primary-btn:hover,
+.auth-submit:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--accent-line-strong);
+}
+.primary-btn:active,
+.auth-submit:active { transform: translate(3px, 3px); box-shadow: none; }
+.primary-btn:disabled,
+.auth-submit:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* Square-corner cards + hard shadow (arcade). Status tags square, not pill. */
+.panel,
+.note-card,
+.room-card,
+.fighter-tile,
+.table-wrap,
+.auth-card,
+.code-view,
+.token-box,
+.auth-aside,
+.acc-grid > .panel {
+  border-radius: var(--r-md);
+  box-shadow: var(--hard-shadow);
+}
+
+/* Big HUD numbers render in the arcade display font (Latin/digits only). */
+.timer, .vs-mark, .lobby-summary b, .fc-rating, .rank-num,
+.wins-strong, .rating-strong, .hud-hp {
+  font-family: var(--display);
+  letter-spacing: 0;
+}
+
+/* Pixel-font legibility floor: Fusion Pixel is a 12px bitmap font. Below its
+   native 12px, glyphs downscale and jam together; 12px stays crisp and legible. */
+.view-head p, .panel-note, .dim, .hint,
+.lib-kicker, .lib-label, .lib-side-label,
+.mn-who, .tf-team, .tf-state, .kit-head span, .fc-tag,
+.cp-caption, .ft-skill .mono, .ev-sub, .mi-meta, .rc-source,
+.side-tag, .fc-label, .fc-meta, .fc-desc, .vs-round, .vs-sub,
+.empty, .ev-tick, .ev-side, .agent-cell small, .hash, .tag,
+.ft-code, .ft-fighter, .ft-style, .ft-stat, .ft-bio,
+.gc-kicker, .af-kicker, .proto-tag, .tool-chips span {
+  font-size: 13px;
+}
+
+/* Visible keyboard focus on every interactive control (WCAG 2.4.7). */
+:where(button, a, input, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Faint green tint for text selection. */
+::selection { background: var(--accent-line-strong); color: var(--text); }
+
+/* Respect reduced motion — disable scanline opacity shift and entrance beats. */
+@media (prefers-reduced-motion: reduce) {
+  .glowable, .primary-btn, .auth-submit { transition: none; }
+}
+
+/* Consolidated responsive scale — DESIGN.md breakpoints (768 / 1024).
+   Legacy ad-hoc breakpoints still handle dense data grids; this layer only
+   guarantees the shell and auth surface behave on phones and small tablets. */
+@media (max-width: 1024px) {
+  .auth-shell { gap: 16px; }
+  main { padding-left: 18px; padding-right: 18px; }
+}
+@media (max-width: 768px) {
+  .topbar { gap: 10px; padding: 0 14px; height: auto; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+  .topbar .brand { min-width: 0; }
+  .topbar .nav { order: 3; width: 100%; overflow-x: auto; padding-bottom: 2px; }
+  .topbar .top-status { margin-left: auto; }
+  .season-chip { display: none; }
+  .auth-aside h2 { font-size: 26px; }
+  .view-head { flex-wrap: wrap; }
+  .site-foot { flex-direction: column; gap: 6px; }
 }

@@ -51,7 +51,7 @@ npm start
 - `strategy.config.json` —— 阈值（对空距离、发波距离、偏好招式）
 - `strategy.mjs` —— 判断逻辑（skill 本体）
 
-改完 `npm test` → `npm start`，再去 `http://localhost:8787/?view=replay` 看这一局每一拍的决策和收到的数据。规则见 `SKILL.md`，完整对接手册见 `http://localhost:8787/guide.html`。
+改完 `npm test` → `npm start`，再去 `http://localhost:8787/?view=replay` 看这一局每一拍的决策和收到的数据。规则见 `SKILL.md`，接入先看 `docs/quickstart.md`，深挖见 `docs/advanced.md`（或站点内 `http://localhost:8787/guide.html`）。
 
 ## 常用参数
 

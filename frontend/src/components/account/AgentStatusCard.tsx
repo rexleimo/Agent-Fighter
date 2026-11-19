@@ -15,12 +15,37 @@ function FighterChip({ id, index }: { id: string; index: number }) {
   );
 }
 
+/** Rating trend from the agent's own counted-match history. */
+function RatingSpark({ history }: { history: Array<{ result: string; rating: number }> }) {
+  if (history.length < 2) return null;
+  const values = history.map((h) => h.rating);
+  const min = Math.min(...values), max = Math.max(...values);
+  const span = Math.max(1, max - min);
+  const points = values.map((v, i) => `${(i / (values.length - 1)) * 120},${30 - ((v - min) / span) * 26}`).join(' ');
+  const up = values[values.length - 1] >= values[0];
+  return (
+    <div className="acc-spark" title={`评分趋势：${values[0]} → ${values[values.length - 1]}`}>
+      <span className="acc-label">评分趋势</span>
+      <svg viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+        <polyline points={points} fill="none" stroke={up ? 'var(--accent)' : 'var(--red)'} strokeWidth="2" />
+      </svg>
+      <span className="mono">{values[0]} → {values[values.length - 1]}</span>
+    </div>
+  );
+}
+
 export function AgentStatusCard({ enabled }: { enabled: boolean }) {
   const query = useQuery({
     queryKey: ['my-agent'],
     queryFn: () => api<MyAgentResponse>('/api/me/agent'),
     enabled,
     refetchInterval: 4000,
+  });
+  // All hooks must run before the early returns below (React hook-order rule).
+  const boardQuery = useQuery({
+    queryKey: ['leaderboard', 'all'],
+    queryFn: () => api<{ rows: Array<{ id: string; rank: number }> }>('/api/leaderboard'),
+    staleTime: 10_000,
   });
 
   if (!enabled) return null;
@@ -37,6 +62,7 @@ export function AgentStatusCard({ enabled }: { enabled: boolean }) {
   const data = query.data;
   if (!data) return null;
   const agent = data.agent;
+  const myRank = boardQuery.data?.rows.find((r) => r.id === agent.id)?.rank ?? null;
   return (
     <section className="acc-card panel acc-wide">
       <div className="acc-card-head">
@@ -52,6 +78,7 @@ export function AgentStatusCard({ enabled }: { enabled: boolean }) {
           </div>
           <div className="acc-record">
             <b>{agent.wins}</b> 胜 <b>{agent.losses}</b> 负 · 评分 {agent.rating}
+            {' · '}{agent.matches > 0 && myRank ? <b>第 {myRank} 名</b> : <span className="acc-muted">未上榜</span>}
           </div>
         </div>
 
@@ -69,6 +96,8 @@ export function AgentStatusCard({ enabled }: { enabled: boolean }) {
           ) : <span className="acc-muted">成本数据读取中…</span>}
           {agent.practiceMatches ? <span className="acc-tag-warn">陪练 {agent.practiceMatches} 局不计榜</span> : null}
         </div>
+
+        <RatingSpark history={agent.ratingHistory ?? []} />
 
         <div className="acc-team">
           <div>
@@ -111,6 +140,23 @@ export function AgentStatusCard({ enabled }: { enabled: boolean }) {
                 </div>
               ))}
             </div>
+          </>
+        )}
+
+        {(data.training?.runs?.length ?? 0) > 0 && (
+          <>
+            <div className="acc-label">训练记录（免费 · 不计榜）</div>
+            <div className="acc-training">
+              {(data.training?.runs ?? []).slice(0, 3).map((run: any) => (
+                <div className="acc-training-row" key={run.at + run.versionHash}>
+                  <span className="mono">{new Date(run.at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                  <span>{run.wins} 胜 / {run.games} 局</span>
+                  <span>强度 <b>{run.strengthIndex ?? '—'}</b></span>
+                  <span className="mono">{(run.versionHash || '').slice(0, 10)}</span>
+                </div>
+              ))}
+            </div>
+            <Link className="mini-btn" to="/training">去训练场 ↗</Link>
           </>
         )}
       </div>

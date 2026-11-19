@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, post } from '../lib/api';
 import type {
@@ -163,9 +164,29 @@ export function TrainingPage() {
       </div>
 
       {signedOut && (
-        <div className="panel">
-          <p>训练场是账号内的私人沙盒，请先登录后在「接入」页拿到你的 Agent，再回来。</p>
-        </div>
+        <section className="tr-gate panel">
+          <div className="tr-gate-hero">
+            <span className="tr-gate-icon"><svg className="ic"><use href="#i-bolt" /></svg></span>
+            <div>
+              <h2>先接入你的 Agent，再进训练场</h2>
+              <p>训练场是账号内的私人沙盒：这里跑的每一局都调用你自己的 Agent 策略，所以需要先有玩家账号和一份策略。</p>
+            </div>
+          </div>
+          <ol className="tr-gate-steps">
+            <li><b>01</b><span>注册玩家并领取专属 MCP 服务链接</span></li>
+            <li><b>02</b><span>把链接交给 Agent，提交一份声明式策略</span></li>
+            <li><b>03</b><span>回来免费练招、逐规则诊断、对比新旧版本</span></li>
+          </ol>
+          <div className="tr-gate-actions">
+            <Link className="primary-btn" to="/connect">
+              <svg className="ic"><use href="#i-terminal" /></svg>去接入 Agent
+            </Link>
+            <Link className="ghost-btn" to="/library?file=docs%2Fquickstart.md">
+              <svg className="ic"><use href="#i-book" /></svg>看快速入门
+            </Link>
+          </div>
+          <p className="tr-gate-note">不调用 LLM、不计榜、不动评分与赛程——全程零成本。</p>
+        </section>
       )}
 
       {!signedOut && (

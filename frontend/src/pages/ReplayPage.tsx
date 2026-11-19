@@ -106,7 +106,7 @@ export function ReplayPage() {
   const [params, setParams] = useSearchParams();
   const matchesQuery = useQuery({
     queryKey: ['matches'],
-    queryFn: () => api<{ matches: MatchSummary[] }>('/api/matches'),
+    queryFn: () => api<{ matches: MatchSummary[] }>('/api/matches?scope=player'),
     refetchInterval: 8000,
   });
   const rules = useQuery({
@@ -149,12 +149,6 @@ export function ReplayPage() {
   }, [params, matches]);
 
   useEffect(() => {
-    if (params.get('match')) return;
-    if (!matchId && matches.length) select(matches[0].matchId);
-    // Deep link wins; otherwise open the newest match once, then let the user drive.
-  }, [matches.length]);
-
-  useEffect(() => {
     if (!playing || !replay) return;
     if (index >= replay.ticks.length - 1) {
       setPlaying(false);
@@ -191,7 +185,7 @@ export function ReplayPage() {
       <div className="view-head">
         <div>
           <h1>对局回放</h1>
-          <p>逐拍重演 · 拖动时间轴查看任意一拍的动作、事件与完整 observation。</p>
+          <p>这里只收录玩家 Agent 的对战（含与官方基线的陪练局），不含内置演示局。选一场后逐拍重演，拖动时间轴查看任意一拍的动作、事件与完整 observation。</p>
         </div>
         <button className="ghost-btn" type="button" onClick={() => matchesQuery.refetch()} disabled={matchesQuery.isFetching}>
           <svg className="ic"><use href="#i-replay" /></svg>
@@ -201,68 +195,88 @@ export function ReplayPage() {
 
       <div className="replay-layout">
         <div className="match-list panel">
-          {matches.length === 0 && <div className="empty">暂无已结束对局，稍等一局打完。</div>}
+          <div className="match-list-head">
+            <b>已结束对局</b>
+            <span className="mono">{matches.length} 场</span>
+          </div>
+          {matchesQuery.isLoading && <div className="empty">正在读取对局…</div>}
+          {!matchesQuery.isLoading && matches.length === 0 && <div className="empty">还没有玩家 Agent 的对战记录。注册玩家、让 Agent 建队报名，真打一局后这里就会出现。</div>}
           {matches.map((m) => (
             <MatchItem key={m.matchId} match={m} active={m.matchId === matchId} onSelect={() => select(m.matchId)} />
           ))}
         </div>
 
         <div className="replay-main">
-          <div className="stage-shell replay-stage">
-            <ReplayCanvas
-              ticks={replay?.ticks ?? []}
-              index={index}
-              match={replay?.match}
-              moves={rules.data?.moves ?? {}}
-              fighters={fighters}
-              stages={stages}
-            />
-            <div className="stage-topbar">
-              <span className="live-badge replay"><svg className="ic"><use href="#i-replay" /></svg>REPLAY</span>
-              <span className="mono frame-readout">
-                {frame ? `FRAME ${String(frame.frame).padStart(4, '0')} · TICK ${String(index).padStart(4, '0')}${tick?.round ? ` · ROUND ${tick.round}` : ''}` : '未选择对局'}
-              </span>
-            </div>
-          </div>
-
-          <div className="replay-controls panel">
-            <button className="play-btn" type="button" onClick={() => setPlaying((v) => !v)} disabled={!replay?.ticks.length}>
-              <svg className="ic"><use href={playing ? '#i-pause' : '#i-play'} /></svg>
-            </button>
-            <input
-              type="range"
-              min={0}
-              max={max}
-              value={Math.min(index, max)}
-              step={1}
-              onChange={(event) => { setPlaying(false); setIndex(Number(event.target.value)); }}
-            />
-            <span className="mono">{String(index + 1).padStart(3, '0')} / {replay?.ticks.length ?? 0}</span>
-          </div>
-
-          {error && <div className="acc-error">{error}</div>}
-
-          <div className="replay-detail">
-            <div className="panel">
-              <div className="panel-head"><h2>本拍动作与事件</h2></div>
-              <div className="event-list compact">
-                {eventRows.length === 0 && <div className="empty">选择一局回放</div>}
-                {eventRows.map((row, i) => (
-                  <div className={`ev${i > 0 ? ' ev-hit' : ''}`} key={i}>
-                    <span className="ev-tick">{String(index).padStart(3, '0')}</span>
-                    <div className="ev-body">
-                      <div className="ev-title">{row.title}</div>
-                      <div className="ev-sub mono">{row.sub}</div>
-                    </div>
-                  </div>
-                ))}
+          {!replay ? (
+            <div className="replay-empty panel">
+              <svg className="ic"><use href="#i-replay" /></svg>
+              <h2>选择左侧的一场对局</h2>
+              <p>点开任意一场已结束对局，这里会逐拍重演整场比赛。拖时间轴可跳到任意一拍，查看双方动作、战斗事件和完整 observation。</p>
+              <div className="replay-empty-hints">
+                <span className="mono">01 · 选对局</span>
+                <span className="mono">02 · 拖时间轴</span>
+                <span className="mono">03 · 看决策</span>
               </div>
             </div>
-            <div className="panel">
-              <div className="panel-head"><h2>Observation (SIDE A)</h2></div>
-              <pre className="json-view">{tick ? JSON.stringify(tick.observation, null, 1) : '—'}</pre>
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="stage-shell replay-stage">
+                <ReplayCanvas
+                  ticks={replay.ticks}
+                  index={index}
+                  match={replay.match}
+                  moves={rules.data?.moves ?? {}}
+                  fighters={fighters}
+                  stages={stages}
+                />
+                <div className="stage-topbar">
+                  <span className="live-badge replay"><svg className="ic"><use href="#i-replay" /></svg>REPLAY</span>
+                  <span className="mono frame-readout">
+                    {frame ? `FRAME ${String(frame.frame).padStart(4, '0')} · TICK ${String(index).padStart(4, '0')}${tick?.round ? ` · ROUND ${tick.round}` : ''}` : '未选择对局'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="replay-controls panel">
+                <button className="play-btn" type="button" onClick={() => setPlaying((v) => !v)} disabled={!replay.ticks.length}>
+                  <svg className="ic"><use href={playing ? '#i-pause' : '#i-play'} /></svg>
+                </button>
+                <input
+                  type="range"
+                  min={0}
+                  max={max}
+                  value={Math.min(index, max)}
+                  step={1}
+                  onChange={(event) => { setPlaying(false); setIndex(Number(event.target.value)); }}
+                />
+                <span className="mono">{String(index + 1).padStart(3, '0')} / {replay.ticks.length}</span>
+              </div>
+
+              {error && <div className="acc-error">{error}</div>}
+
+              <div className="replay-detail">
+                <div className="panel">
+                  <div className="panel-head"><h2>本拍动作与事件</h2></div>
+                  <div className="event-list compact">
+                    {eventRows.length === 0 && <div className="empty">选择一局回放</div>}
+                    {eventRows.map((row, i) => (
+                      <div className={`ev${i > 0 ? ' ev-hit' : ''}`} key={i}>
+                        <span className="ev-tick">{String(index).padStart(3, '0')}</span>
+                        <div className="ev-body">
+                          <div className="ev-title">{row.title}</div>
+                          <div className="ev-sub mono">{row.sub}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="panel">
+                  <div className="panel-head"><h2>Observation (SIDE A)</h2></div>
+                  <pre className="json-view">{tick ? JSON.stringify(tick.observation, null, 1) : '—'}</pre>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </>
@@ -273,14 +287,28 @@ function MatchItem({ match, active, onSelect }: { match: MatchSummary; active: b
   const a = match.a as any;
   const b = match.b as any;
   const draw = match.winner === 'draw' || (match as any).winnerName === 'draw';
+  const winnerName = String((match as any).winnerName ?? match.winner ?? '—');
+  const mode = match.mode ?? 'demo';
+  const modeLabel = match.practice ? '陪练' : mode === 'ranked' ? '排位' : mode === 'scrim' ? '私房' : '演示';
+  const when = match.endedAt && !Number.isNaN(Date.parse(match.endedAt))
+    ? new Date(match.endedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    : '';
   return (
     <button className={`match-item${active ? ' active' : ''}`} type="button" onClick={onSelect}>
-      <div className="mi-top"><span>{match.matchId.slice(0, 18)}</span><span>{String(match.ticks ?? '—')} 拍</span></div>
-      <div className="mi-names"><b>{a?.name ?? 'A'}</b> vs <span>{b?.name ?? 'B'}</span></div>
+      <div className="mi-top">
+        <span className={`mi-mode mi-mode-${match.practice ? 'practice' : mode}`}>{modeLabel}</span>
+        <span className="mono">{when || `${match.ticks ?? '—'} 拍`}</span>
+      </div>
+      <div className="mi-names">
+        <b className={match.winner === 'a' ? 'mi-winner' : ''}>{a?.name ?? 'A'}</b>
+        <i className="mi-vs mono">VS</i>
+        <span className={match.winner === 'b' ? 'mi-winner' : ''}>{b?.name ?? 'B'}</span>
+      </div>
       <div className="mi-meta">
-        {match.format === 'team' ? '3v3 组队 · ' : ''}
-        {draw ? '平局' : <>胜 <b className="mi-win">{String((match as any).winnerName ?? match.winner ?? '—')}</b></>}
-        {' '}· {REASON_LABEL[String(match.reason)] ?? match.reason ?? '—'} · Δ {(match as any).ratingDeltaA ?? 0}
+        {match.format === 'team' ? '3v3 · ' : '1v1 · '}
+        {draw ? '平局' : <>胜 <b className="mi-win">{winnerName}</b></>}
+        {' · '}{REASON_LABEL[String(match.reason)] ?? match.reason ?? '—'}
+        {' · '}{match.ticks ?? '—'} 拍
       </div>
     </button>
   );

@@ -10,6 +10,7 @@ import { loadRig, drawRig } from '@web/rig.js';
 import { drawSprite, ensureSprites, spritesReady } from '@web/sprite.js';
 import { createFx } from '@web/fx.js';
 import { createImpactFx } from '@web/impact-fx.js';
+import { createKoCinematic } from '@web/ko-cinematic.js';
 import { loadFighterArt, loadStageArt, preloadFighters } from '@web/asset-store.js';
 import { play as playSound } from '@web/audio.js';
 
@@ -41,6 +42,23 @@ export function createStageRenderer({ view, stageCanvas, replayCanvas }) {
     stage: createImpactFx({ labelFor: fxLabel, plainLabel: label, onSound: playSound, enabled: () => S.showFx, ground: GROUND }),
     replay: createImpactFx({ labelFor: fxLabel, plainLabel: label, onSound: null, enabled: () => S.showFx, ground: GROUND }),
   };
+  // KO presentation owns its own wall-clock sequence. It fires on the KO event
+  // itself — not just on a match_end whose reason is 'ko' — because a team
+  // round can knock a fighter out while the match continues (its final reason
+  // is 'elimination'). koTriggeredFor keeps one sequence per match id so the
+  // later match_end cannot restart an animation that already played.
+  const koCinema = createKoCinematic();
+  let seenResult = null;
+  let pendingKo = null;
+  let koTriggered = false;
+  let trackedMatchId = null;
+
+  function triggerKo(winner, winnerName, isStage) {
+    if (!isStage || !winner || koTriggered) return;
+    koTriggered = true;
+    const accent = winner === 'b' ? '#7aa2ff' : '#49e0b0';
+    koCinema.trigger({ reason: 'ko', winner, winnerName: winnerName || '—' }, accent);
+  }
 
 /* ---------------------------------------------------------------- canvas */
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -375,14 +393,6 @@ function drawSpriteBody(c, img, o) {
   }
   if (state === 'knockdown') { lean = -1.12 * dir; bob = 10; }
 
-  c.save();
-  const glow = c.createRadialGradient(gx, gy - 82, 8, gx, gy - 82, W * 0.7);
-  glow.addColorStop(0, pal.aura || 'rgba(140,180,220,.16)');
-  glow.addColorStop(1, 'rgba(0,0,0,0)');
-  c.fillStyle = glow;
-  c.beginPath(); c.ellipse(gx, gy - 82, W * 0.7, H * 0.58, 0, 0, Math.PI * 2); c.fill();
-  c.restore();
-
   const globalFrame = (S.current && S.current.frame) || 0;
   // A dark rim keeps the silhouette readable against bright baked effects and
   // the stage lights; without it a white-palette fighter merges into the glow.
@@ -630,22 +640,6 @@ function drawFighter(c, f, side, frame, match) {
     c.beginPath(); c.ellipse(gx, GROUND + 3, 30 * bulk, 6, 0, 0, Math.PI * 2); c.fill();
   }
   c.restore();
-  c.save();
-  if (sprite) {
-    const light = c.createRadialGradient(gx, gy - 80, 8, gx, gy - 80, 86 * bulk);
-    light.addColorStop(0, side === 'a' ? 'rgba(53,214,164,.12)' : 'rgba(91,140,255,.12)');
-    light.addColorStop(1, 'rgba(0,0,0,0)');
-    c.fillStyle = light;
-    c.beginPath(); c.ellipse(gx, gy - 80, 86 * bulk, 104, 0, 0, Math.PI * 2); c.fill();
-    c.globalAlpha = 0.14; c.strokeStyle = sideColor; c.lineWidth = 1.2;
-    c.beginPath(); c.ellipse(gx, gy - 94, 45 * bulk, 96, 0, 0, Math.PI * 2); c.stroke();
-  } else {
-    c.fillStyle = pal.aura || 'rgba(140,180,220,.12)';
-    c.beginPath(); c.ellipse(gx, gy - 54, 40 * bulk, 62, 0, 0, Math.PI * 2); c.fill();
-    c.globalAlpha = 0.32; c.strokeStyle = sideColor; c.lineWidth = 1.5; c.stroke();
-  }
-  c.restore();
-
   if (sprite || ART.rigs[def.id] || spritesReady(def.id)) {
     drawSpriteBody(c, sprite, { f, def, pal, dir, gx, gy, side, sideColor, handF, bulk });
   } else {
@@ -746,10 +740,6 @@ function drawFighter(c, f, side, frame, match) {
 
   drawFrameGeometry(c, f, side);
 
-  // Side marker on the floor so mirrored fighters stay distinguishable.
-  c.strokeStyle = sideColor; c.lineWidth = 2; c.globalAlpha = 0.8;
-  c.beginPath(); c.ellipse(gx, GROUND + 2, 20 * bulk, 4, 0, 0, Math.PI * 2); c.stroke();
-  c.globalAlpha = 1;
   c.textAlign = 'center';
   c.lineJoin = 'round';
   c.lineWidth = 3;
@@ -1110,7 +1100,44 @@ function draw(c, frame, match, canvas) {
   // The counter is HUD, not scenery: it must not ride the impact shake.
   c.setTransform(1, 0, 0, 1, 0, 0);
   if (S.showFx) fx.draw(c, frame, match, w);
-  if (S.lastResult && (!match || S.lastResult.matchId === match.matchId)) drawResult(c, w, h, match);
+  const matchId = match && match.matchId;
+  if (matchId && matchId !== trackedMatchId) {
+    // A genuinely new match: clear the previous presentation state. match_end
+    // reuses the id, so this does NOT wipe a cinematic that just fired on the
+    // KO event a moment earlier.
+    trackedMatchId = matchId;
+    koTriggered = false;
+    pendingKo = null;
+    seenResult = null;
+    koCinema.reset();
+  }
+
+  if (S.lastResult && (!match || S.lastResult.matchId === match.matchId)
+      && S.lastResult !== seenResult) {
+    seenResult = S.lastResult;
+    if (S.lastResult.reason === 'ko') {
+      triggerKo(S.lastResult.winner, S.lastResult.winnerName, canvas === stageCanvas);
+    }
+  }
+  if (pendingKo && !koTriggered) {
+    const wnr = pendingKo.winner;
+    const name = wnr === 'a' ? match?.a?.name : wnr === 'b' ? match?.b?.name : null;
+    triggerKo(wnr, name || (wnr === 'a' ? 'A' : wnr === 'b' ? 'B' : '—'), canvas === stageCanvas);
+  }
+
+  if (koCinema.hasResult()) {
+    // A team round has no lastResult: once the sequence settles, drop the end
+    // card so it cannot sit on top of the next round — and allow the next
+    // round's KO to fire a fresh sequence.
+    if (koCinema.isActive() || S.lastResult) koCinema.draw(c, w, h);
+    else {
+      koCinema.reset();
+      koTriggered = false;
+      pendingKo = null;
+    }
+  } else if (S.lastResult && (!match || S.lastResult.matchId === match.matchId)) {
+    drawResult(c, w, h, match);
+  }
 }
 
 function drawResult(c, w, h, match) {
@@ -1169,10 +1196,20 @@ function drawResult(c, w, h, match) {
       replayFx.reset();
       impactFx.stage.reset();
       impactFx.replay.reset();
+      // The KO cinematic is lifecycle-managed by match id in draw(): match_end
+      // reuses the id and must not cut short a sequence that just played.
     },
     ingestLiveEvents(events) {
       stageFx.ingest(events);
       impactFx.stage.ingest(events);
+      if (!pendingKo) {
+        for (const e of events || []) {
+          if (e.type === 'ko') { pendingKo = { winner: e.winner }; break; }
+        }
+      }
+    },
+    isKoCinemaActive() {
+      return koCinema.isActive();
     },
     observeReplay(frame, events) {
       replayFx.observe(frame, events);

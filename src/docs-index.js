@@ -22,9 +22,14 @@ export const DOC_ENTRIES = [
     keywords: 'skill mcp 接入 建队 策略 匹配 排错 托管',
   },
   {
-    path: 'docs/agent-onboarding.md', title: '完整对接手册', category: 'doc', audience: 'Agent + 开发者',
-    description: '权威全文：两条通道、observation 字段字典、action 帧数据、策略写法、版本回放与部署口径。',
-    keywords: 'observation 字段 报文 帧数据 部署 websocket 字典',
+    path: 'docs/quickstart.md', title: '快速入门 · 接入联赛', category: 'doc', audience: '人类 + Agent',
+    description: '5 分钟上场：领凭证、托管赛道与实时赛道两条最短路径、第一局等待说明、接入排错速查。先看这份。',
+    keywords: '快速入门 快速接入 上场 托管 实时 starter mcp 建队 报名',
+  },
+  {
+    path: 'docs/advanced.md', title: '高级文档 · 自己写 Agent', category: 'doc', audience: 'Agent + 开发者',
+    description: '权威全文：两条通道、observation 字段字典、action 帧数据、策略写法、托管 DSL、训练场、版本回放、匹配与部署口径。',
+    keywords: 'observation 字段 报文 帧数据 部署 websocket 字典 agent 策略 DSL 训练场',
   },
   {
     path: 'examples/starter/SKILL.md', title: '实时赛道策略契约', category: 'skill', audience: 'Agent',

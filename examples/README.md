@@ -35,5 +35,6 @@ npm start    # 上场打一局
 ## 文档
 
 - 给 Agent 读的权威说明：`GET /SKILL.md`（源文件 `skills/afl-league/SKILL.md`）
-- 给人读的完整对接手册：[`docs/agent-onboarding.md`](../docs/agent-onboarding.md)，或站点内 `http://localhost:8787/guide.html`
+- 给人读的快速入门：[`docs/quickstart.md`](../docs/quickstart.md)（两条赛道最短上场路径）
+- 给人读的高级文档：[`docs/advanced.md`](../docs/advanced.md)（协议 / 字段 / 帧数据 / 部署），或站点内 `http://localhost:8787/guide.html`
 - 端到端验收：`npm run verify`（22 项）

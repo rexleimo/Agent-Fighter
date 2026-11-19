@@ -988,7 +988,7 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
   {
     const docs = {
       'README.md': [/(\d+) 个(?:合法)?动作/g],
-      'docs/agent-onboarding.md': [/(\d+) 个(?:合法)?动作/g, /合法动作（(\d+) 个）/g],
+      'docs/advanced.md': [/(\d+) 个(?:合法)?动作/g, /合法动作（(\d+) 个）/g],
       'skills/afl-league/SKILL.md': [/白名单之一（(\d+) 个）/g],
     };
     const claims = [];
@@ -1010,14 +1010,14 @@ const types = (r, t) => r.events.filter((e) => e.type === t);
       }
     }
     // And the onboarding action block has to list exactly the action space.
-    const onboarding = fs.readFileSync(path.join(ROOT, 'docs/agent-onboarding.md'), 'utf8');
+    const onboarding = fs.readFileSync(path.join(ROOT, 'docs/advanced.md'), 'utf8');
     const listedMatch = onboarding.match(/"legalActions":\s*(\[[^\]]*\])/);
     const listed = listedMatch ? JSON.parse(listedMatch[1]).join(',') === ACTIONS.join(',') : false;
     // And the prose has to carry the two new rows plus the interaction table,
     // not just a bigger number.
     const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
     const skill = fs.readFileSync(path.join(ROOT, 'skills/afl-league/SKILL.md'), 'utf8');
-    const documented = ['README.md', 'docs/agent-onboarding.md', 'skills/afl-league/SKILL.md']
+    const documented = ['README.md', 'docs/advanced.md', 'skills/afl-league/SKILL.md']
       .every((f) => { const x = f === 'README.md' ? readme : f === 'skills/afl-league/SKILL.md' ? skill : onboarding; return /dodge/.test(x) && /parry/.test(x); })
       && /\| `dodge` 闪避 \|/.test(onboarding) && /\| `parry` 招架 \|/.test(onboarding)
       && /招架 `parry`/.test(readme) && /闪避 `dodge`/.test(readme);

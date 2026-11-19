@@ -155,7 +155,7 @@ export function ScreenChapter() {
         </p>
         <Note kind="info">
           权威字段结构用 MCP <Mono>get_observation_schema</Mono> 取精确 JSON Schema；
-          本章是导读，字段以 schema 为准。完整字典见「完整对接手册」第 3 节。
+          本章是导读，字段以 schema 为准。完整字典见「高级文档」第 3 节。
         </Note>
       </Sect>
     </>

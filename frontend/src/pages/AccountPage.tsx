@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, post } from '../lib/api';
-import type { McpService, MeResponse } from '../lib/types';
+import type { McpService, MeProfileResponse, MeResponse } from '../lib/types';
 import { AuthCard } from '../components/account/AuthCard';
 import { McpCard } from '../components/account/McpCard';
 import { AgentStatusCard } from '../components/account/AgentStatusCard';
 import { AdminPanel } from '../components/account/AdminPanel';
+import { MyMatchesCard } from '../components/account/MyMatchesCard';
+import { SecurityCard } from '../components/account/SecurityCard';
+import { GettingStartedCard } from '../components/account/GettingStartedCard';
+import { StrategyCard } from '../components/account/StrategyCard';
 
 type Credentials = { username: string; password: string; displayName?: string };
 
@@ -20,6 +24,12 @@ export function AccountPage() {
   });
   const unauthorized = meQuery.error instanceof ApiError && meQuery.error.status === 401;
   const me = unauthorized ? null : meQuery.data;
+  const profileQuery = useQuery({
+    queryKey: ['me-profile'],
+    queryFn: () => api<MeProfileResponse>('/api/me/profile'),
+    enabled: Boolean(me),
+    retry: false,
+  });
 
   const login = useMutation({
     mutationFn: (values: Credentials) => post('/api/auth/sign-in/username', {
@@ -85,26 +95,51 @@ export function AccountPage() {
   }
 
   return (
-    <div className="acc-grid">
-      {issue.error && <div className="acc-error acc-wide">{issue.error.message}</div>}
+    <>
+      <div className="acc-center-head">
+        <h1>用户中心</h1>
+        <p>你的 Agent、你的真实对战与回放、MCP 凭证与账户安全，都在这里。</p>
+      </div>
+      <div className="acc-grid">
+        {issue.error && <div className="acc-error acc-wide">{issue.error.message}</div>}
 
-      <section className="acc-card panel acc-profile">
-        <div className="acc-card-head">
-          <h2>玩家</h2>
-          <span className={`acc-badge ${me.player.role === 'admin' ? 'admin' : 'ok'}`}>{me.player.role}</span>
-        </div>
-        <div className="acc-player-name">{me.player.displayName}</div>
-        <div className="acc-muted mono">@{me.player.username} · {me.player.id}</div>
-        <div className="acc-actions">
-          <button className="ghost-btn" type="button" disabled={logout.isPending} onClick={() => logout.mutate()}>
-            {logout.isPending ? '退出中…' : '退出登录'}
-          </button>
-        </div>
-      </section>
+        <section className="acc-card panel acc-profile">
+          <div className="acc-card-head">
+            <h2>玩家</h2>
+            <span className={`acc-badge ${me.player.role === 'admin' ? 'admin' : 'ok'}`}>{me.player.role}</span>
+          </div>
+          <div className="acc-profile-top">
+            <div className="acc-profile-avatar">
+              {profileQuery.data?.image
+                ? <img src={profileQuery.data.image} alt="头像" onError={(e) => { (e.currentTarget.parentElement as HTMLElement).classList.add('fallback'); }} />
+                : null}
+              <span>{me.player.displayName.slice(0, 1)}</span>
+            </div>
+            <div className="acc-profile-id">
+              <div className="acc-player-name">{me.player.displayName}</div>
+              <div className="acc-muted mono">@{me.player.username} · {me.player.id}</div>
+            </div>
+          </div>
+          <div className="acc-profile-email">
+            <span>邮箱</span>
+            <b>{profileQuery.data?.email || '读取中…'}</b>
+            <a className="mini-btn" href="#account-security">修改</a>
+          </div>
+          <div className="acc-actions">
+            <button className="ghost-btn" type="button" disabled={logout.isPending} onClick={() => logout.mutate()}>
+              {logout.isPending ? '退出中…' : '退出登录'}
+            </button>
+          </div>
+        </section>
 
-      <McpCard me={me} busy={issue.isPending} onIssue={() => issue.mutate()} error="" />
-      <AgentStatusCard enabled />
-      {me.player.role === 'admin' && <AdminPanel />}
-    </div>
+        <McpCard me={me} busy={issue.isPending} onIssue={() => issue.mutate()} error="" />
+        <AgentStatusCard enabled />
+        <GettingStartedCard me={me} />
+        <StrategyCard />
+        <MyMatchesCard />
+        <SecurityCard me={me} onLogout={() => logout.mutate()} />
+        {me.player.role === 'admin' && <AdminPanel />}
+      </div>
+    </>
   );
 }

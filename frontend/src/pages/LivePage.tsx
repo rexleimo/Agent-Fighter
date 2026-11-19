@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAppState } from '../hooks/useAppState';
 import { useSpectator } from '../hooks/useSpectator';
 import { StageCanvas, type ToolState } from '../components/live/StageCanvas';
-import { TeamStrip } from '../components/live/TeamStrip';
-import { Intermission } from '../components/live/Intermission';
+import { BroadcastHud } from '../components/live/BroadcastHud';
+import { BroadcastStatus } from '../components/live/BroadcastStatus';
 import { isEnabled as soundEnabled, play as playSound, setEnabled as setSoundEnabled } from '@web/audio.js';
 import type { Fighter, StageRegistry } from '../lib/types';
 
@@ -20,127 +20,6 @@ const EVENT_LABEL: Record<string, string> = {
   cancel: '取消连段', super_start: '超必杀发动', armor: '霸体吸收', wakeup: '起身',
   move_start: '出招', hitstop: '命中停顿', evade: '闪避成功', parry: '招架成功',
 };
-const SOURCE_LABEL: Record<string, string> = { builtin: '官方基线（内置）', hosted: '服务端托管', external: '外部实时进程' };
-const MODE_LABEL: Record<string, string> = { demo: 'DEMO · 演示场', ranked: 'RANKED · 排位场', scrim: 'SCRIM · 私房' };
-const PAIRING_LABEL: Record<string, string> = { showcase: '官方基线轮转', rating: '评分就近', code: '房间码', sparring: '官方陪练' };
-
-const short = (value: unknown, size = 8) => String(value ?? '').slice(0, size);
-const pct = (value: number, max: number) => `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
-
-function RoomBar({ match }: { match: any }) {
-  const team = match?.format === 'team';
-  const mode = match?.mode ?? 'demo';
-  const sparring = mode === 'ranked' && match?.pairing === 'sparring';
-  const tag = team
-    ? `TEAM · 组队${match.ranked ? '排位' : '淘汰赛'}${match.code ? ` · ${match.code}` : ''}`
-    : `${MODE_LABEL[mode] ?? mode}${match?.code ? ` · ${match.code}` : ''}`;
-  const copy = team
-    ? (match.ranked
-      ? '3v3 组队排位 · 两名已注册玩家 Agent 对打才计胜场 · 胜者回血 15% · 回合间各一次换人'
-      : '3v3 组队淘汰 · 不计分 · 胜者回血 15% · 回合间各一次换人机会')
-    : mode === 'demo'
-      ? '官方基线演示局：引擎真实打完、可逐拍回放，但不计胜场不计分。打开「对战大厅」切到任意一场玩家对局。'
-      : mode === 'scrim'
-        ? '不计分 · 房间码约战 · 允许不同角色'
-        : sparring
-          ? '排位房的官方基线陪练局：真实对局、真实回放，但不计胜场不计分；想上榜需要另一名已注册 Agent 同时报名。'
-          : `计入胜场榜的玩家排位局 · ${PAIRING_LABEL[match?.pairing] ?? '评分就近'} · 双方镜像角色`;
-  return (
-    <div className="room-bar">
-      <span className={`room-tag mode-${team ? 'team' : mode}`}>{tag}</span>
-      <span className="room-copy">{copy}</span>
-      <Link className="ghost-btn" to="/lobby"><svg className="ic"><use href="#i-lobby" /></svg>切换房间</Link>
-    </div>
-  );
-}
-
-function PresenceBar({ state }: { state: any }) {
-  const presence = state.presence ?? {};
-  const online = Number(presence.onlineAgents ?? 0);
-  const waiting = Number(presence.waiting ?? 0);
-  const match = state.match;
-  const sides = [match?.a, match?.b].filter(Boolean);
-  const external = sides.filter((s: any) => s.source === 'external');
-  let note: string;
-  if (match?.mode === 'ranked') {
-    note = match.pairing === 'sparring'
-      ? '排位房配到官方基线：这一局真实打完、可逐拍回放，但不计胜场不计分——榜单只统计已注册玩家 Agent 之间的战果。'
-      : '真实排位对局：两名报名 Agent 按评分就近配对，战果计入胜场榜。';
-  } else if (match?.mode === 'scrim') {
-    note = '私房约战：凭房间码配对，不计入胜场榜。';
-  } else if (online === 0 && waiting === 0) {
-    note = '当前没有外部 Agent 连上，匹配队列也是空的。这一场是官方基线演示局；到「对战大厅」报名参赛即可打真实排位。';
-  } else if (online === 0) {
-    note = `队列里有 ${waiting} 个 Agent 等待配对；超时会配官方基线陪练（真实对局，但不计胜场榜）。`;
-  } else {
-    note = `有 ${online} 个外部 Agent 通过 WebSocket 在线，可在「对战大厅」切换房间观看它们的对局。`;
-  }
-  return (
-    <div className={`presence-bar${online > 0 ? ' live' : ''}`}>
-      <span className="pb-item"><i className={`pb-dot ${online > 0 ? 'on' : 'off'}`} />在线外部 Agent <b>{online}</b></span>
-      <span className="pb-item">匹配队列 <b>{waiting}</b></span>
-      <span className="pb-item">观众 <b>{presence.spectators ?? 0}</b></span>
-      <span className="pb-item">本场来源 <b>{sides.length ? sides.map((s: any) => SOURCE_LABEL[s.source] ?? s.source).join(' / ') : '—'}</b></span>
-      <span className={`pb-item${external.length ? '' : ' alert'}`}>本场外部进程 <b>{external.length}</b></span>
-      <span className="pb-note">{note}</span>
-    </div>
-  );
-}
-
-function MatchHead({ match }: { match: any }) {
-  const a = match?.a;
-  const b = match?.b;
-  const source = (side: any) => SOURCE_LABEL[side?.source] ?? side?.source ?? '—';
-  const conn = (side: any) => side?.source === 'external' ? (side.connected ? ' · WS 已连' : ' · WS 未连') : ' · 无需长连接';
-  const fighter = (side: any) => side?.fighter ? `${side.fighter.code} · ${side.fighter.name}` : '—';
-  return (
-    <div className="match-head">
-      <div className="fighter-card side-a">
-        <div className="fc-top"><span className="side-tag">SIDE A</span><span className="fc-rating">ELO {a?.rating ?? '—'}</span></div>
-        <div className="fc-name">{a?.name ?? '等待连接'}</div>
-        <div className="fc-label">{a?.label ?? '—'}</div>
-        <div className="fc-meta"><span>{fighter(a)}</span><span className="dot-sep">·</span><span>{source(a)} · {a?.kind ?? '—'}{conn(a)}</span><span className="dot-sep">·</span><span className="mono">v:{short(a?.versionHash, 10) || '—'}</span></div>
-        <div className="fc-desc">{a?.description ?? '—'}</div>
-      </div>
-      <div className="vs-block">
-        <div className="vs-round">{match?.format === 'team' ? `回合 ${match.team?.round ?? 1}` : '第 1 局'}</div>
-        <div className="vs-mark">VS</div>
-        <div className="vs-sub mono">{match?.matchId ?? '—'}</div>
-        <div className="vs-tick">TICK {match?.tick === undefined ? '—' : String(match.tick).padStart(3, '0')} / {match?.totalTicks ?? '—'}</div>
-      </div>
-      <div className="fighter-card side-b">
-        <div className="fc-top"><span className="fc-rating">ELO {b?.rating ?? '—'}</span><span className="side-tag">SIDE B</span></div>
-        <div className="fc-name">{b?.name ?? '等待连接'}</div>
-        <div className="fc-label">{b?.label ?? '—'}</div>
-        <div className="fc-meta"><span className="mono">v:{short(b?.versionHash, 10) || '—'}</span><span className="dot-sep">·</span><span>{b?.kind ?? '—'} · {source(b)}{conn(b)}</span><span className="dot-sep">·</span><span>{fighter(b)}</span></div>
-        <div className="fc-desc">{b?.description ?? '—'}</div>
-      </div>
-    </div>
-  );
-}
-
-function Hud({ frame, match }: { frame: any; match: any }) {
-  const a = frame?.a ?? null;
-  const b = frame?.b ?? null;
-  return (
-    <div className="hud">
-      <div className="hud-side">
-        <div className="hud-row"><span className="hud-name">{(match?.a?.name ?? 'SIDE A').toUpperCase().slice(0, 18)}</span><span className="mono hud-hp">{a ? a.hp : '—'}</span></div>
-        <div className="bar hp"><i style={{ width: a ? pct(a.hp ?? 0, 1000) : '0%' }} /></div>
-        <div className="bar meter"><i style={{ width: a ? pct(a.meter ?? 0, 300) : '0%' }} /></div>
-      </div>
-      <div className="hud-center">
-        <div className="timer mono">{frame && frame.timer !== undefined ? frame.timer : '—'}</div>
-        <div className="timer-cap">回合剩余</div>
-      </div>
-      <div className="hud-side right">
-        <div className="hud-row"><span className="mono hud-hp">{b ? b.hp : '—'}</span><span className="hud-name">{(match?.b?.name ?? 'SIDE B').toUpperCase().slice(0, 18)}</span></div>
-        <div className="bar hp right"><i style={{ width: b ? pct(b.hp ?? 0, 1000) : '0%' }} /></div>
-        <div className="bar meter right"><i style={{ width: b ? pct(b.meter ?? 0, 300) : '0%' }} /></div>
-      </div>
-    </div>
-  );
-}
 
 function eventTitle(event: any): string {
   const side = (key: string) => key === 'a' ? 'A' : 'B';
@@ -286,10 +165,8 @@ export function LivePage() {
 
   return (
     <>
-      <RoomBar match={match} />
-      <PresenceBar state={state} />
-      <MatchHead match={match} />
-      {team && <TeamStrip team={team as any} fighters={fighters} />}
+      {/* One phase-aware status rail replaces the three stacked strips. */}
+      <BroadcastStatus state={state} />
       <div className="stage-shell">
         <StageCanvas
           frameQueue={frameQueue}
@@ -301,6 +178,8 @@ export function LivePage() {
           lastResult={state.lastResult}
           stages={stages}
         />
+        {/* Matchup fused onto the canvas, KOF-style — no separate stacked panels. */}
+        <BroadcastHud match={match} frame={frame} team={team as any} fighters={fighters} />
         <div className="stage-topbar">
           <span className={`live-badge${match?.status === 'finished' || match?.mode !== 'ranked' || match?.pairing === 'sparring' ? ' replay' : ''}`}>
             <i />{channelLabel(match)}
@@ -310,9 +189,7 @@ export function LivePage() {
           </span>
         </div>
         <Toolbar tools={tools} setTools={setTools} />
-        <Intermission value={state.intermission as any} />
       </div>
-      <Hud frame={frame} match={match} />
       <div className="live-lower">
         <DecisionFeed decisions={state.decisions} />
         <CombatFeed combat={state.combat} budget={state.budget} />

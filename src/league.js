@@ -150,7 +150,26 @@ export class League {
     let backfilled = false;
     for (const b of BUILTIN_AGENTS) {
       const a = this.agents.get(b.id);
-      if (a && !a.team) { a.team = (BUILTIN_TEAMS[b.id] || ['quartz', 'volt', 'noct']).slice(); backfilled = true; }
+      if (!a) {
+        // A builtin added after this league.json was first written (e.g. the
+        // exhibition duelists): materialise its record so demo rooms can use it.
+        const record = {
+          ...publicAgent(b),
+          token: 'builtin-' + b.id,
+          source: 'builtin',
+          track: 'rule_only',
+          defaultAction: b.defaultAction || 'block',
+          rating: 1500, rd: 350, sigma: 0.06,
+          wins: 0, losses: 0, draws: 0, matches: 0, practiceMatches: 0,
+          modelCalls: 0, timeouts: 0, avgDecisionMs: 0,
+          history: [], createdAt: new Date().toISOString(),
+        };
+        this.agents.set(b.id, record);
+        this.tokens.set(record.token, b.id);
+        backfilled = true;
+        continue;
+      }
+      if (!a.team) { a.team = (BUILTIN_TEAMS[b.id] || ['quartz', 'volt', 'noct']).slice(); backfilled = true; }
     }
     if (backfilled) this.save();
   }
@@ -545,6 +564,30 @@ export class League {
     };
   }
 
+  /**
+   * Remove every league-side trace of a deleted account's agent: token, lock,
+   * queue entry, match records and their replay files. Called after Better
+   * Auth has deleted the user (the player profile cascades in the DB).
+   */
+  purgeAgentData(agentId) {
+    const agent = this.agents.get(agentId);
+    if (agent?.token) this.tokens.delete(agent.token);
+    this.agents.delete(agentId);
+    this.locked.delete(agentId);
+    this.queue = this.queue.filter((entry) => entry.agentId !== agentId);
+    const doomed = this.matches.filter((m) => m.a?.id === agentId || m.b?.id === agentId);
+    const ids = new Set(doomed.map((m) => m.matchId));
+    for (const id of ids) {
+      const safe = String(id).replace(/[^a-zA-Z0-9_-]/g, '') + '.jsonl';
+      try { fs.unlinkSync(path.join(this.replayDir, safe)); } catch { /* already gone */ }
+    }
+    if (ids.size) {
+      this.matches = this.matches.filter((m) => !ids.has(m.matchId));
+      this.save();
+    }
+    return { matches: ids.size };
+  }
+
   lockAgents(ids, matchId) {
     for (const id of ids) this.locked.set(id, matchId);
   }
@@ -569,16 +612,18 @@ export class League {
     // Exhibition rotation. It feeds the always-on demo rooms with official
     // baselines only; none of these results touch the ladder. The hosted
     // baseline is part of the rotation so the MCP-only track stays watchable.
-    const hosted = this.agents.has('demo_hosted') ? 'demo_hosted' : null;
+    // Showpiece rotation: two aggressive duelists actually fighting — combos,
+    // pressure and whiff-punishes on BOTH sides, never a passive defending bot.
+    // Variety comes from style matchups and seeded rhythm, not from row dummy
+    // AIs. The hosted DSL template is a deliberate anti-air ZONER (backs off,
+    // blocks), so it is intentionally excluded here: one passive side is exactly
+    // the "why is P2 just standing there" problem this rotation fixes.
     const showcase = [
-      ['brawler', 'zoner'], ['zoner', 'random'], ['brawler', 'random'],
-      ['brawler', 'zoner'], ['turtle', 'random'], ['brawler', 'random'],
-      ['zoner', 'random'], ['brawler', 'turtle'], ['brawler', 'zoner'],
-      ['zoner', 'turtle'],
+      ['duelist_rush', 'duelist_foot'],
+      ['duelist_foot', 'duelist_rush'],
+      ['duelist_rush', 'duelist_rush'],
+      ['duelist_foot', 'duelist_foot'],
     ];
-    if (hosted) {
-      showcase.push([hosted, 'brawler'], [hosted, 'zoner'], [hosted, 'turtle'], [hosted, 'random']);
-    }
     const pick = showcase[this.pairCursor % showcase.length];
     this.pairCursor += 1;
     let a = this.agents.get(pick[0]);
@@ -1012,5 +1057,17 @@ export class League {
 
   recentMatches(limit = 20) {
     return this.matches.slice(-limit).reverse();
+  }
+
+  /**
+   * Player-facing replay feed. The public watch loop runs an always-on demo
+   * room that records fully replayable builtin-vs-builtin exhibitions; those
+   * belong on the archive, not in a list that reads as "the user's matches".
+   * A match is a player match when at least one side was a registered player
+   * agent (recordMatch stamps `competitor` from isLadderCompetitor).
+   */
+  recentPlayerMatches(limit = 20) {
+    const playerMatches = this.matches.filter((m) => m.a?.competitor === true || m.b?.competitor === true);
+    return playerMatches.slice(-limit).reverse();
   }
 }

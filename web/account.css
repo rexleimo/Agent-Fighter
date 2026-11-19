@@ -1,3 +1,118 @@
+/* Profile card: avatar + email visible without scrolling to security. */
+.acc-profile-top { display: flex; align-items: center; gap: 12px; }
+.acc-profile-avatar {
+  position: relative; flex: none; width: 46px; height: 46px; border-radius: 50%;
+  overflow: hidden; display: grid; place-items: center;
+  background: var(--accent-soft); border: 1px solid var(--accent-soft);
+  color: var(--accent); font-family: var(--display); font-size: 18px;
+}
+.acc-profile-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.acc-profile-avatar.fallback img { display: none; }
+.acc-profile-id { min-width: 0; }
+.acc-profile-email {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line-soft); font-size: 13px;
+}
+.acc-profile-email span { color: var(--dim); font-size: 13px; letter-spacing: .08em; }
+.acc-profile-email b { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.acc-avatar-presets { display: flex; gap: 6px; margin-top: 8px; }
+.acc-avatar-preset {
+  width: 30px; height: 30px; display: grid; place-items: center; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 50%; background: var(--surface-2); font-size: 13px;
+}
+.acc-avatar-preset:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+.acc-strategy-editor {
+  width: 100%; min-height: 190px; resize: vertical;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  color: var(--text); font-size: 13px; line-height: 1.6; padding: 10px 12px;
+}
+.acc-strategy-editor:focus { border-color: var(--accent); outline: none; }
+.acc-filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 2px; }
+.acc-filter {
+  border: 1px solid var(--line); border-radius: 4px; background: var(--surface-2);
+  color: var(--muted); font-size: 13px; padding: 4px 10px; cursor: pointer;
+}
+.acc-filter.active { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
+.acc-new-badge { margin-left: 8px; }
+.acc-spark { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.acc-spark svg { width: 120px; height: 32px; }
+.acc-spark .acc-label { margin: 0; }
+.acc-spark .mono { font-size: 13px; color: var(--muted); }
+.acc-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1px solid var(--line); }
+
+/* Getting-started checklist — a fresh account's path to its first real match. */
+.acc-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+.acc-step {
+  display: flex; align-items: center; gap: 9px; min-width: 0;
+  padding: 9px 10px; border: 1px solid var(--line-soft); border-radius: 5px;
+  background: var(--surface-2); color: var(--muted);
+}
+.acc-step.done { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
+.acc-step-no { flex: none; width: 20px; font-size: 13px; color: var(--dim); }
+.acc-step.done .acc-step-no { color: var(--accent); }
+.acc-step b { display: block; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-step small { display: block; font-size: 13px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-training-row {
+  display: grid; grid-template-columns: 110px 90px 90px 1fr; gap: 10px;
+  padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; color: var(--muted);
+}
+.acc-training-row b { color: var(--text); font-weight: 500; }
+@media (max-width: 900px) {
+  .acc-steps { grid-template-columns: 1fr 1fr; }
+  .acc-training-row { grid-template-columns: 1fr 1fr; }
+}
+
+/* User center — the player's own data, session-bound. */
+.acc-center-head { margin: 2px 0 18px; }
+.acc-center-head h1 { font-size: 24px; font-weight: 500; letter-spacing: .01em; color: var(--text); }
+.acc-center-head p { margin-top: 6px; font-size: 13px; color: var(--muted); }
+
+.acc-my-list { border-top: 1px solid var(--line-soft); margin-top: 10px; }
+.acc-my-match {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) 54px 96px 52px;
+  align-items: center; gap: 10px; padding: 9px 4px;
+  border-bottom: 1px solid var(--line-soft); text-decoration: none; color: var(--muted);
+}
+.acc-my-match:hover { background: var(--surface-2); }
+.acc-my-result { font-family: var(--display); font-size: 13px; text-align: center; }
+.acc-my-result.win { color: var(--accent); }
+.acc-my-result.loss { color: var(--red); }
+.acc-my-result.draw { color: var(--muted); }
+.acc-my-opponent { min-width: 0; }
+.acc-my-opponent b { display: block; font-size: 13px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-my-opponent small { display: block; margin-top: 2px; font-size: 13px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-my-delta { text-align: right; font-family: var(--mono); font-size: 13px; color: var(--dim); }
+.acc-my-delta.up { color: var(--accent); }
+.acc-my-delta.down { color: var(--red); }
+.acc-my-when { font-size: 13px; text-align: right; }
+.acc-my-go { font-size: 13px; text-align: right; color: var(--accent); }
+.acc-my-more { margin-top: 12px; }
+.acc-my-empty { padding: 10px 0; }
+
+.acc-security-block { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.acc-security-block:last-child { border-bottom: 0; }
+.acc-security-block.danger { border-top: 1px solid var(--line); }
+.acc-security-title { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 8px; }
+.acc-security-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.acc-security-row input {
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px;
+  color: var(--text); font-size: 13px; padding: 7px 9px; min-width: 180px;
+}
+.acc-security-row input:focus { border-color: var(--accent); outline: none; }
+.acc-session {
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 60px;
+  align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px;
+}
+.acc-session > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-error-action { margin-left: 10px; }
+.danger-btn { color: var(--red); border-color: var(--red); }
+
+@media (max-width: 700px) {
+  .acc-my-match { grid-template-columns: 28px minmax(0, 1fr) 46px 50px; }
+  .acc-my-when { display: none; }
+}
+
 /* Player account / MCP assignment. Tokens come from styles.css :root. */
 
 #accountApp { max-width: 1180px; }
@@ -15,7 +130,7 @@
 
 .acc-form { display: flex; flex-direction: column; gap: 12px; }
 .acc-form .field { display: flex; flex-direction: column; gap: 5px; }
-.acc-form .field span { font-size: 11px; color: var(--muted); }
+.acc-form .field span { font-size: 13px; color: var(--muted); }
 .acc-form input,
 .acc-admin-form input {
   background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
@@ -24,21 +139,21 @@
 .acc-form input:focus,
 .acc-admin-form input:focus { border-color: var(--accent); }
 
-.acc-note { color: var(--dim); font-size: 11px; line-height: 1.75; margin-top: 14px; }
+.acc-note { color: var(--dim); font-size: 13px; line-height: 1.75; margin-top: 14px; }
 .acc-note b { color: var(--muted); font-weight: 500; }
-.acc-error { margin-top: 12px; padding: 8px 11px; border: 1px solid var(--red); border-radius: 6px; background: var(--red-soft); color: var(--red); font-size: 12px; }
+.acc-error { margin-top: 12px; padding: 8px 11px; border: 1px solid var(--red); border-radius: 6px; background: var(--red-soft); color: var(--red); font-size: 13px; }
 .acc-muted { color: var(--muted); }
-.acc-label { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; color: var(--dim); text-transform: uppercase; margin: 14px 0 6px; }
+.acc-label { font-family: var(--mono); font-size: 13px; letter-spacing: .1em; color: var(--dim); text-transform: uppercase; margin: 14px 0 6px; }
 
 .acc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 14px; align-items: start; }
 .acc-card { padding: 16px 18px; }
 .acc-wide,
 .acc-admin { grid-column: 1 / -1; }
 .acc-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
-.acc-badge { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--muted); }
+.acc-badge { font-family: var(--mono); font-size: 13px; letter-spacing: .06em; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--muted); }
 .acc-badge.ok { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
-.acc-badge.wait { color: var(--amber); border-color: var(--amber); background: rgba(255, 194, 96, .08); }
-.acc-tag-warn { font-family: var(--mono); font-size: 10px; color: var(--amber); border: 1px solid var(--amber); border-radius: 999px; padding: 1px 7px; }
+.acc-badge.wait { color: var(--amber); border-color: var(--amber); background: var(--amber-soft); }
+.acc-tag-warn { font-family: var(--mono); font-size: 13px; color: var(--amber); border: 1px solid var(--amber); border-radius: 999px; padding: 1px 7px; }
 .acc-badge.live { color: var(--red); border-color: var(--red); background: var(--red-soft); }
 .acc-badge.admin { color: var(--blue); border-color: var(--blue); background: var(--blue-soft); }
 
@@ -46,25 +161,25 @@
 .acc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 
 .acc-url { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; }
-.acc-url code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; color: var(--accent); }
-.acc-code { background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); margin: 10px 0; }
-.acc-copy { color: var(--muted); font-size: 12px; }
+.acc-url code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 16px; color: var(--accent); }
+.acc-code { background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-family: var(--mono); font-size: 16px; color: var(--muted); margin: 10px 0; }
+.acc-copy { color: var(--muted); font-size: 13px; }
 .acc-copy code { color: var(--accent); font-family: var(--mono); }
 
 .acc-agent-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .acc-agent-name { font-size: 16px; font-weight: 500; }
-.acc-record { font-size: 12px; color: var(--muted); }
+.acc-record { font-size: 13px; color: var(--muted); }
 .acc-record b { color: var(--text); font-weight: 500; }
 .acc-team { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line-soft); margin-top: 12px; padding-top: 10px; }
 .acc-team-name { font-weight: 500; }
 .acc-roster { display: flex; gap: 6px; flex-wrap: wrap; }
-.acc-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; font-size: 11px; color: var(--muted); }
+.acc-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; font-size: 13px; color: var(--muted); }
 .acc-chip b { color: var(--accent); font-family: var(--mono); font-weight: 500; }
 .acc-queue { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .acc-room { display: inline-flex; align-items: center; gap: 8px; }
-.acc-room code { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.acc-room code { color: var(--muted); font-family: var(--mono); font-size: 13px; }
 .acc-matches { display: flex; flex-direction: column; gap: 4px; }
-.acc-match { display: grid; grid-template-columns: 32px 1fr auto; gap: 8px; font-size: 11px; padding: 4px 0; border-bottom: 1px solid var(--line-soft); }
+.acc-match { display: grid; grid-template-columns: 32px 1fr auto; gap: 8px; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--line-soft); }
 .acc-match .win { color: var(--accent); }
 .acc-match .loss { color: var(--red); }
 .acc-match .mono { color: var(--dim); }
@@ -72,8 +187,8 @@
 .acc-admin-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
 .acc-admin-form button { white-space: nowrap; }
 .acc-table-wrap { overflow-x: auto; }
-.acc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.acc-table th { text-align: left; font-weight: 500; color: var(--dim); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.acc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.acc-table th { text-align: left; font-weight: 500; color: var(--dim); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .acc-table td { padding: 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
 .acc-row-actions { white-space: nowrap; }
 .acc-row-actions .mini-btn + .mini-btn { margin-left: 6px; }
@@ -84,7 +199,7 @@
   padding: 12px 16px; margin-bottom: 12px;
 }
 .player-entry b { color: var(--accent); font-weight: 500; }
-.player-entry span { color: var(--muted); font-size: 12px; }
+.player-entry span { color: var(--muted); font-size: 13px; }
 
 @media (max-width: 900px) {
   .acc-grid { grid-template-columns: 1fr; }
@@ -92,7 +207,7 @@
 }
 
 /* 成本披露：自报 vs 服务端实测，一眼能分开 */
-.acc-cost { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 6px 0 12px; font-size: 12px; opacity: .9; }
+.acc-cost { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 6px 0 12px; font-size: 13px; opacity: .9; }
 .acc-cost b { font-weight: 700; }
 .acc-cost .acc-label { opacity: .6; letter-spacing: .08em; }
 .acc-cost-link { text-decoration: underline; }

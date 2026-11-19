@@ -20,6 +20,14 @@ function buildAuth() {
       minPasswordLength: 8,
       maxPasswordLength: 128,
     },
+    // The user center exposes account deletion; better-auth keeps this endpoint
+    // disabled by default (returns 404 until explicitly enabled).
+    user: {
+      deleteUser: { enabled: true },
+      // Accounts here have no email sender; sign-up leaves emailVerified=false,
+      // so allow changing it without a verification email.
+      changeEmail: { enabled: true, updateEmailWithoutVerification: true },
+    },
     databaseHooks: {
       user: {
         create: {

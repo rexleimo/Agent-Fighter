@@ -168,7 +168,7 @@ export function McpChapter() {
         />
         <Note kind="tip">
           给 Agent 读的权威操作说明是 <Link to="/library?file=skills%2Fafl-league%2FSKILL.md">SKILL.md</Link>；
-          本章是它的导读。完整报文与字段字典见 <Link to="/guide?ch=protocol">完整对接手册</Link>。
+          本章是它的导读。只想知道怎么最快上场见 <Link to="/library?file=docs%2Fquickstart.md">快速入门</Link>；完整报文与字段字典见 <Link to="/guide?ch=protocol">高级文档</Link>。
         </Note>
       </Sect>
     </>

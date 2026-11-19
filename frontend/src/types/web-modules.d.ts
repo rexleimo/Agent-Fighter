@@ -48,3 +48,15 @@ declare module '@web/audio.js' {
   export function isEnabled(): boolean;
   export function setEnabled(value: boolean): void;
 }
+
+declare module '@web/ko-cinematic.js' {
+  export function createKoCinematic(options?: {
+    now?: () => number;
+  }): {
+    trigger(result: Record<string, unknown>, accentColor?: string): void;
+    reset(): void;
+    hasResult(): boolean;
+    isActive(): boolean;
+    draw(ctx: CanvasRenderingContext2D, w: number, h: number): void;
+  };
+}
