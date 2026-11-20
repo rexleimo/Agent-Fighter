@@ -64,7 +64,18 @@ function DecisionFeed({ decisions }: { decisions: any[] }) {
 }
 
 function CombatFeed({ combat, budget }: { combat: any[]; budget: any }) {
-  const visible = combat.filter((e) => e.type !== 'move_start' || ['special', 'ex', 'super'].includes(e.move));
+  // Show every meaningful fight event: hits / blocks / KO / parry / evade plus
+  // ALL attack startups (lp/hp/mk/.../super). Previously only special/ex/super
+  // startups were kept, so a normal-only exchange looked like a blank
+  // "等待交火" log even though damage was being dealt. Walk/block spam stays
+  // filtered so the feed remains readable.
+  const ATTACK_MOVES = new Set([
+    'lp', 'mp', 'hp', 'lk', 'mk', 'hk', 'dp', 'fireball', 'throw',
+    'special', 'ex', 'super',
+  ]);
+  const visible = combat.filter((e) => (
+    (e.type === 'move_start' ? ATTACK_MOVES.has(e.move) : true)
+  ));
   return (
     <section className="panel">
       <div className="panel-head"><h2>战斗日志</h2><span className="panel-note">命中 / 防御 / 判定 / 判负</span></div>
