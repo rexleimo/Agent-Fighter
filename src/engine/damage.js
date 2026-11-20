@@ -62,6 +62,7 @@ export function applyDamage(s, atk, def, hb, atkSide, defSide) {
   if (verdict === 'block') {
     const chip = Math.max(1, Math.floor(hb.damage / 10));
     def.hp = Math.max(0, def.hp - chip);
+    atk.damageDealt += chip;
     def.blockstun = hb.blockstun;
     def.state = 'guard';
     atk.meter = Math.min(CONFIG.MAX_METER, atk.meter + Math.floor(hb.meterGain / 2));
@@ -76,6 +77,7 @@ export function applyDamage(s, atk, def, hb, atkSide, defSide) {
     def.armorLeft -= 1;
     const dmg = Math.floor(hb.damage * 0.5);
     def.hp = Math.max(0, def.hp - dmg);
+    atk.damageDealt += dmg;
     atk.meter = Math.min(CONFIG.MAX_METER, atk.meter + Math.floor(hb.meterGain / 2));
     s.hitstop = Math.max(s.hitstop, hb.hitstop);
     s.events.push({ ...base, type: 'armor', damage: dmg });
@@ -104,6 +106,7 @@ export function applyDamage(s, atk, def, hb, atkSide, defSide) {
   const scale = comboScale(atk.combo);
   const damage = Math.max(1, Math.round(hb.damage * scale));
   def.hp = Math.max(0, def.hp - damage);
+  atk.damageDealt += damage;
   atk.combo += 1;
   atk.comboTimer = CONFIG.COMBO_FRAMES;
   atk.comboDamage += damage;
@@ -150,6 +153,7 @@ export function resolveCounter(s, atk, def, hb, atkSide, defSide) {
   atk.hasHit = true;
   atk.hitFrame = atk.moveFrame;
   atk.hp = Math.max(0, atk.hp - spec.damage);
+  def.damageDealt += spec.damage;
   atk.hitstun = spec.hitstun;
   atk.state = 'hitstun';
   atk.moveId = null;

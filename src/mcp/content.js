@@ -189,6 +189,8 @@ export const TROUBLE_MD = [
   '| 一直没轮到 | 排位要凑对手或等陪练（约 3 秒） | list_rooms 看队列，约战走 scrim |',
   '| 打完但榜单没变 | 对手是官方基线（陪练局），不计榜 | get_my_matches 看 practice 标记；再报一名 Agent 同时排队 |',
   '| act_rejected 很多 | 实时策略回包跨拍 | 减计算量，LLM 加超时降级 |',
+  '| act_rejected reason=action_locked | 策略用了该角色被锁定的动作（如 rush/counter/antiAir 的 fireball） | 改成 dash/walk_f 接近；被拒动作不会被自动替换成别的招 |',
+  '| act_rejected reason=model_budget_exceeded | 单局声明的模型调用数超过预算 | 减少调用或降低频率；本拍按 defaultAction 处理 |',
   '| connect 报 invalid token | 服务端换过 data 目录 | 删 .afl-token 重新注册 |',
   '',
   '最常见误解：把 MCP 配置填进 AI 客户端 ≠ Agent 已上场。客户端不会自动维持 WebSocket 打 600 拍。',
@@ -202,7 +204,7 @@ export const PROMPTS = [
     text: [
       '你要在 Agent Fighting League 上让一个 Agent 完成第一场正式比赛（拳皇式 3v3 组队淘汰赛）。',
       '先读 MCP 资源 afl://skill 和 afl://rules，用 list_fighters 看 16 名角色。',
-      '步骤：register_agent（保留 token）→ set_team 选 3 名不重复角色按出场顺序建队 → get_strategy_template → 按对空优先、远距发波的思路改 rules → validate_strategy → start_training 打靶看逐规则诊断 → compare_strategies 验证改动是否真的变强 → submit_strategy → join_queue(format="team") 报名。',
+      '步骤：register_agent（保留 token）→ set_team 选 3 名不重复角色按出场顺序建队 → get_strategy_template（melee/zoner/balanced 三份按角色 archetype 选）→ 先查 self.availableActions 再用 fireball，远距只在 derived.inRange 为真时出招，最后一条规则必须无条件且用 walk_f 推进 → validate_strategy → start_training 打靶看逐规则诊断 → compare_strategies 验证改动是否真的变强 → submit_strategy → join_queue(format="team") 报名。',
       '系统按评分就近匹配对手；回合间休息窗可用 set_team_order 调整存活角色出场顺序。',
       '打完用 get_my_matches 取 matchId，get_match_result 与 get_replay 看结果，最后 get_leaderboard 看胜场排名（胜场多者靠前）。',
       '不要试图连 WebSocket 或操作网页；托管策略由服务端代打。',

@@ -1,7 +1,8 @@
-import { ACTIONS, CONFIG, MOVES, moveFor, moveDamage, totalFor, mechanicsOf, isDefending } from './rules.js';
-import { ARCHETYPES, FIGHTER_KITS } from './kits/index.js';
+import { ACTIONS, CONFIG, MOVES, moveFor, moveDamage, moveReach, totalFor, mechanicsOf, isDefending } from './rules.js';
+import { ARCHETYPES, FIGHTER_KITS, actionAvailable, lockedActions } from './kits/index.js';
 import {
   framePhase, hitboxesFor, hurtboxesFor, overlap, publicBoxData, parryWindowOpen,
+  predictsHit, hurtboxNearEdge,
 } from './combat.js';
 
 export function validateAction(action) {
@@ -60,6 +61,11 @@ function fighterView(f) {
     inCorner: f.x <= CONFIG.STAGE_LEFT + 8 || f.x >= CONFIG.STAGE_RIGHT - 8,
     actionable: f.hitstun === 0 && f.blockstun === 0 && !inAttack && !defending
       && f.state !== 'knockdown' && f.wakeup === 0,
+    // Actions this fighter is actually allowed to use (archetype locks applied).
+    // Fireball is frame data every fighter HAS, but a rush/counter/antiAir
+    // fighter must not zone with it. Kept identical to `legalActions`.
+    availableActions: ACTIONS.filter((id) => actionAvailable(f.fighterId, id)),
+    lockedActions: lockedActions(f.fighterId).slice(),
   };
 }
 
@@ -107,11 +113,18 @@ export function buildObservation(state, side, tick, deadlineMs, history, seed, e
   const selfView = fighterView(self);
   const oppView = fighterView(opp);
   const airborne = opp.y < -20;
+  // Reach is PREDICTED from the same AABB boxes the kernel resolves hits with,
+  // not a scalar range hint. `true` means "stand still and this move connects".
+  // Availability is enforced here too so locked actions never appear as a
+  // tempting in-range option.
   const inRange = {};
   for (const id of Object.keys(MOVES)) {
     const m = moveFor(self, id);
-    if (m.range) inRange[id] = dx <= m.range;
+    if (!m.range || !actionAvailable(self.fighterId, id)) continue;
+    inRange[id] = predictsHit(self, opp, id);
   }
+  // A strategy can only use what the fighter is allowed to use.
+  const legalActions = ACTIONS.filter((id) => actionAvailable(self.fighterId, id));
   const threat = state.projectiles.some((p) => p.owner !== side && Math.abs(p.x - self.x) < 180)
     ? 'projectile'
     : airborne && dx < 150 ? 'jump_in'
@@ -127,6 +140,77 @@ export function buildObservation(state, side, tick, deadlineMs, history, seed, e
   const phase = framePhase(self);
   const currentMove = self.moveId ? moveFor(self, self.moveId) : null;
 
+  // --- predictive read on the opponent (rules 2.2) -------------------------
+  // These are the numbers a defender needs to decide dodge/parry during the
+  // opponent's STARTUP, rather than only after the attack is already active.
+  const oppPhase = framePhase(opp);
+  const oppMove = opp.moveId ? moveFor(opp, opp.moveId) : null;
+  const opponentStartupLeft = oppPhase.phase === 'startup' && oppMove
+    ? Math.max(0, oppMove.startup - opp.moveFrame)
+    : null;
+  const opponentRecoveryLeft = oppPhase.phase === 'recovery' && oppMove
+    ? Math.max(0, totalFor(opp, opp.moveId) - opp.moveFrame)
+    : null;
+  const opponentMoveReach = oppMove ? moveReach(oppMove) : null;
+  const gapToOpp = hurtboxNearEdge(self, opp.x);
+  const incomingHit = opponentStartupLeft !== null
+    && opponentMoveReach !== null
+    && dx - gapToOpp <= opponentMoveReach
+    && opponentStartupLeft <= 6;
+  // Fastest incoming projectile that is actually travelling toward us.
+  let incomingProjectileIn = null;
+  for (const p of state.projectiles) {
+    if (p.owner === side) continue;
+    const towardUs = (p.vx > 0 && p.x < self.x) || (p.vx < 0 && p.x > self.x);
+    if (!towardUs || !p.vx) continue;
+    const distance = Math.max(0, Math.abs(p.x - self.x) - hurtboxNearEdge(self, p.x));
+    const frames = Math.ceil(distance / Math.abs(p.vx)) + (p.delay || 0);
+    if (incomingProjectileIn === null || frames < incomingProjectileIn) incomingProjectileIn = frames;
+  }
+
+  const derived = {
+    distanceX: dx,
+    frameAdvantage: (opp.hitstun + opp.blockstun) - selfView.recovery,
+    punishable: selfView.recovery > 0 && opp.hitstun === 0 && opp.blockstun === 0,
+    opponentAirborne: airborne,
+    opponentAttacking: oppView.state === 'attack',
+    opponentBlocking: opp.state === 'guard' || opp.state === 'crouch',
+    // Active defence the opponent is committed to.
+    opponentDodging: opp.state === 'dodge',
+    opponentEvading: opp.state === 'dodge' && opp.invuln > 0,
+    opponentParrying: parryWindowOpen(opp),
+    threat,
+    inRange,
+    projectileIncoming: threat === 'projectile',
+    opponentActiveHitboxes: oppBoxes.map((h) => ({ height: h.height, x: h.x, y: h.y, w: h.w, h: h.h })),
+    boxOverlap,
+    inHitstun: self.hitstun > 0,
+    canCancelInto: selfView.cancelInto,
+    meterBars: Math.floor(self.meter / 100),
+    // --- predictions (NOT current state) -----------------------------------
+    opponentStartupLeft,
+    opponentRecoveryLeft,
+    opponentMoveReach,
+    incomingHit,
+    incomingProjectileIn,
+    // --- anti-stall readout (rules 2.2) ------------------------------------
+    passiveFrames: self.passiveFrames,
+    stallLevel: self.stallLevel,
+    opponentStallLevel: opp.stallLevel,
+    framesLeft: Math.max(0, CONFIG.MATCH_TICKS * CONFIG.FRAMES_PER_TICK - state.frame),
+    hpLead: self.hp - opp.hp,
+    damageLead: self.damageDealt - opp.damageDealt,
+  };
+  // The room supplies lastDecision / fallbackTicks / ruleFires from the actual
+  // strategy decision (it is not available inside buildObservation). Accept
+  // them as a derived overlay without letting `extra` clobber the derived key.
+  let rootExtra = extra;
+  if (extra && extra.derived) {
+    Object.assign(derived, extra.derived);
+    rootExtra = { ...extra };
+    delete rootExtra.derived;
+  }
+
   return {
     matchId: state.matchId,
     tick,
@@ -138,29 +222,7 @@ export function buildObservation(state, side, tick, deadlineMs, history, seed, e
     self: selfView,
     opponent: oppView,
     kit: kitObservation(self),
-    derived: {
-      distanceX: dx,
-      frameAdvantage: (opp.hitstun + opp.blockstun) - selfView.recovery,
-      punishable: selfView.recovery > 0 && opp.hitstun === 0 && opp.blockstun === 0,
-      opponentAirborne: airborne,
-      opponentAttacking: oppView.state === 'attack',
-      opponentBlocking: opp.state === 'guard' || opp.state === 'crouch',
-      // Active defence the opponent is committed to: `opponentDodging` says the
-      // backstep is happening, `opponentEvading` says the i-frames are still up
-      // (so a normal is already spent — throw it instead), and
-      // `opponentParrying` says the next blockable hit is free for them.
-      opponentDodging: opp.state === 'dodge',
-      opponentEvading: opp.state === 'dodge' && opp.invuln > 0,
-      opponentParrying: parryWindowOpen(opp),
-      threat,
-      inRange,
-      projectileIncoming: threat === 'projectile',
-      opponentActiveHitboxes: oppBoxes.map((h) => ({ height: h.height, x: h.x, y: h.y, w: h.w, h: h.h })),
-      boxOverlap,
-      inHitstun: self.hitstun > 0,
-      canCancelInto: selfView.cancelInto,
-      meterBars: Math.floor(self.meter / 100),
-    },
+    derived,
     frameData: {
       moveId: self.moveId || null,
       phase: phase.phase,
@@ -180,8 +242,8 @@ export function buildObservation(state, side, tick, deadlineMs, history, seed, e
       hitboxes: currentMove ? (currentMove.hitboxes || []).length : 0,
     },
     history: history.slice(-12),
-    legalActions: ACTIONS.slice(),
-    ...(extra || {}),
+    legalActions,
+    ...(rootExtra || {}),
   };
 }
 
@@ -206,15 +268,36 @@ export const OBSERVATION_JSON_SCHEMA = {
         frameAdvantage: { type: 'integer' },
         punishable: { type: 'boolean' },
         opponentAirborne: { type: 'boolean' },
+        opponentAttacking: { type: 'boolean', description: 'Opponent is currently in an attack state' },
+        opponentBlocking: { type: 'boolean', description: 'Opponent is standing or crouch blocking' },
         opponentDodging: { type: 'boolean', description: 'Opponent is inside the 闪避 backstep' },
         opponentEvading: { type: 'boolean', description: 'Opponent still has dodge i-frames up: strikes are spent, a throw is not' },
         opponentParrying: { type: 'boolean', description: 'Opponent is inside the 招架 window: a blockable hit would be negated' },
         threat: { type: 'string', enum: ['projectile', 'jump_in', 'poke', 'close', 'neutral'] },
-        inRange: { type: 'object' },
+        inRange: { type: 'object', description: 'Per-move PREDICTED hit from the real hitbox/hurtbox AABBs; true means it would connect from here' },
+        projectileIncoming: { type: 'boolean', description: 'A projectile is approaching' },
         opponentActiveHitboxes: { type: 'array', description: 'World-space rects of the opponent\'s currently active hitboxes' },
         boxOverlap: { type: 'boolean', description: 'An opponent hitbox is currently overlapping one of your hurtboxes' },
+        inHitstun: { type: 'boolean', description: 'You are currently in hitstun' },
         canCancelInto: { type: 'array', items: { type: 'string' } },
         meterBars: { type: 'integer', description: 'Full 100-point meter bars available (EX costs 1 half-bar = 50, super costs 100)' },
+        // The following five are PREDICTIONS about the opponent, not its current
+        // state. Use them to read a startup during the decision tick.
+        opponentStartupLeft: { type: ['integer', 'null'], description: 'PREDICTION: frames until the opponent\'s current move goes active; null if not in startup' },
+        opponentRecoveryLeft: { type: ['integer', 'null'], description: 'PREDICTION: frames until the opponent can act again; null if not in recovery' },
+        opponentMoveReach: { type: ['integer', 'null'], description: 'PREDICTION: moveReach of the opponent\'s current move; null if no move' },
+        incomingHit: { type: 'boolean', description: 'PREDICTION: opponent startup <= 6 frames and in reach: read it with dodge/parry NOW' },
+        incomingProjectileIn: { type: ['integer', 'null'], description: 'PREDICTION: frames until the fastest incoming projectile reaches your hurtbox; null if none' },
+        // Anti-stall readout (rules 2.2). Thresholds: warn 180 frames, penalty 300.
+        passiveFrames: { type: 'integer', description: 'Consecutive passive frames; 180 warns, 300 drains HP and gifts opponent meter' },
+        stallLevel: { type: 'integer', description: '0 active, 1 warned, 2 being penalised' },
+        opponentStallLevel: { type: 'integer', description: 'Opponent\'s stall level (same scale)' },
+        framesLeft: { type: 'integer', description: 'Frames left before time-up' },
+        hpLead: { type: 'integer', description: 'Your HP minus opponent HP (negative means behind)' },
+        damageLead: { type: 'integer', description: 'Your damage dealt minus opponent damage dealt' },
+        lastDecision: { type: 'object', description: 'Previous tick\'s effective decision: {action, ruleIndex, note, fallback}; ruleIndex -1 means fallback' },
+        fallbackTicks: { type: 'integer', description: 'Ticks this match that fell through to defaultAction' },
+        ruleFires: { type: 'array', items: { type: 'integer' }, description: 'Per-rule fire counts this match' },
       },
     },
     frameData: {

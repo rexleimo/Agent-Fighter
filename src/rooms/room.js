@@ -21,8 +21,16 @@ export function createRoomTickCapability() {
       const c = this.current;
       if (!c || c.finished || c.match.over) return;
       const tick = c.match.tick;
-      const extra = c.team ? { team: teamView(c.team), intermission: false } : null;
-      const obs = c.match.observations(CONFIG.TICK_MS, extra);
+      const baseExtra = c.team ? { team: teamView(c.team), intermission: false } : {};
+      const sideExtra = (side) => ({
+        ...baseExtra,
+        derived: {
+          lastDecision: (c.lastDecisions && c.lastDecisions[side]) || null,
+          fallbackTicks: (c.fallbackTicks && c.fallbackTicks[side]) || 0,
+          ruleFires: (c.ruleFires && c.ruleFires[side]) || [],
+        },
+      });
+      const obs = c.match.observations(CONFIG.TICK_MS, sideExtra('a'), sideExtra('b'));
       c.obs = { a: obs.a, b: obs.b, openedAt: Date.now(), tick };
       c.pending = { a: null, b: null };
       for (const side of ['a', 'b']) {
@@ -58,6 +66,7 @@ export function createRoomTickCapability() {
       }
       if (!c.obs) return;
       if (msg.matchId !== c.matchId || msg.tick !== c.obs.tick) {
+        c.decisions[side].rejected.stale_tick += 1;
         conn.send({ type: 'act_rejected', reason: 'stale_tick', expectedTick: c.obs.tick, gotTick: msg.tick });
         return;
       }
@@ -71,11 +80,14 @@ export function createRoomTickCapability() {
       stat.modelCalls += declared;
       if (overBudget) {
         stat.budgetExceeded += 1;
+        stat.fallback += 1;
+        stat.rejected.model_budget_exceeded += 1;
         c.pending[side] = agent.defaultAction || CONFIG.DEFAULT_ACTION;
         conn.send({ type: 'act_rejected', reason: 'model_budget_exceeded', matchId: c.matchId, side, budget: MAX_MODEL_CALLS_PER_MATCH, used: stat.modelCalls });
         return;
       }
       const action = ACTIONS.includes(msg.action) ? msg.action : agent.defaultAction;
+      if (!ACTIONS.includes(msg.action)) stat.fallback += 1;
       c.pending[side] = action;
       stat.decisions += 1;
       stat.totalMs += Date.now() - c.obs.openedAt;
@@ -86,23 +98,52 @@ export function createRoomTickCapability() {
       if (!c || c.finished || !c.obs) return;
       let actionA = c.pending.a;
       let actionB = c.pending.b;
-      if (actionA === null) { c.decisions.a.timeouts += 1; actionA = c.a.defaultAction || CONFIG.DEFAULT_ACTION; }
-      if (actionB === null) { c.decisions.b.timeouts += 1; actionB = c.b.defaultAction || CONFIG.DEFAULT_ACTION; }
+      // A tick with no deliberate action is a fallback. Count it once per side
+      // so the training report and settlement can name exactly which ticks
+      // fell through to defaultAction.
+      c.fallbackTicks = c.fallbackTicks || { a: 0, b: 0 };
+      c.lastDecisions = c.lastDecisions || {};
+      c.ruleFires = c.ruleFires || { a: [], b: [] };
+      const defaults = { a: c.a.defaultAction || CONFIG.DEFAULT_ACTION, b: c.b.defaultAction || CONFIG.DEFAULT_ACTION };
+      const nullA = actionA === null;
+      const nullB = actionB === null;
+      if (nullA) { c.decisions.a.timeouts += 1; actionA = defaults.a; }
+      if (nullB) { c.decisions.b.timeouts += 1; actionB = defaults.b; }
 
       const decisions = { a: explain('a', c.obs.a, actionA, c.a), b: explain('b', c.obs.b, actionB, c.b) };
       for (const side of ['a', 'b']) {
         const agent = c[side];
+        let ruleIndex = -1;
+        let note = null;
         if (agent.source === 'hosted' && agent.hostedStrategy) {
           const d = decide(agent.hostedStrategy, c.obs[side]);
-          decisions[side].ruleIndex = d.ruleIndex;
-          decisions[side].strategyNote = d.note;
-          decisions[side].text += d.ruleIndex >= 0 ? ` · 规则#${d.ruleIndex}${d.note ? ' ' + d.note : ''}` : ' · 兜底';
+          ruleIndex = d.ruleIndex;
+          note = d.note;
+          decisions[side].ruleIndex = ruleIndex;
+          decisions[side].strategyNote = note;
+          decisions[side].text += ruleIndex >= 0 ? ` · 规则#${ruleIndex}${note ? ' ' + note : ''}` : ' · 兜底';
+          const fires = c.ruleFires[side];
+          while (fires.length < agent.hostedStrategy.rules.length) fires.push(0);
+          if (ruleIndex >= 0) fires[ruleIndex] += 1;
         }
+        const fallback = ruleIndex < 0 || (side === 'a' ? nullA : nullB);
+        if (fallback) {
+          c.fallbackTicks[side] += 1;
+          c.decisions[side].fallback += 1;
+        }
+        c.lastDecisions[side] = { action: side === 'a' ? actionA : actionB, ruleIndex, note, fallback };
       }
       const out = c.match.advance(actionA, actionB, {
         a: { latencyMs: c.decisions.a.decisions ? Math.round(c.decisions.a.totalMs / c.decisions.a.decisions) : 0 },
         b: { latencyMs: c.decisions.b.decisions ? Math.round(c.decisions.b.totalMs / c.decisions.b.decisions) : 0 },
       });
+      // Kernel events are the authoritative source for locked actions and stall
+      // penalties; the room only mirrors them into the per-side counters.
+      c.stallPenalties = c.stallPenalties || { a: 0, b: 0 };
+      for (const ev of out.events) {
+        if (ev.type === 'input_locked' && c.decisions[ev.by]) c.decisions[ev.by].rejected.action_locked += 1;
+        if (ev.type === 'stall_penalty' && c.stallPenalties[ev.by] !== undefined) c.stallPenalties[ev.by] += 1;
+      }
       this.lastFrame = out.frames[out.frames.length - 1] || this.lastFrame;
       c.totalTicks = (c.totalTicks || 0) + 1;
       c.totalFrames = (c.totalFrames || 0) + out.frames.length;
@@ -118,8 +159,8 @@ export function createRoomTickCapability() {
         decisions,
         hud: this.lastFrame,
         budget: {
-          a: { avgMs: statA.decisions ? Math.round(statA.totalMs / statA.decisions) : 0, timeouts: statA.timeouts, modelCalls: statA.modelCalls },
-          b: { avgMs: statB.decisions ? Math.round(statB.totalMs / statB.decisions) : 0, timeouts: statB.timeouts, modelCalls: statB.modelCalls },
+          a: { avgMs: statA.decisions ? Math.round(statA.totalMs / statA.decisions) : 0, timeouts: statA.timeouts, modelCalls: statA.modelCalls, fallback: statA.fallback, budgetExceeded: statA.budgetExceeded, rejected: statA.rejected },
+          b: { avgMs: statB.decisions ? Math.round(statB.totalMs / statB.decisions) : 0, timeouts: statB.timeouts, modelCalls: statB.modelCalls, fallback: statB.fallback, budgetExceeded: statB.budgetExceeded, rejected: statB.rejected },
         },
         over: out.over,
         result: out.result,
@@ -137,7 +178,16 @@ export function createRoomTickCapability() {
       clearTimeout(c.timer);
       if (this.intermission) clearTimeout(this.intermission.timer);
       this.intermission = null;
-      const fullResult = { ...result, startedAt: c.startedAt };
+      const fullResult = {
+        ...result,
+        startedAt: c.startedAt,
+        // rules 2.2: settlement needs to know who stalled, independent of the
+        // final winner/reason (a stall can happen in a match won on HP).
+        stalls: {
+          a: (c.stallPenalties && c.stallPenalties.a) || 0,
+          b: (c.stallPenalties && c.stallPenalties.b) || 0,
+        },
+      };
       const match = this.league.recordMatch({
         matchId: c.matchId,
         agentA: c.a,

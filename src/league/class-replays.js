@@ -78,10 +78,13 @@ export function createReplaysCapability() {
       return {
         id: a.id, name: a.name, rating: Math.round(a.rating), rd: Math.round(a.rd),
         matches: a.matches || 0, wins: a.wins || 0, losses: a.losses || 0, draws: a.draws || 0,
+        stalls: a.stalls || 0,
         practiceMatches: a.practiceMatches || 0,
         competitor: isLadderCompetitor(a), official: isOfficialBaseline(a),
         modelCalls: a.modelCalls, timeouts: a.timeouts,
         budgetExceeded: a.budgetExceeded || 0,
+        fallback: a.fallback || 0,
+        rejected: a.rejected || { stale_tick: 0, model_budget_exceeded: 0, action_locked: 0 },
         hostedTicksEvaluated: a.hostedTicksEvaluated || 0,
         trainingRuns: a.trainingRuns || 0,
         versionHash: a.versionHash, strategyHash: a.strategyHash || null,

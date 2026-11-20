@@ -3,6 +3,7 @@ import { CONFIG, isDefending, moveFor } from '../rules.js';
 import { tickFighter, physics, resolvePush } from './fighter.js';
 import { updateProjectiles, resolveAttack } from './attacks.js';
 import { validateAction } from '../protocol.js';
+import { updatePassivity, markDistance } from './passivity.js';
 
 /**
  * Facing may only change on a frame where the fighter is free to turn.
@@ -61,6 +62,10 @@ export function step(state, rawA, rawB) {
 
   const actionA = validateAction(rawA) ? rawA : 'idle';
   const actionB = validateAction(rawB) ? rawB : 'idle';
+
+  // Snapshot the pre-movement gap so passivity can tell an advancing walk_f /
+  // dash from a retreating or stationary one.
+  if (s.antiStall) markDistance(s);
 
   reface(s.a, s.b);
   reface(s.b, s.a);
@@ -133,6 +138,14 @@ export function step(state, rawA, rawB) {
   // interpenetrates for the one frame between getting up and the next push.
   if (woke) resolvePush(s.a, s.b);
 
+  // Anti-stall (rules 2.2): passive frames are counted after all action and
+  // damage resolution, but before the win check, so a stall penalty on the
+  // final frame is reflected in the result. Gated off for 2.1 replays.
+  if (s.antiStall) {
+    updatePassivity(s, 'a');
+    updatePassivity(s, 'b');
+  }
+
   if (s.a.hp <= 0 || s.b.hp <= 0) {
     s.over = true;
     s.winner = s.a.hp <= 0 && s.b.hp <= 0 ? 'draw' : s.a.hp <= 0 ? 'b' : 'a';
@@ -140,9 +153,30 @@ export function step(state, rawA, rawB) {
     s.events.push({ frame: s.frame, type: 'ko', winner: s.winner });
   } else if (s.frame >= CONFIG.MATCH_TICKS * CONFIG.FRAMES_PER_TICK) {
     s.over = true;
-    s.winner = s.a.hp === s.b.hp ? 'draw' : s.a.hp > s.b.hp ? 'a' : 'b';
-    s.reason = 'time_up';
-    s.events.push({ frame: s.frame, type: 'time_up', winner: s.winner });
+    // Four-level time-up chain (rules 2.2). The first level that separates the
+    // fighters wins; only a genuinely even, damage-free, equally passive match
+    // ends in a double loss. 2.1 replays keep the old HP-only rule.
+    let winner;
+    let reason;
+    if (!s.antiStall) {
+      winner = s.a.hp === s.b.hp ? 'draw' : s.a.hp > s.b.hp ? 'a' : 'b';
+      reason = 'time_up';
+    } else if (s.a.hp !== s.b.hp) {
+      winner = s.a.hp > s.b.hp ? 'a' : 'b';
+      reason = 'time_up';
+    } else if (s.a.damageDealt !== s.b.damageDealt) {
+      winner = s.a.damageDealt > s.b.damageDealt ? 'a' : 'b';
+      reason = 'time_up_damage';
+    } else if (s.a.aggression !== s.b.aggression) {
+      winner = s.a.aggression > s.b.aggression ? 'a' : 'b';
+      reason = 'time_up_aggression';
+    } else {
+      winner = 'double_loss';
+      reason = 'time_up_stall';
+    }
+    s.winner = winner;
+    s.reason = reason;
+    s.events.push({ frame: s.frame, type: 'time_up', winner, reason });
   }
   return s;
 }

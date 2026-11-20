@@ -19,6 +19,12 @@ export function hashCore(state) {
     hitFrame: f.hitFrame, buffer: f.buffer,
     counterWindow: f.counterWindow, counterSpec: f.counterSpec,
     advanceVx: f.advanceVx, spawned: f.spawned,
+    // rules 2.2 anti-stall fields are hashed only when the rule is active, so
+    // 2.1 replays reproduce their original stateHash byte for byte. `antiStall`
+    // itself is deliberately NOT in the hashed object (it is version metadata).
+    ...(state.antiStall
+      ? { passiveFrames: f.passiveFrames, stallLevel: f.stallLevel, aggression: f.aggression, damageDealt: f.damageDealt }
+      : {}),
   });
   return stableStringify({
     fighters: state.fighters,

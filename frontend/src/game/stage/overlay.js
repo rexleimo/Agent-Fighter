@@ -104,7 +104,7 @@ function drawResult(c, w, h, match) {
   c.fillText(title, w / 2, h / 2 - 22);
   c.font = '600 18px ui-monospace, monospace';
   c.fillStyle = '#e7eef6';
-  c.fillText(winner + ' 获胜', w / 2, h / 2 + 28);
+  c.fillText(winner === 'double_loss' ? '双方消极判负' : winner === 'draw' ? '平局' : winner + ' 获胜', w / 2, h / 2 + 28);
   c.font = '11px ui-monospace, monospace';
   c.fillStyle = 'rgba(190,210,230,.62)';
   c.fillText('下一局即将开始 · 可在大厅或回放中继续观看', w / 2, h / 2 + 54);

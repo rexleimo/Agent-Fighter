@@ -120,6 +120,8 @@ export type QueueEntry = {
   source?: string;
   rating: number;
   waitingMs: number;
+  holdReason?: string | null;
+  holdUntil?: number | null;
 };
 
 export type MatchSummary = {
@@ -132,7 +134,7 @@ export type MatchSummary = {
   pairing?: string | null;
   a?: { id: string; name: string; official?: boolean; competitor?: boolean; [key: string]: unknown };
   b?: { id: string; name: string; [key: string]: unknown };
-  winner?: 'a' | 'b' | 'draw';
+  winner?: 'a' | 'b' | 'draw' | 'double_loss';
   winnerName?: string;
   reason?: string;
   endedAt?: string;

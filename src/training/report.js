@@ -85,6 +85,17 @@ export function trainingAdvice({ games, rules, actions, rows, strategy, seeds, c
   const totalTicks = games.reduce((n, g) => n + g.ticks, 0);
   const fallbackTicks = games.reduce((n, g) => n + g.fallbackTicks, 0);
   const fallbackShare = totalTicks ? (fallbackTicks / totalTicks) * 100 : 0;
+  // A budget breach is always severe: the strategy declared more model calls
+  // than a match allows, so some ticks were decided by defaultAction instead of
+  // the agent. Training games are zero-cost, so this only fires if a caller
+  // supplies budget telemetry — but when it does, it is never a low finding.
+  const budgetExceeded = games.reduce((n, g) => n + (Number(g.budgetExceeded) || 0), 0);
+  if (budgetExceeded > 0) {
+    push('budget_exceeded', 'high',
+      `${budgetExceeded} 拍超出单局模型调用预算，按 defaultAction 处理。`,
+      '减少每拍调用数或降低决策频率；被拒的拍不会自动换成别的招。',
+      { budgetExceeded });
+  }
 
   // Per opponent, because "your long poke always whiffs" against a stationary
   // dummy is not the same finding as the same ratio inside a real press.

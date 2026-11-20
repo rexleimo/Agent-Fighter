@@ -55,7 +55,7 @@ function RoomCard({ room }: { room: Room }) {
       {room.code && <div className="rc-code mono">邀请码 {room.code}</div>}
       <div className="rc-foot">
         <span className="mono">{room.matchId || room.roomId}</span>
-        <Link className="rc-watch" to={`/live?room=${encodeURIComponent(room.roomId)}`}>
+        <Link className="rc-watch" to={`/?view=live&room=${encodeURIComponent(room.roomId)}`}>
           {watched ? '正在观看' : '观战此房间'}
         </Link>
       </div>
@@ -79,7 +79,7 @@ function QueueRow({ entry, fighters }: { entry: QueueEntry; fighters: Fighter[] 
         })}
       </span>
       <span className="mono lq-rating">{entry.rating || 1500}</span>
-      <span className="lq-wait">等待 {Math.round((entry.waitingMs || 0) / 1000)}s</span>
+      <span className="lq-wait">{entry.holdReason === 'rematch_hold' ? '等待新对手' : `等待 ${Math.round((entry.waitingMs || 0) / 1000)}s`}</span>
     </div>
   );
 }

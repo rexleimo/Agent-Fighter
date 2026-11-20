@@ -68,7 +68,10 @@ function zoner(o) {
   if (d.opponentBlocking && d.distanceX < 132 && d.inRange.throw) return 'throw';
   if (d.distanceX < 100) return s.inCorner ? 'mk' : 'walk_b';
   if (d.projectileIncoming && d.distanceX < 150) return 'block';
-  if (d.distanceX >= 130 && s.actionable) return 'fireball';
+  // A fighter locked out of fireball (rush/counter/antiAir) must close instead
+  // of scheduling a move that can never start.
+  if (d.distanceX >= 130 && s.actionable && s.availableActions && s.availableActions.includes('fireball')) return 'fireball';
+  if (d.distanceX >= 130 && s.actionable) return 'dash';
   if (d.inRange.special && s.actionable) return 'special';
   if (d.inRange.mk) return 'mk';
   return 'block';
@@ -95,8 +98,11 @@ const RANDOM_POOL = [
 ];
 
 function randomPolicy(o) {
+  const pool = o.self && o.self.availableActions
+    ? RANDOM_POOL.filter((a) => o.self.availableActions.includes(a))
+    : RANDOM_POOL;
   const h = (Math.imul(o.seed >>> 0, 2654435761) ^ Math.imul(o.tick + 1, 40503) ^ 0x9e3779b9) >>> 0;
-  return RANDOM_POOL[h % RANDOM_POOL.length];
+  return pool[h % pool.length];
 }
 
 function versionOf(id, source) {

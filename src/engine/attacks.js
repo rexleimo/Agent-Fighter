@@ -70,6 +70,7 @@ export function updateProjectiles(s) {
         const verdict = guardResult(def, box);
         if (verdict === 'block') {
           def.hp = Math.max(0, def.hp - 6);
+          atk.damageDealt += 6;
           def.blockstun = box.blockstun;
           def.state = 'guard';
           s.events.push({ frame: s.frame, type: 'block', by: p.owner, on: defSide, move: 'fireball', damage: 6, x: Math.round(p.x), y: box.y + box.h / 2 });
@@ -82,6 +83,7 @@ export function updateProjectiles(s) {
           const scale = comboScale(atk.combo);
           const damage = Math.max(1, Math.round(box.damage * scale));
           def.hp = Math.max(0, def.hp - damage);
+          atk.damageDealt += damage;
           def.hitstun = box.hitstun;
           def.state = 'hitstun';
           def.moveId = null;

@@ -103,6 +103,11 @@ export function playOne(strategy, opponent, { seed, fighterA, fighterB, matchId 
     defaultActionA: s.defaultAction,
     defaultActionB: opponent.defaultAction,
     fighters: { a: fighterA, b: fighterB },
+    // Training is a deterministic strategy-diagnosis sandbox, not a ranked
+    // match: anti-stall (rules 2.2) would drain a passive training strategy and
+    // change the very findings this report exists to produce. Pin the sandbox
+    // to the pre-anti-stall rules so diagnostics stay stable and comparable.
+    rulesVersion: '2.1',
     agents: [{ id: 'training-self' }, { id: opponent.id }],
     onTick: ({ tick, events = [] }) => {
       for (const ev of events) {

@@ -101,13 +101,14 @@ function eliminate(ts, side) {
 export function applyRoundResult(ts, result) {
   const round = ts.round;
   const eliminated = [];
-  const losers = result.winner === 'draw' ? ['a', 'b'] : [result.winner === 'a' ? 'b' : 'a'];
+  const bothOut = result.winner === 'draw' || result.winner === 'double_loss';
+  const losers = bothOut ? ['a', 'b'] : [result.winner === 'a' ? 'b' : 'a'];
   for (const side of losers) {
     const out = eliminate(ts, side);
     if (out) eliminated.push(out);
   }
   let healed = null;
-  if (result.winner !== 'draw') {
+  if (!bothOut) {
     const id = currentOf(ts, result.winner);
     const slot = ts.sides[result.winner].roster[id];
     const before = slot.hp;

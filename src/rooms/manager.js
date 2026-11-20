@@ -1,5 +1,7 @@
 /** Matchmaking loop, broadcasts, replay cache and connection callbacks capability. */
 import { isLadderCompetitor } from '../league.js';
+import { CONFIG } from '../rules.js';
+import { pickOpponent, recentCount, lastOpponentId } from './pairing.js';
 import { renderReplay } from '../engine.js';
 import { parseReplay } from '../replay.js';
 import { parseTeamReplay, flattenTeamReplay } from '../team.js';
@@ -42,16 +44,35 @@ export function createMatchmakingCapability() {
       return this.idleRoom('ranked', format) || this.createRoom({ mode: 'ranked', ranked: true, pairing: 'rating', format });
     },
 
+    /** Is a real (non-sparring) ranked match between two registrants running? */
+    otherRankedRunning(excludeAgentIds = new Set()) {
+      for (const room of this.rooms.values()) {
+        if (room.mode !== 'ranked' || room.status !== 'running' || room.pairing === 'sparring') continue;
+        if (room.aAgent && excludeAgentIds.has(room.aAgent.id)) continue;
+        if (room.bAgent && excludeAgentIds.has(room.bAgent.id)) continue;
+        if (room.aAgent && room.bAgent && isLadderCompetitor(room.aAgent) && isLadderCompetitor(room.bAgent)) return true;
+      }
+      return false;
+    },
+
+    /** Would sending this agent to a sparringpartner skip a held ladder rival? */
+    hasHeldLadderCandidate(w) {
+      return this.waiting.some((o) => o.agentId !== w.agentId && o.mode === 'ranked'
+        && o.holdReason === 'rematch_hold' && (o.holdUntil || 0) > Date.now());
+    },
+
     matchmake() {
       const now = Date.now();
       const ranked = this.waiting.filter((w) => w.mode === 'ranked');
       const used = new Set();
       const byTrack = new Map();
+      this.rematchHolds = this.rematchHolds || new Map();
       for (const w of ranked) {
         const key = w.track + '|' + (w.format || 'single');
         if (!byTrack.has(key)) byTrack.set(key, []);
         byTrack.get(key).push(w);
       }
+      const matches = this.league.matches || [];
       for (const group of byTrack.values()) {
         group.sort((a, b) => a.joinedAt - b.joinedAt);
         for (const w of group) {
@@ -65,16 +86,29 @@ export function createMatchmakingCapability() {
             continue;
           }
           const format = w.format || 'single';
-          // Team ladder waits longer for a real opponent before taking a sparring
-          // partner: a registered player should meet another registrant first.
           const sparAfterMs = format === 'team' ? 8000 : 3000;
-          const mate = group.find((o) => o.agentId !== w.agentId && !used.has(o.agentId)
-            && (Math.abs(o.rating - w.rating) <= 400 || now - Math.min(w.joinedAt, o.joinedAt) > 3000));
+          const candidates = group.filter((o) => !used.has(o.agentId) && o.agentId !== w.agentId);
+          const mate = pickOpponent(w, candidates, now, { matches });
           if (mate) {
+            const last = lastOpponentId(matches, w.agentId);
+            const isRepeat = mate.agentId === last
+              || recentCount(matches, w.agentId, mate.agentId) > 0;
+            const holdKey = [w.agentId, mate.agentId].sort().join('|');
+            const heldUntil = this.rematchHolds.get(holdKey);
+            if (isRepeat && this.otherRankedRunning(new Set([w.agentId, mate.agentId]))
+                && (!heldUntil || now < heldUntil)) {
+              // Another group is still fighting: pause this rematch so the two
+              // groups can cross over. The queue row explains the wait.
+              if (!heldUntil) this.rematchHolds.set(holdKey, now + CONFIG.REMATCH_HOLD_MS);
+              w.holdReason = 'rematch_hold';
+              w.holdUntil = this.rematchHolds.get(holdKey);
+              continue;
+            }
+            this.rematchHolds.delete(holdKey);
             const other = this.league.agents.get(mate.agentId);
             used.add(w.agentId); used.add(mate.agentId);
             if (other && isLadderCompetitor(other)) this.startRoom(this.rankedArena(format), agent, other, { pairing: 'rating' });
-          } else if (now - w.joinedAt > sparAfterMs) {
+          } else if (now - w.joinedAt > sparAfterMs && !this.hasHeldLadderCandidate(w)) {
             used.add(w.agentId);
             const spar = this.nearestSparring(agent);
             if (spar) this.startRoom(this.rankedArena(format), agent, spar, { pairing: 'sparring' });
@@ -200,6 +234,8 @@ export function createMatchmakingCapability() {
             source: w.source,
             rating: a ? Math.round(a.rating) : w.rating,
             waitingMs: Date.now() - w.joinedAt,
+            holdReason: w.holdReason || null,
+            holdUntil: w.holdUntil || null,
           };
         }),
       };

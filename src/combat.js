@@ -11,5 +11,6 @@ export {
 } from './combat/pose.js';
 export {
   hurtboxesFor, pushboxFor, hitboxesFor, projectileBox, overlap, firstOverlap,
+  hurtboxNearEdge, predictsHit,
   guardResult, parryWindowOpen, defensiveVerdict, boxesFor, publicBoxData,
 } from './combat/boxes.js';

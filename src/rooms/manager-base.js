@@ -90,11 +90,19 @@ export function createLobbyCapability() {
     // the first thing a visitor sees is the headline 3v3 elimination, not 1v1.
     // The single demo stays reachable from the lobby as r_demo.
     defaultRoom() {
+      this.defaultShownAt = this.defaultShownAt || new Map();
       const running = Array.from(this.rooms.values())
-        .filter((r) => r.mode === 'ranked' && r.status === 'running' && r.current)
-        .sort((x, y) => ((y.format === 'team') - (x.format === 'team'))
-          || (new Date(y.current.startedAt) - new Date(x.current.startedAt)));
-      return running[0] || this.teamDemo;
+        .filter((r) => r.mode === 'ranked' && r.status === 'running' && r.current);
+      if (!running.length) return this.teamDemo;
+      // Rotate by the last time a room was chosen as the default, so a second
+      // concurrent match actually gets spectators instead of always showing
+      // the newest one. Team format still wins ties.
+      running.sort((x, y) => (this.defaultShownAt.get(x.id) || 0) - (this.defaultShownAt.get(y.id) || 0)
+        || ((y.format === 'team') - (x.format === 'team'))
+        || (new Date(y.current.startedAt) - new Date(x.current.startedAt)));
+      const picked = running[0];
+      this.defaultShownAt.set(picked.id, Date.now());
+      return picked;
     },
 
     joinAgent(conn, agent, { mode = 'ranked', code = null, format = 'single' } = {}) {

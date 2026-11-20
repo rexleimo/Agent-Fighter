@@ -87,6 +87,17 @@ export function createMCPHandler(league, manager = null, accounts = null) {
     return auth.agent;
   }
 
+  function recentOpponents(agentId, limit = 6) {
+    const counts = new Map();
+    for (const m of (league.matches || []).slice(-limit * 4).reverse()) {
+      const other = m.a && m.a.id === agentId ? m.b : m.b && m.b.id === agentId ? m.a : null;
+      if (!other || !other.id) continue;
+      counts.set(other.id, { opponentId: other.id, name: other.name, count: (counts.get(other.id)?.count || 0) + 1 });
+      if (counts.size >= limit) break;
+    }
+    return [...counts.values()];
+  }
+
   function agentSummary(agent) {
     if (!agent) return null;
     return {
@@ -101,7 +112,9 @@ export function createMCPHandler(league, manager = null, accounts = null) {
       wins: agent.wins,
       losses: agent.losses,
       draws: agent.draws,
+      stalls: agent.stalls || 0,
       matches: agent.matches,
+      recentOpponents: recentOpponents(agent.id),
     };
   }
 

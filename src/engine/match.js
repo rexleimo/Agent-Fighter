@@ -1,5 +1,5 @@
 /** Match driver, policy safety wrapper and replay reconstruction. */
-import { CONFIG } from '../rules.js';
+import { CONFIG, versionAtLeast } from '../rules.js';
 import { buildObservation, validateAction } from '../protocol.js';
 import { createReplay, appendTick, hashObject } from '../replay.js';
 import { createInitialState } from './fighter.js';
@@ -8,6 +8,7 @@ import { stateHash, renderState } from './observer.js';
 
 export function createMatch({ seed = 1, matchId = 'local', agents = [], fighters = {}, start = null, ticks = CONFIG.MATCH_TICKS, rulesVersion = CONFIG.RULES_VERSION } = {}) {
   let state = createInitialState(seed, matchId, fighters, start);
+  state.antiStall = versionAtLeast(rulesVersion, '2.2');
   let tick = 0;
   let lastObsHash = { a: '', b: '' };
   const history = { a: [], b: [] };
@@ -29,9 +30,9 @@ export function createMatch({ seed = 1, matchId = 'local', agents = [], fighters
         ? { matchId, winner: state.winner, reason: state.reason, hpA: state.a.hp, hpB: state.b.hp, ticks: tick, frame: state.frame }
         : null;
     },
-    observations(deadlineMs = CONFIG.TICK_MS, extra = null) {
+    observations(deadlineMs = CONFIG.TICK_MS, extra = null, extraB = null) {
       const a = buildObservation(state, 'a', tick, deadlineMs, history.a, seed, extra);
-      const b = buildObservation(state, 'b', tick, deadlineMs, history.b, seed, extra);
+      const b = buildObservation(state, 'b', tick, deadlineMs, history.b, seed, extraB === null ? extra : extraB);
       lastObsHash = { a: hashObject(a), b: hashObject(b) };
       return { a, b };
     },
@@ -72,8 +73,8 @@ export function safePolicy(policy, obs, fallback = CONFIG.DEFAULT_ACTION) {
   return validateAction(a) ? a : fallback;
 }
 
-export function runMatch({ seed = 1, matchId = 'local', policyA, policyB, defaultActionA = CONFIG.DEFAULT_ACTION, defaultActionB = CONFIG.DEFAULT_ACTION, ticks = CONFIG.MATCH_TICKS, agents = [], fighters = {}, onTick = null } = {}) {
-  const match = createMatch({ seed, matchId, agents, fighters, ticks });
+export function runMatch({ seed = 1, matchId = 'local', policyA, policyB, defaultActionA = CONFIG.DEFAULT_ACTION, defaultActionB = CONFIG.DEFAULT_ACTION, ticks = CONFIG.MATCH_TICKS, agents = [], fighters = {}, rulesVersion = CONFIG.RULES_VERSION, onTick = null } = {}) {
+  const match = createMatch({ seed, matchId, agents, fighters, ticks, rulesVersion });
   while (!match.over && match.tick < ticks) {
     const obs = match.observations();
     const actionA = safePolicy(policyA, obs.a, defaultActionA);
@@ -86,6 +87,7 @@ export function runMatch({ seed = 1, matchId = 'local', policyA, policyB, defaul
 
 export function renderReplay(replay) {
   let state = createInitialState(replay.seed, replay.matchId, replay.fighters || {}, replay.start || null);
+  state.antiStall = versionAtLeast(replay.rulesVersion, '2.2');
   const ticks = [];
   for (const rec of replay.ticks) {
     state.tick = rec.tick;
@@ -104,6 +106,7 @@ export function renderReplay(replay) {
 
 export function replayMatch(replay) {
   let state = createInitialState(replay.seed, replay.matchId, replay.fighters || {}, replay.start || null);
+  state.antiStall = versionAtLeast(replay.rulesVersion, '2.2');
   const mismatches = [];
   for (const rec of replay.ticks) {
     if (stateHash(state) !== rec.stateHashBefore) {

@@ -104,6 +104,60 @@ export function overlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
+/**
+ * Distance from `fromX` to the nearest hurtbox edge of `fighter`.
+ *
+ * Uses the same live hurtboxes the kernel resolves hits against — no second
+ * width table. A point already inside a hurtbox returns 0. This is the honest
+ * "how far must a hit travel to touch them" gap used by reach prediction and
+ * the incoming-attack readout.
+ */
+export function hurtboxNearEdge(fighter, fromX) {
+  const x = fromX == null ? fighter.x : fromX;
+  let nearest = Infinity;
+  for (const h of hurtboxesFor(fighter, 0)) {
+    const gap = x < h.x ? h.x - x : x > h.x + h.w ? x - (h.x + h.w) : 0;
+    if (gap < nearest) nearest = gap;
+  }
+  return nearest === Infinity ? 0 : nearest;
+}
+
+/**
+ * Would `actionId` actually connect from the attacker's CURRENT position?
+ *
+ * The kernel resolves hits as AABB overlap between skeleton-anchored hitboxes
+ * and the defender's live hurtboxes. This asks the same question one step
+ * early: stand the attacker still, run the move's active frames, and test the
+ * real rectangles. No second reach model, no scalar guess.
+ */
+export function predictsHit(attacker, defender, actionId) {
+  const m = moveFor(attacker, actionId);
+  if (!m) return false;
+  // Projectile: the box travels, so the honest answer is the reach it can
+  // cover. Shots spawn 44px in front and move speed*life before expiring.
+  if (m.projectile) {
+    const travel = Math.min(640, m.projectile.speed * m.projectile.life);
+    return hurtboxNearEdge(defender, attacker.x) <= travel + 44;
+  }
+  if (!m.hitboxes || !m.hitboxes.length) return false;
+  const hurt = hurtboxesFor(defender, 0);
+  const lastFrame = Math.max(m.active - 1, ...m.hitboxes.map((hb) => hb.to));
+  for (let k = 0; k <= lastFrame; k += 1) {
+    // A probe must NOT inherit the live fighter's hit bookkeeping: a move that
+    // already connected would otherwise report zero hitboxes and predict a
+    // false whiff.
+    const probe = {
+      ...attacker,
+      state: 'attack', moveId: actionId, moveFrame: m.startup + k,
+      hasHit: false, spentHit: false, hitIds: [], spentHitIds: [],
+    };
+    if (hitboxesFor(probe, probe.moveFrame).some((hb) => hurt.some((h) => overlap(hb, h)))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** First (hitbox, hurtbox) pair that actually overlaps. */
 export function firstOverlap(hitboxes, hurtboxes) {
   for (const hb of hitboxes) {

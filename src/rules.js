@@ -18,7 +18,7 @@
  *           through `moveFor`, which prefers the fighter's own kit.
  */
 import {
-  CONFIG,
+  CONFIG, versionAtLeast,
   CHAIN_LIGHT, CHAIN_MEDIUM, CHAIN_HEAVY, CANCEL_METER, CANCEL_SUPER_ONLY,
   CHAIN_NORMALS_LIGHT, CHAIN_NORMALS_MEDIUM, CHAIN_NORMALS_HEAVY,
 } from './config.js';
@@ -31,7 +31,7 @@ const {
   PARRY_ACTIVE, PARRY_RECOVERY, PARRY_METER,
 } = CONFIG;
 
-export { CONFIG };
+export { CONFIG, versionAtLeast };
 
 export const ACTIONS = Object.freeze([
   'idle', 'walk_f', 'walk_b', 'jump', 'crouch',
@@ -318,6 +318,37 @@ export function isAttack(action) {
  * describing it in prose nobody checks. Five incoming kinds x four guards, and
  * every cell is what the kernel actually resolves in combat.js.
  */
+/**
+ * The four-level time-up chain and passivity thresholds, published as data so
+ * no prose can drift from the kernel (and `get_rules` stays one source of truth).
+ */
+export function antiStallRules() {
+  return {
+    version: CONFIG.RULES_VERSION,
+    note: '消极判罚：一直不出手、不接近、也不在防守对手进攻的一方会被警告并扣血。不消极的一方永远不会因为对手消极而吃亏；两边都消极时两边都输。',
+    activeFrames: {
+      attackStart: '起手任一攻击（含被防、被闪的出手）',
+      closeDistance: 'walk_f / dash 使距离缩小',
+      pressured: '处于 hitstun / blockstun / knockdown / wakeup',
+      defendAttack: '对手在攻击且自己在 block / crouch / parry / dodge',
+    },
+    thresholds: {
+      warnFrames: CONFIG.STALL_WARN_FRAMES,
+      penaltyFrames: CONFIG.STALL_PENALTY_FRAMES,
+      penaltyEveryFrames: CONFIG.FPS,
+      drainHp: CONFIG.STALL_DRAIN_HP,
+      meterGift: CONFIG.STALL_METER_GIFT,
+    },
+    timeUpChain: [
+      { level: 1, condition: 'hp 高者胜', reason: 'time_up' },
+      { level: 2, condition: 'hp 相等时，造成伤害多者胜', reason: 'time_up_damage' },
+      { level: 3, condition: '仍相等时，aggression 高者胜', reason: 'time_up_aggression' },
+      { level: 4, condition: '仍相等：双方消极判负', reason: 'time_up_stall', winner: 'double_loss' },
+    ],
+    scoring: 'double_loss: 双方各记一负、matches +1，不更新 Glicko；KO 双倒仍为 draw。',
+  };
+}
+
 export function defensiveRules() {
   const dodge = MOVES.dodge;
   const parry = MOVES.parry;

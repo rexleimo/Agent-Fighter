@@ -297,7 +297,7 @@ function MatchItem({ match, active, onSelect }: { match: MatchSummary; active: b
       </div>
       <div className="mi-meta">
         {match.format === 'team' ? '3v3 · ' : '1v1 · '}
-        {draw ? '平局' : <>胜 <b className="mi-win">{winnerName}</b></>}
+        {match.winner === 'double_loss' ? '双方消极判负' : draw ? '平局' : <>胜 <b className="mi-win">{winnerName}</b></>}
         {' · '}{REASON_LABEL[String(match.reason)] ?? match.reason ?? '—'}
         {' · '}{match.ticks ?? '—'} 拍
       </div>

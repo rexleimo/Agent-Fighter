@@ -31,3 +31,8 @@ data/accounts.json
 
 # Benchmark report artifacts (reproducible from the protocol; not source).
 bench/reports/
+
+# Local model-PK harness + its runtime state (league snapshots, replays, logs).
+# This is throwaway tooling/data for running live model tournaments, not product
+# source; keep it out of code review.
+scripts/pk/

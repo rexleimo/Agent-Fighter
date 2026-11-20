@@ -17,10 +17,13 @@ export function isRemoteSide(agent) {
 }
 
 export function newDecisionCounters() {
-  return {
-    a: { modelCalls: 0, timeouts: 0, decisions: 0, totalMs: 0, budgetExceeded: 0 },
-    b: { modelCalls: 0, timeouts: 0, decisions: 0, totalMs: 0, budgetExceeded: 0 },
-  };
+  const side = () => ({
+    modelCalls: 0, timeouts: 0, decisions: 0, totalMs: 0, budgetExceeded: 0,
+    // rules 2.2: why a tick did not produce a deliberate action.
+    fallback: 0,
+    rejected: { stale_tick: 0, model_budget_exceeded: 0, action_locked: 0 },
+  });
+  return { a: side(), b: side() };
 }
 
 const ACTION_LABEL = {

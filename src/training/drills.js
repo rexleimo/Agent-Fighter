@@ -75,7 +75,8 @@ function punisher(o) {
 
 function chaos(o) {
   // 混沌靶：按种子伪随机出招，练不稳定局面下的兜底规则。
-  const pool = ['walk_f', 'walk_b', 'block', 'lp', 'mp', 'hp', 'lk', 'mk', 'hk', 'fireball', 'dp', 'jump', 'throw', 'crouch', 'dash', 'special', 'ex', 'super'];
+  const all = ['walk_f', 'walk_b', 'block', 'lp', 'mp', 'hp', 'lk', 'mk', 'hk', 'fireball', 'dp', 'jump', 'throw', 'crouch', 'dash', 'special', 'ex', 'super'];
+  const pool = o.self && o.self.availableActions ? all.filter((a) => o.self.availableActions.includes(a)) : all;
   const h = (Math.imul(o.seed >>> 0, 2654435761) ^ Math.imul(o.tick + 1, 40503) ^ 0x9e3779b9) >>> 0;
   return pool[h % pool.length];
 }

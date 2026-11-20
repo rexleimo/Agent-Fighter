@@ -63,6 +63,30 @@ export const KIT_BALANCE = Object.freeze({
   multi: { special: [125, 145], ex: [180, 210], super: [250, 300], reach: [150, 220] },
 });
 
+/**
+ * Archetype availability locks. Universal actions (fireball et al.) are frame
+ * data every fighter CAN perform; whether they SHOULD is a strategy decision
+ * owned here. Melee archetypes cannot zone with a fireball, so the action is
+ * locked at input and reported as `input_locked` rather than silently swapped.
+ * Custom fighters (not in the roster) face no locks — backwards compatible.
+ */
+export const FIGHTER_LOCKS = Object.freeze({
+  rush: ['fireball'],
+  counter: ['fireball'],
+  antiAir: ['fireball'],
+  multi: [],
+  volley: [],
+});
+
+export function lockedActions(fighterId) {
+  const kit = FIGHTER_KITS[fighterId];
+  return kit ? (FIGHTER_LOCKS[kit.archetype] || []) : [];
+}
+
+export function actionAvailable(fighterId, action) {
+  return !lockedActions(fighterId).includes(action);
+}
+
 /** The three meter actions every kit must define. */
 export const SKILL_ACTIONS = Object.freeze(['special', 'ex', 'super']);
 

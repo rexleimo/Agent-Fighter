@@ -28,7 +28,9 @@ function eventTitle(event: any): string {
     case 'block': return `${side(event.on)} 防住 ${ACTION_LABEL[event.move] ?? event.move} · 削血 ${event.damage}`;
     case 'spawn': return `${side(event.by)} 发出 ${ACTION_LABEL[event.move] ?? event.move}`;
     case 'ko': return `KO · 胜方 ${String(event.winner ?? '').toUpperCase()}`;
-    case 'time_up': return `时间到 · 按剩余血量判定，胜方 ${String(event.winner ?? '').toUpperCase()}`;
+    case 'time_up': return `时间到 · ${event.reason === 'time_up_stall' ? '双方消极判负' : event.reason === 'time_up_damage' ? '按造成伤害多者胜' : event.reason === 'time_up_aggression' ? '按积极度胜' : '按剩余血量判定'}${event.winner && event.winner !== 'double_loss' ? `，胜方 ${String(event.winner).toUpperCase()}` : ''}`;
+    case 'stall_warning': return `${side(event.by)} · 消极警告：3 秒内未进攻/接近`;
+    case 'stall_penalty': return `${side(event.by)} · 消极判罚：扣血并送对手气`;
     case 'cancel': return `${side(event.by)} · 取消连段 ${ACTION_LABEL[event.from] ?? event.from} → ${ACTION_LABEL[event.into] ?? event.into}`;
     case 'super_start': return `${side(event.by)} · 超必杀发动 · 消耗 100 气`;
     case 'armor': return `${side(event.on)} · 霸体吸收 ${event.damage} 伤害，未进入硬直`;

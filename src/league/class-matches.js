@@ -19,10 +19,16 @@ export function createMatchesCapability() {
       const agent = this.agentByToken(token);
       if (!agent) throw new Error('invalid token');
       const rows = this.matches.filter((m) => m.a.id === agent.id || m.b.id === agent.id).slice(-Math.min(Number(limit) || 20, 50)).reverse();
+      const recentCounts = new Map();
+      for (const m of rows) {
+        const other = m.a.id === agent.id ? m.b.id : m.a.id;
+        recentCounts.set(other, (recentCounts.get(other) || 0) + 1);
+      }
       return {
         agentId: agent.id,
         fighterId: agent.fighterId || DEFAULT_FIGHTER,
         source: agent.source,
+        recentOpponents: [...recentCounts.entries()].map(([opponentId, count]) => ({ opponentId, count })),
         matches: rows.map((m) => {
           const side = m.a.id === agent.id ? 'a' : 'b';
           const other = side === 'a' ? m.b : m.a;
@@ -137,24 +143,37 @@ export function createMatchesCapability() {
       const ladder = roomRanked && compA && compB;
       const practice = roomRanked && !ladder;
       const counted = ladder;
+      // A double loss has no legal Glicko score (it is not 0-0-1): neither side
+      // is rated, both take a loss. A passive agent must never gain rating from
+      // a standing draw.
+      const doubleLoss = result.winner === 'double_loss';
       const scoreA = result.winner === 'a' ? 1 : result.winner === 'b' ? 0 : 0.5;
       const beforeA = { rating: agentA.rating, rd: agentA.rd, sigma: agentA.sigma };
       const beforeB = { rating: agentB.rating, rd: agentB.rd, sigma: agentB.sigma };
       let nextA = beforeA;
       let nextB = beforeB;
       if (counted) {
-        nextA = glicko2(agentA, beforeB, scoreA);
-        nextB = glicko2(agentB, beforeA, 1 - scoreA);
-        Object.assign(agentA, nextA);
-        Object.assign(agentB, nextB);
+        if (!doubleLoss) {
+          nextA = glicko2(agentA, beforeB, scoreA);
+          nextB = glicko2(agentB, beforeA, 1 - scoreA);
+          Object.assign(agentA, nextA);
+          Object.assign(agentB, nextB);
+        }
         agentA.matches += 1;
         agentB.matches += 1;
         if (result.winner === 'a') { agentA.wins += 1; agentB.losses += 1; }
         else if (result.winner === 'b') { agentB.wins += 1; agentA.losses += 1; }
+        else if (doubleLoss) { agentA.losses += 1; agentB.losses += 1; }
         else { agentA.draws += 1; agentB.draws += 1; }
-        const entry = { matchId, result: result.winner, reason: result.reason, rating: Math.round(agentA.rating) };
+        // A stall is counted both for an explicit time_up_stall verdict and for
+        // any match where this side actually drew a stall penalty.
+        const stalled = result.reason === 'time_up_stall' || (result.stalls && result.stalls.a > 0);
+        const stalledB = result.reason === 'time_up_stall' || (result.stalls && result.stalls.b > 0);
+        if (stalled) agentA.stalls = (agentA.stalls || 0) + 1;
+        if (stalledB) agentB.stalls = (agentB.stalls || 0) + 1;
+        const entry = { matchId, result: result.winner, reason: result.reason, rating: Math.round(agentA.rating), opponentId: agentB.id };
         agentA.history = [...(agentA.history || []), entry].slice(-40);
-        agentB.history = [...(agentB.history || []), { ...entry, rating: Math.round(agentB.rating) }].slice(-40);
+        agentB.history = [...(agentB.history || []), { ...entry, rating: Math.round(agentB.rating), opponentId: agentA.id }].slice(-40);
       } else {
         // Practice and exhibition games are counted separately so the board can
         // say where a game came from instead of hiding it.
@@ -173,6 +192,11 @@ export function createMatchesCapability() {
         agent.modelCalls = (agent.modelCalls || 0) + (Number(stat.modelCalls) || 0);
         agent.timeouts = (agent.timeouts || 0) + (Number(stat.timeouts) || 0);
         agent.budgetExceeded = (agent.budgetExceeded || 0) + (Number(stat.budgetExceeded) || 0);
+        agent.fallback = (agent.fallback || 0) + (Number(stat.fallback) || 0);
+        agent.rejected = agent.rejected || { stale_tick: 0, model_budget_exceeded: 0, action_locked: 0 };
+        for (const reason of Object.keys(agent.rejected)) {
+          agent.rejected[reason] += (stat.rejected && Number(stat.rejected[reason]) || 0);
+        }
         if (agent.source === 'hosted') {
           agent.hostedTicksEvaluated = (agent.hostedTicksEvaluated || 0) + (Number(result.ticks) || 0);
         }
@@ -226,7 +250,8 @@ export function createMatchesCapability() {
         fighters: fighters || { a: agentA.fighterId || DEFAULT_FIGHTER, b: agentB.fighterId || DEFAULT_FIGHTER },
         winner: result.winner,
         reason: result.reason,
-        winnerName: result.winner === 'a' ? agentA.name : result.winner === 'b' ? agentB.name : 'draw',
+        winnerName: result.winner === 'a' ? agentA.name : result.winner === 'b' ? agentB.name : doubleLoss ? '双方消极判负' : 'draw',
+        stalls: result.stalls || null,
         hpA: result.hpA,
         hpB: result.hpB,
         ticks: result.ticks,
@@ -281,6 +306,7 @@ export function createMatchesCapability() {
           wins: a.wins || 0,
           losses: a.losses || 0,
           draws: a.draws || 0,
+          stalls: a.stalls || 0,
           practiceMatches: a.practiceMatches || 0,
           trainingRuns: a.trainingRuns || 0,
           winRate: a.matches ? Math.round((a.wins / a.matches) * 100) : null,

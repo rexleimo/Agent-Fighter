@@ -116,7 +116,7 @@ export function AgentStatusCard({ enabled }: { enabled: boolean }) {
             <>
               <span className="acc-badge live">比赛中</span>
               <code>{data.room.roomId}</code>
-              <Link className="mini-btn" to={`/live?room=${encodeURIComponent(data.room.roomId)}`}>观战</Link>
+              <Link className="mini-btn" to={`/?view=live&room=${encodeURIComponent(data.room.roomId)}`}>观战</Link>
             </>
           ) : data.queue ? (
             <span className="acc-badge wait">排队中 {Math.round((data.queue.waitingMs || 0) / 1000)}s</span>
@@ -132,7 +132,7 @@ export function AgentStatusCard({ enabled }: { enabled: boolean }) {
               {data.recentMatches.slice(0, 4).map((m) => (
                 <div className="acc-match" key={m.matchId}>
                   <span className={m.result === 'win' ? 'win' : m.result === 'loss' ? 'loss' : ''}>
-                    {m.result === 'win' ? '胜' : m.result === 'loss' ? '负' : '平'}
+                    {(m as any).reason === 'time_up_stall' ? '双方消极判负' : m.result === 'win' ? '胜' : m.result === 'loss' ? '负' : '平'}
                   </span>
                   <span>{m.opponent}</span>
                   {m.practice && <span className="acc-tag-warn">陪练不计榜</span>}

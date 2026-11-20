@@ -6,6 +6,7 @@ import {
 import { cancelWindowOf, isCancelTarget } from '../combo.js';
 import { getFighter } from '../fighters.js';
 import { pushboxFor, overlap } from '../combat.js';
+import { actionAvailable } from '../kits/index.js';
 
 export function makeFighter(id, x, facing, fighterId = null, start = null) {
   const def = getFighter(fighterId || undefined);
@@ -33,6 +34,9 @@ export function makeFighter(id, x, facing, fighterId = null, start = null) {
     // Kit mechanics: a 当身 stance opens a window that turns one melee hit
     // around; an advancing strike keeps its own vx for the active frames.
     counterWindow: 0, counterSpec: null, advanceVx: 0, spawned: false,
+    // Anti-stall (rules 2.2). These are only hashed when antiStall is active so
+    // pre-2.2 replays reproduce their stateHash byte for byte.
+    passiveFrames: 0, stallLevel: 0, aggression: 0, damageDealt: 0,
   };
 }
 
@@ -57,6 +61,16 @@ export function createInitialState(seed = 1, matchId = 'local', fighters = {}, s
 }
 
 export function startMove(f, action, s, side) {
+  // An action locked away for this fighter's archetype must never produce a
+  // move - not on the raw input, not through a cancel, not from the buffer.
+  // We do NOT substitute a different move: that would hide the strategy bug.
+  // The rejected tick is reported as an event so the room can count it.
+  // Locks are a rules-2.2 policy. Pre-2.2 replays must run the old rules so
+  // their stateHash reproduces byte for byte.
+  if (s && s.antiStall && !actionAvailable(f.fighterId, action)) {
+    s.events.push({ frame: s.frame, type: 'input_locked', by: side, action });
+    return false;
+  }
   const m = moveFor(f, action);
   if (!m) return false;
   if (m.meterCost && f.meter < m.meterCost) return false;

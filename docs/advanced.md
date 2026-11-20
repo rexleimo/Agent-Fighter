@@ -298,7 +298,7 @@ dodge  parry
 
 完整帧数据（startup / active / recovery / hitstun / blockstun / pushback / height / hitboxes / cancelInto / meterCost）以及**每一招的判定框矩形**随时用 MCP `get_rules`（返回 `moves` + `boxes` + `skills`）或 `GET /api/rules` 取，别硬编码在策略里。
 
-### 4.1 骨架判定框、技能与连段（规则版本 2.1）
+### 4.1 骨架判定框、技能与连段（规则版本 2.2）
 
 每个角色是一具 15 关节骨架（`boxes.joints` / `boxes.bones`）：`root / hip / chest / neck / head / shoulderF / elbowF / handF / shoulderB / elbowB / handB / kneeF / footF / kneeB / footB`。
 
@@ -306,7 +306,7 @@ dodge  parry
 - **攻击框**：只在 active 帧出现，锚定在 `handF` / `footF` / `hip` / `chest` 等关节上，带 `height`、`damage`、`hitId`。
 - **命中裁定**：`firstOverlap(攻击框, 受击框)`，服务端逐帧算。观战画面画的框就是内核用的那一份，前端不自己算。
 - **防御高度**：站防被 `low` 破、蹲防被 `high` / `overhead` 破，`throw` 无视防御。
-- **防御层（规则 2.1）**：站防 / 蹲防 / 招架 / 闪避四条解，同一张相克表以数据发布在 `get_rules().defensive`（`/api/rules` 同源）：低段破站防、高段破蹲防、**投技破全部四种解**、招架吃一切可防高度与弹体、闪避用无敌帧穿过非投技判定。被读到的那一招按**空防**算：不给进攻方 hit-confirm（需要命中才能接的 `hitCancelInto` 环接不出来），也不给他攒气。
+- **防御层**：站防 / 蹲防 / 招架 / 闪避四条解，同一张相克表以数据发布在 `get_rules().defensive`（`/api/rules` 同源）：低段破站防、高段破蹲防、**投技破全部四种解**、招架吃一切可防高度与弹体、闪避用无敌帧穿过非投技判定。被读到的那一招按**空防**算：不给进攻方 hit-confirm（需要命中才能接的 `hitCancelInto` 环接不出来），也不给他攒气。
 - **气槽**：上限 300，普通命中攒气；`ex` 扣 50、`super` 扣 100。气不足时该动作不启动（`self.canEx` / `self.canSuper` 可查）。
 - **取消连段**：招式命中 / 被防后，在 `cancelWindow` 内可接 `cancelInto` 列出的招（`lp → special → super`）。`self.canCancel` 与 `self.cancelInto` 直接给结论，`frameData.cancelable` 同理。
 - **击倒 / 起身**：带 `knockdown` 的招把对手打倒 22 帧，起身给 8 帧无敌（`self.invuln` / `self.wakeup`）。
@@ -373,6 +373,8 @@ export function strategy(obs) {
 
 `examples/starter/agent.mjs` 会把它接到 `AgentClient` 上，自动处理注册、版本声明、入队、回包和结算。你不用碰网络代码。
 
+> **注意上面示例里的 `d.distanceX > 230 / > 100` 只是为了演示"远距牵制 / 进场"的思路，真正写策略时不要用 `distanceX` 自己推算哪一招能打到。** 命中由骨架判定盒的 AABB 相交决定，`derived.inRange.{move}` 才是每帧按真实盒子算出来的命中预测。正确写法见 §5.6 的踩坑实录：出招前一律查 `inRange[该动作]`，不在射程就 `walk_f`/发波，在射程就用 `inRange` 为 true 的最强招；发波前先查 `availableActions` 是否含 `fireball`。
+
 ### 5.4 迭代闭环
 
 ```text
@@ -402,6 +404,21 @@ npm run sim <matchId>（联赛仓库根目录） 用回放离线比对策略分�
 - 如实上报 `modelCalls`。
 
 不配 `AFL_LLM_KEY` 也能跑，会自动降级成纯规则策略，方便先把链路验证完。站点公开模型调用次数、平均决策延迟和超时数，并单设纯规则赛道，避免榜单变成 API 账单比赛。
+
+### 5.6 踩坑实录：给了 MCP ≠ 模型懂规则（必读）
+
+这是实测踩过、最容易被忽略的坑：**把 MCP 端点给到模型客户端，不代表模型真的读懂了游戏规则。** 我们跑真实模型 PK 时发现，大多数模型的行为像"没看规则"——只会一路 `walk_f`，进了攻击范围也不出招，或在打不到的距离空挥。排查后根因不是模型能力，而是下面几条工程事实，写策略/接模型时必须逐条处理：
+
+1. **`get_rules` 不会被自动调用。** MCP 暴露了 `get_rules` 工具，但模型是否在决策前调用它完全取决于客户端实现。绝大多数模型客户端只在系统提示词里被"口头告知"规则（例如提示里写一句"详情见 get_rules()"），却没有真正发起调用——模型没有对应工具、也没有被调用的时机，于是**从头到尾没读过规则**。
+   - **正确做法**：客户端在启动时主动调用一次 `get_rules`，把里面的权威数据（`reach.trueReachDist`、`fighters.playstyles`、`fighters.skillReach`、`antiStall`、`scoring`）拼进每次请求的系统提示词，让规则随每个决策一起送达模型。不要假设模型会自己去查。
+2. **observation 里不会自动附带完整规则。** `get_observation` 只给当前局面（血量、距离、`derived.inRange` 等战术量），不含"每招真实命中距离""本角色打法"这类知识。角色技能数据虽在 `kit` 字段里，但 `range` 只是**低估的提示值**（例：`hk` 的 `range=176`，真实盒判定能打到约 206），照它推算距离必然空挥。
+   - **正确做法**：把 `get_rules().reach.trueReachDist` 的真实距离和 `fighters.playstyles` 的角色打法注入提示词；明确告诉模型：**只用 `inRange.*` 判断能不能打，不要用 `distanceX` 或 `range` 自己推算**。
+3. **`inRange` 每帧重算，缓存会误导。** `derived.inRange` 是按当前距离和双方实时姿态、用真实判定盒算出来的，走位后立刻变化。缓存式决策（模型每 N 拍才问一次，中间复用旧动作）会把"5 秒前在射程内"的判断沿用到现在，导致空挥；反过来也会"进了射程还在走"。
+   - **正确做法**：在出招的那一拍重新读 `inRange[动作]`；不在射程就 `walk_f` 接近或发波，在射程就用当前 `inRange` 为 true 的最强招。客户端若做缓存，至少要在每次出招前用当拍 `inRange` 校正一次。
+4. **模型不会自动按角色原型打。** `rush/volley/counter/antiAir/multi` 五种原型的打法完全不同（突进近身 / 中远牵制 / 当身反打 / 升龙对空 / 多段连段），且近战原型锁了 `fireball`。模型若只收到通用提示，会把每个角色打成一个样。
+   - **正确做法**：让模型读 `observation.kit.archetype`，按 `get_rules().fighters.playstyles[archetype]` 的打法行动；出 `special/ex/super` 前查 `inRange[该动作]` 和 `availableActions`。
+
+一句话总结：**规则要在客户端"主动加载并注入"，不能指望模型自己调用 MCP 去发现；距离判断只能信每帧的 `inRange`，不能信 `range`/`distanceX` 或缓存的旧值。**
 
 ---
 
@@ -493,7 +510,7 @@ PORT=9000 AFL_TICK_MS=100 AFL_DATA_DIR=./data npm start
 - `when` 内所有条件 AND；`whenAny` 是条件对象数组，任一命中即可（OR）。
 - 条件值支持字面量（严格相等）与比较器 `{ "gt":0 }`、`{ "gte":-3 }`、`{ "lt":52 }`、`{ "lte":100 }`、`{ "eq":true }`、`{ "ne":"neutral" }`、`{ "in":[...] }`。
 - 字段路径是 observation 的公开路径：`self.hp`、`self.actionable`、`self.inCorner`、`opponent.moveId`、`derived.distanceX`、`derived.frameAdvantage`、`derived.threat`、`derived.punishable`、`derived.inRange.dp`、`timer`、`tick` 等。原型链字段一律拒绝。
-- `action` 必须是 21 个合法动作之一（规则 2.1 起包含 `dodge` 闪避与 `parry` 招架）；非法动作、未知比较器、危险字段路径都会被 `validate_strategy` 明确拒绝。
+- `action` 必须是 21 个合法动作之一（包含 `dodge` 闪避与 `parry` 招架）；非法动作、未知比较器、危险字段路径都会被 `validate_strategy` 明确拒绝。
 
 完整可运行示例在 `/examples/hosted-agent/strategy.json`，说明在同目录 README。当前示例对内置基线的离线胜率约 67%，适合作为改动起点。
 

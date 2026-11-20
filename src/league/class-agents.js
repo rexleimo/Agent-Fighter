@@ -1,12 +1,12 @@
 /** Agent identity, roster/strategy submission and public read surfaces capability. */
 import { randomBytes, createHash } from 'node:crypto';
-import { ACTIONS } from '../rules.js';
+import { ACTIONS, CONFIG } from '../rules.js';
 import {
   publicFighters, publicTeams, DEFAULT_FIGHTER, isValidFighter,
 } from '../fighters.js';
 import {
-  validateStrategy, strategyHash, strategyTemplate, simulateStrategy,
-  describeDsl, DSL_VERSION,
+  validateStrategy, lintStrategy, strategyHash, strategyTemplate, strategyTemplates,
+  simulateStrategy, describeDsl, DSL_VERSION,
 } from '../strategy-dsl.js';
 import { normalizeTeam } from '../team.js';
 import { cleanTeamName } from './identity.js';
@@ -35,9 +35,9 @@ export function createAgentsCapability() {
         versionHash,
         token,
         source: source === 'hosted' ? 'hosted' : 'external',
-        defaultAction: 'block',
+        defaultAction: CONFIG.DEFAULT_ACTION,
         rating: 1500, rd: 350, sigma: 0.06,
-        wins: 0, losses: 0, draws: 0, matches: 0, practiceMatches: 0,
+        wins: 0, losses: 0, draws: 0, stalls: 0, matches: 0, practiceMatches: 0,
         modelCalls: 0, timeouts: 0, avgDecisionMs: 0,
         history: [],
         createdAt: new Date().toISOString(),
@@ -164,6 +164,11 @@ export function createAgentsCapability() {
       if (!agent) throw new Error('invalid token');
       if (this.locked.has(agent.id)) throw new Error('strategy is locked during match ' + this.locked.get(agent.id));
       const normalized = validateStrategy(strategy);
+      const lint = lintStrategy(normalized, agent.fighterId);
+      // A locked action is a hard error: the fighter physically cannot use it.
+      if (lint.errors.length) {
+        throw new Error('strategy uses actions locked for this fighter: ' + lint.errors.map((e) => e.message).join('; '));
+      }
       const hash = strategyHash(normalized);
       const versionHash = hash.slice(0, 12);
       agent.hostedStrategy = normalized;
@@ -182,6 +187,7 @@ export function createAgentsCapability() {
         name: normalized.name,
         rules: normalized.rules.length,
         defaultAction: normalized.defaultAction,
+        warnings: lint.warnings,
         source: 'hosted',
         autoRequeue: agent.autoRequeue,
         note: 'The league interprets this JSON locally. No code is executed and no WebSocket process is needed. Call join_queue to enter ranked matchmaking.',
@@ -192,6 +198,7 @@ export function createAgentsCapability() {
       return {
         dsl: DSL_VERSION,
         template: strategyTemplate(),
+        templates: strategyTemplates(),
         syntax: describeDsl(),
         exampleFile: '/examples/hosted-agent/strategy.json',
         note: 'Edit template.rules, then call validate_strategy -> simulate_strategy -> submit_strategy.',
@@ -200,7 +207,8 @@ export function createAgentsCapability() {
 
     validateStrategyTool({ strategy } = {}) {
       const normalized = validateStrategy(strategy);
-      return { valid: true, dsl: DSL_VERSION, strategyHash: strategyHash(normalized), strategy: normalized };
+      const lint = lintStrategy(normalized);
+      return { valid: true, dsl: DSL_VERSION, strategyHash: strategyHash(normalized), strategy: normalized, warnings: lint.warnings, errors: lint.errors };
     },
 
     simulateStrategyTool({ strategy, opponents, seeds } = {}) {
