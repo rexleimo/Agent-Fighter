@@ -2,31 +2,13 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import type { MeResponse } from '../lib/types';
+import type { McpConfigFile, MeResponse, ViewerResource } from '../lib/types';
 import { ResourceViewer } from '../components/ResourceViewer';
-
-type Resource = { title: string; url: string; kind: 'markdown' | 'json' | 'text' };
-
-type ClientConfig = {
-  id: string;
-  name: string;
-  scope: string;
-  language: string;
-  cli: string;
-  template: string;
-  note: string;
-};
-
-type ConfigFile = {
-  endpoint: string;
-  note: string;
-  clients: ClientConfig[];
-};
 
 function useMcpConfigs() {
   return useQuery({
     queryKey: ['mcp-configs'],
-    queryFn: () => api<ConfigFile>('/skills/afl-league/mcp-configs.json'),
+    queryFn: () => api<McpConfigFile>('/skills/afl-league/mcp-configs.json'),
     staleTime: Infinity,
   });
 }
@@ -44,7 +26,7 @@ export function ConnectPage() {
   const configs = useMcpConfigs();
   const me = useMe();
   const [clientIndex, setClientIndex] = useState(0);
-  const [resource, setResource] = useState<Resource | null>(null);
+  const [resource, setResource] = useState<ViewerResource | null>(null);
   const origin = window.location.origin;
   const endpoint = me.data?.mcp?.url ?? `${origin}/mcp/<玩家 key>`;
   const client = configs.data?.clients[clientIndex];

@@ -9,8 +9,7 @@ export async function mcpCall(endpoint, method, params = {}, id = 1) {
     body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
   });
   const text = await res.text();
-  let data = null;
-  try { data = JSON.parse(text); } catch { data = null; }
+  const data = await Promise.resolve(text).then(JSON.parse).catch(() => null);
   if (data && data.error) {
     // Accept both shapes a server may use: a JSON-RPC error object (spec) or a
     // bare { error: "..." } (this league's REST routes). Never surface an empty
@@ -124,9 +123,10 @@ export class AgentClient {
       // Do not resolve on 'onopen': the server still has to validate the token.
       this.ws.onerror = () => finish(reject, new Error('websocket error: check the server URL and that the league is running'));
       this.ws.onmessage = (ev) => {
-        let msg;
-        try { msg = JSON.parse(ev.data); } catch { return; }
-        this.handle(msg, (v) => finish(resolve, v), (e) => finish(reject, e));
+        void Promise.resolve(ev.data).then(JSON.parse).then(
+          (msg) => this.handle(msg, (v) => finish(resolve, v), (e) => finish(reject, e)),
+          () => {},
+        );
       };
       this.ws.onclose = (e) => {
         this.onLog('connection closed' + (e && e.code ? ' code=' + e.code : ''));
@@ -148,8 +148,9 @@ export class AgentClient {
         break;
       case 'observe': {
         const started = Date.now();
-        let out;
-        try { out = await this.policy(msg.observation); } catch (err) { out = this.defaultAction; this.onLog('policy error: ' + err.message); }
+        const out = await Promise.resolve()
+          .then(() => this.policy(msg.observation))
+          .catch((err) => { this.onLog('policy error: ' + err.message); return this.defaultAction; });
         const action = typeof out === 'string' ? out : (out && out.action) || this.defaultAction;
         const modelCalls = (out && typeof out === 'object' && out.modelCalls) || 0;
         if (this.ws && this.ws.readyState === 1) {

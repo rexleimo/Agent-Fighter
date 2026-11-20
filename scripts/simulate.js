@@ -31,7 +31,7 @@ async function main() {
     return;
   }
   const text = await res.text();
-  const out = simulateReplay(text, myPolicy, { side: 'a', matchId });
+  const out = await simulateReplay(text, myPolicy, { side: 'a', matchId });
   console.log('\nReplay      ' + matchId);
   console.log('Ticks       ' + out.ticks);
   console.log('Agreement   ' + out.agreement + '%  (' + (out.ticks - out.disagreements) + '/' + out.ticks + ' ticks match the recorded strategy)');

@@ -34,20 +34,25 @@ function remember(key, value) {
 
 export async function loadManifest() {
   if (state.ready) return state.manifest;
-  try {
-    const res = await fetch('/assets/manifest.json', { cache: 'no-cache' });
-    if (!res.ok) throw new Error('manifest ' + res.status);
-    const manifest = await res.json();
-    if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.assets)) {
-      throw new Error('bad manifest schema');
-    }
-    state.manifest = manifest;
-    state.revision = manifest.revision || null;
-    state.byId = new Map(manifest.assets.map((asset) => [asset.id, asset]));
+  const outcome = await Promise.resolve()
+    .then(async () => {
+      const res = await fetch('/assets/manifest.json', { cache: 'no-cache' });
+      if (!res.ok) throw new Error('manifest ' + res.status);
+      const manifest = await res.json();
+      if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.assets)) {
+        throw new Error('bad manifest schema');
+      }
+      return manifest;
+    })
+    .then((manifest) => ({ ok: true, manifest }), (error) => ({ ok: false, error }));
+  if (outcome.ok) {
+    state.manifest = outcome.manifest;
+    state.revision = outcome.manifest.revision || null;
+    state.byId = new Map(outcome.manifest.assets.map((asset) => [asset.id, asset]));
     state.ready = true;
-  } catch (error) {
+  } else {
     state.ready = false;
-    console.warn('[afl] asset manifest unavailable, using legacy paths', error);
+    console.warn('[afl] asset manifest unavailable, using legacy paths', outcome.error);
   }
   return state.manifest;
 }
@@ -178,26 +183,28 @@ export async function loadRigData(id) {
   await ensureManifest();
   const asset = assetFor(id);
   if (!asset || !asset.rig || !asset.rig.data) return null;
-  try {
-    const res = await fetch(asset.rig.data, { cache: 'no-cache' });
-    if (!res.ok) throw new Error('rig ' + res.status);
-    const rig = await res.json();
-    if (rig.schemaVersion !== 2) throw new Error('rig schema ' + rig.schemaVersion);
-    rigData.set(id, rig);
-    return rig;
-  } catch (error) {
-    console.warn('[afl] rig data unavailable for ' + id, error);
+  const outcome = await Promise.resolve()
+    .then(async () => {
+      const res = await fetch(asset.rig.data, { cache: 'no-cache' });
+      if (!res.ok) throw new Error('rig ' + res.status);
+      const rig = await res.json();
+      if (rig.schemaVersion !== 2) throw new Error('rig schema ' + rig.schemaVersion);
+      return rig;
+    })
+    .then((rig) => ({ ok: true, rig }), (error) => ({ ok: false, error }));
+  if (!outcome.ok) {
+    console.warn('[afl] rig data unavailable for ' + id, outcome.error);
     return null;
   }
+  rigData.set(id, outcome.rig);
+  return outcome.rig;
 }
 
 export async function loadRigAtlas(rig) {
   if (!rig || !rig.atlas || !rig.atlas.path) return null;
-  try {
-    return await loadImage(rig.atlas.path, null);
-  } catch {
-    return null;
-  }
+  return Promise.resolve()
+    .then(() => loadImage(rig.atlas.path, null))
+    .then((image) => image, () => null);
 }
 
 export async function preloadFighters(ids) {

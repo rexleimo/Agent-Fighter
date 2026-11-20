@@ -26,6 +26,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { attempt, withFinally, parseOr } from './lib/no-throw.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE_DB = process.env.AFL_TEST_DATABASE_URL || process.env.DATABASE_URL || '';
@@ -62,10 +63,8 @@ async function waitForServer(base, child) {
   const started = Date.now();
   while (Date.now() - started < 20000) {
     if (child.exitCode != null) throw new Error('server exited with code ' + child.exitCode);
-    try {
-      const res = await fetch(base + '/api/state');
-      if (res.ok) return;
-    } catch { /* not up yet */ }
+    const probe = await attempt(() => fetch(base + '/api/state').then((r) => r.ok));
+    if (probe.ok && probe.value) return;
     await new Promise((r) => setTimeout(r, 150));
   }
   throw new Error('server did not become ready');
@@ -81,7 +80,7 @@ async function adminQuery(sql) {
   // Connect to the built-in 'postgres' database to CREATE/DROP throwaway DBs.
   const client = new pg.Client({ connectionString: withDatabase(SOURCE_DB, 'postgres') });
   await client.connect();
-  try { return await client.query(sql); } finally { await client.end(); }
+  return withFinally(() => client.query(sql), () => client.end());
 }
 
 async function createDatabase(name) {
@@ -143,8 +142,7 @@ async function request(base, pathname, { method = 'GET', body, cookie, rawBody }
     body: rawBody !== undefined ? rawBody : (body === undefined ? undefined : JSON.stringify(body)),
   });
   const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = text; }
+  const data = await parseOr(text, text);
   return { res, data, cookie: cookieHeader(res) };
 }
 
@@ -234,18 +232,19 @@ async function run() {
 }
 
 let failure = null;
-try {
-  await run();
-} catch (err) {
-  failure = err;
-  console.error('verify-setup aborted:', err?.message ?? err);
-} finally {
+await withFinally(async () => {
+  const outcome = await attempt(() => run());
+  if (!outcome.ok) {
+    failure = outcome.error;
+    console.error('verify-setup aborted:', failure?.message ?? failure);
+  }
+}, async () => {
   for (const child of children) child.kill();
   for (const name of databases) {
-    try { await adminQuery('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)'); }
-    catch (err) { console.error('cleanup failed for ' + name + ':', err?.message ?? err); }
+    const dropped = await attempt(() => adminQuery('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)'));
+    if (!dropped.ok) console.error('cleanup failed for ' + name + ':', dropped.error?.message ?? dropped.error);
   }
-}
+});
 
 const passed = results.filter((r) => r.ok).length;
 console.log('\nverify-setup: ' + passed + '/' + results.length + ' passed');

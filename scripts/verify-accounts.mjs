@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { attempt, withFinally, parseOr } from './lib/no-throw.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ADMIN = { username: 'admin', password: 'admin-test-pass-123' };
@@ -50,10 +51,8 @@ async function waitForServer(base, child) {
   const started = Date.now();
   while (Date.now() - started < 15000) {
     if (child.exitCode != null) throw new Error('server exited with code ' + child.exitCode);
-    try {
-      const res = await fetch(base + '/api/state');
-      if (res.ok) return;
-    } catch { /* not up yet */ }
+    const probe = await attempt(() => fetch(base + '/api/state').then((r) => r.ok));
+    if (probe.ok && probe.value) return;
     await new Promise((r) => setTimeout(r, 150));
   }
   throw new Error('server did not become ready');
@@ -82,8 +81,7 @@ async function request(pathname, { method = 'GET', body, cookie, key } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = text; }
+  const data = await parseOr(text, text);
   return { res, data, cookie: cookieHeader(res) };
 }
 
@@ -294,11 +292,10 @@ async function run() {
     'leaderboard=' + pub.res.status + ' scope=' + pub.data.scope + ' season=' + pubState.data.server.season);
 }
 
-try {
-  await run();
-} catch (err) {
-  check('fatal', false, err.message);
-} finally {
+await withFinally(async () => {
+  const outcome = await attempt(() => run());
+  if (!outcome.ok) check('fatal', false, outcome.error.message);
+}, async () => {
   if (child) {
     child.kill('SIGTERM');
     await new Promise((resolve) => {
@@ -306,8 +303,8 @@ try {
       child.on('exit', () => { clearTimeout(timer); resolve(); });
     });
   }
-  fs.rmSync(TMP, { recursive: true, force: true });
-}
+  await attempt(() => fs.rmSync(TMP, { recursive: true, force: true })); // best effort
+});
 
 const failed = results.filter((r) => !r.ok);
 console.log('\n' + (results.length - failed.length) + '/' + results.length + ' checks passed');

@@ -39,19 +39,17 @@ export class PostgresPlayerStore {
   async createProfile({ userId, username, displayName, role = 'player' } = {}) {
     const [existing] = await this.db.select().from(players).where(eq(players.userId, userId)).limit(1);
     if (existing) return this.playerByUserId(userId);
-    try {
-      await this.db.insert(players).values({
-        id: newProfileId(),
-        userId,
-        role: role === 'admin' ? 'admin' : 'player',
-      });
-    } catch (err) {
+    await this.db.insert(players).values({
+      id: newProfileId(),
+      userId,
+      role: role === 'admin' ? 'admin' : 'player',
+    }).then(undefined, (err) => {
       const code = err && (err.code ?? err.cause?.code);
       if (code !== '23505') {
         console.error('[afl] profile insert failed:', err?.message ?? err);
         throw new Error('could not create player profile');
       }
-    }
+    });
     return this.playerByUserId(userId);
   }
 

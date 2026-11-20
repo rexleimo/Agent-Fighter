@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { attempt, withFinally } from './lib/no-throw.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'docs', 'preview-live.png');
@@ -34,10 +35,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function waitForDevtools() {
   for (let i = 0; i < 60; i += 1) {
-    try {
-      const res = await fetch('http://127.0.0.1:' + PORT + '/json/list');
-      if (res.ok) return res.json();
-    } catch { /* browser is starting */ }
+    const probe = await attempt(() => fetch('http://127.0.0.1:' + PORT + '/json/list')
+      .then((r) => (r.ok ? r.json() : null)));
+    if (probe.ok && probe.value) return probe.value;
     await sleep(150);
   }
   throw new Error('devtools endpoint did not come up');
@@ -75,7 +75,7 @@ function connectCDP(wsUrl, exceptions) {
 
 let cdp;
 const exceptions = [];
-try {
+await withFinally(async () => {
   const targets = await waitForDevtools();
   const page = targets.find((t) => t.type === 'page');
   if (!page) throw new Error('no page target');
@@ -103,12 +103,12 @@ try {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, Buffer.from(shot.data, 'base64'));
   console.log('Screenshot saved: ' + OUT);
-} catch (err) {
-  console.error('capture failed:', err.message);
-  process.exitCode = 1;
-} finally {
+}, async () => {
   if (cdp) cdp.close();
   chrome.kill('SIGTERM');
   await sleep(200);
-  try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* best effort */ }
-}
+  await attempt(() => fs.rmSync(profile, { recursive: true, force: true })); // best effort
+}).catch((err) => {
+  console.error('capture failed:', err.message);
+  process.exitCode = 1;
+});

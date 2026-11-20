@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, post } from '../../lib/api';
-import type { AuthSession, MeProfileResponse, MeResponse } from '../../lib/types';
-
-type Props = { me: MeResponse; onLogout: () => void };
+import type { AuthSession, MeProfileResponse, SecurityCardProps } from '../../lib/types';
 
 const AVATAR_EMOJI = ['🐱', '🤖', '⚡', '🛡️', '🔥', '🌙'];
 const avatarUri = (emoji: string) =>
@@ -19,22 +17,22 @@ function SessionList({ onLogout }: { onLogout: () => void }) {
     retry: false,
   });
 
-  const revoke = async (session: AuthSession) => {
+  const revoke = (session: AuthSession) => {
     setError('');
     setRevoked(session.id);
-    try {
-      await post('/api/auth/revoke-session', { token: session.token });
-      await sessions.refetch();
+    return Promise.resolve()
+      .then(() => post('/api/auth/revoke-session', { token: session.token }))
+      .then(() => sessions.refetch())
       // If the current session was revoked, the next /api/me will be 401.
-      await queryClient.invalidateQueries({ queryKey: ['me'] });
-      onLogout();
-    } catch (err) {
-      setRevoked(null);
-      setError(err instanceof Error ? err.message : '撤销失败');
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        setError('当前会话已失效（可能在别处改了密码或被撤销）。请重新登录后再管理设备。');
-      }
-    }
+      .then(() => queryClient.invalidateQueries({ queryKey: ['me'] }))
+      .then(() => onLogout())
+      .catch((err: unknown) => {
+        setRevoked(null);
+        setError(err instanceof Error ? err.message : '撤销失败');
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          setError('当前会话已失效（可能在别处改了密码或被撤销）。请重新登录后再管理设备。');
+        }
+      });
   };
 
   return (
@@ -62,7 +60,7 @@ function SessionList({ onLogout }: { onLogout: () => void }) {
 }
 
 /** Account settings: display name, password, sessions and account deletion. */
-export function SecurityCard({ me, onLogout }: Props) {
+export function SecurityCard({ me, onLogout }: SecurityCardProps) {
   const queryClient = useQueryClient();
   const profileQuery = useQuery({
     queryKey: ['me-profile'],
@@ -89,68 +87,72 @@ export function SecurityCard({ me, onLogout }: Props) {
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [deleteError, setDeleteError] = useState('');
 
-  const saveName = async () => {
+  const saveName = () => {
     setNameError('');
     setNameSaved(false);
     const value = name.trim();
     if (value.length < 1 || value.length > 32) { setNameError('显示名需 1–32 个字符'); return; }
-    try {
-      await post('/api/auth/update-user', { name: value });
-      await queryClient.invalidateQueries({ queryKey: ['me'] });
-      setNameSaved(true);
-    } catch (err) { setNameError(err instanceof Error ? err.message : '保存失败'); }
+    return Promise.resolve()
+      .then(() => post('/api/auth/update-user', { name: value }))
+      .then(() => queryClient.invalidateQueries({ queryKey: ['me'] }))
+      .then(() => setNameSaved(true))
+      .catch((err: unknown) => setNameError(err instanceof Error ? err.message : '保存失败'));
   };
 
-  const saveEmail = async () => {
+  const saveEmail = () => {
     setEmailError(''); setEmailSaved(false);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailError('请输入有效邮箱'); return; }
-    try {
-      await post('/api/auth/change-email', { newEmail: email, callbackURL: '/me' });
-      await profileQuery.refetch();
-      setEmailSaved(true);
-    } catch (err) { setEmailError(err instanceof Error ? err.message : '修改失败'); }
+    return Promise.resolve()
+      .then(() => post('/api/auth/change-email', { newEmail: email, callbackURL: '/me' }))
+      .then(() => profileQuery.refetch())
+      .then(() => setEmailSaved(true))
+      .catch((err: unknown) => setEmailError(err instanceof Error ? err.message : '修改失败'));
   };
 
-  const saveImage = async () => {
+  const saveImage = () => {
     setImageError(''); setImageSaved(false);
-    try {
-      await post('/api/auth/update-user', { image: imageUrl.trim() });
-      await profileQuery.refetch();
-      setImageSaved(true);
-    } catch (err) { setImageError(err instanceof Error ? err.message : '保存失败'); }
+    return Promise.resolve()
+      .then(() => post('/api/auth/update-user', { image: imageUrl.trim() }))
+      .then(() => profileQuery.refetch())
+      .then(() => setImageSaved(true))
+      .catch((err: unknown) => setImageError(err instanceof Error ? err.message : '保存失败'));
   };
 
-  const pickAvatar = async (emoji: string) => {
+  const pickAvatar = (emoji: string) => {
     setImageError(''); setImageSaved(false);
     const value = avatarUri(emoji);
     setImageUrl(value);
-    try {
-      await post('/api/auth/update-user', { image: value });
-      await profileQuery.refetch();
-      setImageSaved(true);
-    } catch (err) { setImageError(err instanceof Error ? err.message : '保存失败'); }
+    return Promise.resolve()
+      .then(() => post('/api/auth/update-user', { image: value }))
+      .then(() => profileQuery.refetch())
+      .then(() => setImageSaved(true))
+      .catch((err: unknown) => setImageError(err instanceof Error ? err.message : '保存失败'));
   };
 
-  const changePassword = async () => {
+  const changePassword = () => {
     setPasswordError('');
     setPasswordSaved(false);
     if (newPassword.length < 8) { setPasswordError('新密码至少 8 位'); return; }
-    try {
-      await post('/api/auth/change-password', { currentPassword, newPassword, revokeOtherSessions: true });
-      setCurrentPassword(''); setNewPassword('');
-      setPasswordSaved(true);
-      await queryClient.invalidateQueries({ queryKey: ['auth-sessions'] });
-    } catch (err) { setPasswordError(err instanceof Error ? err.message : '修改失败'); }
+    return Promise.resolve()
+      .then(() => post('/api/auth/change-password', { currentPassword, newPassword, revokeOtherSessions: true }))
+      .then(() => {
+        setCurrentPassword(''); setNewPassword('');
+        setPasswordSaved(true);
+        return queryClient.invalidateQueries({ queryKey: ['auth-sessions'] });
+      })
+      .catch((err: unknown) => setPasswordError(err instanceof Error ? err.message : '修改失败'));
   };
 
-  const deleteAccount = async () => {
+  const deleteAccount = () => {
     setDeleteError('');
     if (deleteConfirm !== me.player.username) { setDeleteError(`请输入 @${me.player.username} 确认`); return; }
-    try {
-      await post('/api/me/delete', { password: deletePassword });
-      queryClient.clear();
-      window.location.href = '/';
-    } catch (err) { setDeleteError(err instanceof Error ? err.message : '注销失败'); }
+    return Promise.resolve()
+      .then(() => post('/api/me/delete', { password: deletePassword }))
+      .then(() => {
+        queryClient.clear();
+        window.location.href = '/';
+      })
+      .catch((err: unknown) => setDeleteError(err instanceof Error ? err.message : '注销失败'));
   };
 
   return (

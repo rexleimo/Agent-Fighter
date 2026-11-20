@@ -1,11 +1,5 @@
 import { useMemo, type KeyboardEvent } from 'react';
-
-type Props = {
-  value: string;
-  onChange: (value: string) => void;
-  rows?: number;
-  ariaLabel?: string;
-};
+import type { JsonEditorProps } from '../../lib/types';
 
 /** Tokenize JSON into colored spans. Escapes HTML-safe by building React nodes, not innerHTML. */
 function highlight(json: string) {
@@ -34,7 +28,7 @@ function highlight(json: string) {
  * colored <pre>; both share identical font metrics so the caret lines up.
  * Tab inserts two spaces instead of moving focus.
  */
-export function JsonEditor({ value, onChange, rows = 18, ariaLabel = 'JSON' }: Props) {
+export function JsonEditor({ value, onChange, rows = 18, ariaLabel = 'JSON' }: JsonEditorProps) {
   const tokens = useMemo(() => highlight(value), [value]);
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Tab') {

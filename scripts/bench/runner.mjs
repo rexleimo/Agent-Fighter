@@ -22,6 +22,7 @@ import { policyFromStrategy, strategyHash, describeDsl } from '../../src/strateg
 import { CONFIG } from '../../src/config.js';
 import { opponentLadder, ladderManifest, calibrateLadder } from './opponents.mjs';
 import { wilson, latencySummary, round, mean } from './stats.mjs';
+import { attempt } from '../lib/no-throw.mjs';
 
 function tally() { return { wins: 0, losses: 0, draws: 0, hp: 0, ticks: 0 }; }
 
@@ -155,8 +156,8 @@ async function runRealtimeMatch({ protocol, adapter, opp, seed, latencies, count
       counters.addBudget();
     } else {
       const start = Date.now();
-      let decided = null;
-      try { decided = await adapter.decide(obs.a); } catch { decided = null; }
+      const decision = await attempt(() => adapter.decide(obs.a));
+      const decided = decision.ok ? decision.value : null;
       const latency = Date.now() - start;
       latencies.push(latency);
       counters.addDecision();

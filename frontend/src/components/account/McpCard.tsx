@@ -1,23 +1,19 @@
 import { useState } from 'react';
-import type { MeResponse } from '../../lib/types';
+import type { McpCardProps } from '../../lib/types';
 
-type Props = {
-  me: MeResponse;
-  busy: boolean;
-  onIssue: () => void;
-  error: string;
-};
-
-export function McpCard({ me, busy, onIssue, error }: Props) {
+export function McpCard({ me, busy, onIssue, error }: McpCardProps) {
   const [copied, setCopied] = useState<'url' | 'config' | null>(null);
   const mcp = me.mcp;
 
-  async function copy(kind: 'url' | 'config', text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(kind);
-      window.setTimeout(() => setCopied(null), 1400);
-    } catch { /* clipboard unavailable */ }
+  function copy(kind: 'url' | 'config', text: string) {
+    const clipboard = navigator.clipboard;
+    if (!clipboard) return;
+    void Promise.resolve()
+      .then(() => clipboard.writeText(text))
+      .then(
+        () => { setCopied(kind); window.setTimeout(() => setCopied(null), 1400); },
+        () => { /* clipboard unavailable: keep the previous button state */ },
+      );
   }
 
   if (!mcp.assigned || !mcp.url) {

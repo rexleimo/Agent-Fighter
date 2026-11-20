@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Fighter } from '../../lib/types';
+import type { BroadcastSide, BroadcastTeam, Fighter } from '../../lib/types';
 import { loadManifest, variantFor, legacyArtUrl } from '@web/asset-store.js';
 
 /**
@@ -11,10 +11,6 @@ import { loadManifest, variantFor, legacyArtUrl } from '@web/asset-store.js';
  * three clear stocks under each health bar. Pointer events pass through to the
  * renderer.
  */
-
-type Slot = { fighterId: string; hp: number; meter?: number };
-type Side = { alive: number; current: string | null; order: Slot[]; fallen: string[] };
-type Team = { round: number; maxRounds: number; a: Side; b: Side };
 
 const pct = (value: number | undefined, max: number) =>
   `${Math.max(0, Math.min(100, ((value ?? 0) / max) * 100))}%`;
@@ -69,7 +65,7 @@ function PowerGauge({ meter, mirror }: { meter: number | undefined; mirror: bool
 }
 
 function RosterPips({ side, fighters, portraits }: {
-  side: Side | undefined; fighters: Fighter[]; portraits: Record<string, string>;
+  side: BroadcastSide | undefined; fighters: Fighter[]; portraits: Record<string, string>;
 }) {
   if (!side) return null;
   const slots: Array<{ id: string; hp: number; status: 'active' | 'bench' | 'fallen' }> = [
@@ -101,7 +97,7 @@ function RosterPips({ side, fighters, portraits }: {
 function FighterSide({
   actor, frame, mirror, fighters, roster, portraits,
 }: {
-  actor: any; frame: any; mirror: boolean; fighters: Fighter[]; roster: Side | undefined;
+  actor: any; frame: any; mirror: boolean; fighters: Fighter[]; roster: BroadcastSide | undefined;
   portraits: Record<string, string>;
 }) {
   const fd = frame ? (mirror ? frame.b : frame.a) : null;
@@ -128,7 +124,7 @@ function FighterSide({
 export function BroadcastHud({
   match, frame, team, fighters,
 }: {
-  match: any; frame: any; team: Team | null; fighters: Fighter[];
+  match: any; frame: any; team: BroadcastTeam | null; fighters: Fighter[];
 }) {
   const portraits = usePortraits(fighters);
   const round = match?.format === 'team'

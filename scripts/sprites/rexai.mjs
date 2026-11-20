@@ -11,6 +11,7 @@
  * cannot outlive timeoutMs and a batch worker can never hang.
  */
 import fs from 'node:fs';
+import { attempt } from '../lib/no-throw.mjs';
 
 const BASE = process.env.REXAI_BASE_URL || 'https://coding.rexai.top';
 const POLL_MS = 4000;
@@ -93,10 +94,9 @@ export async function generateImage({
   let lastError = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (Date.now() >= deadline) break;
-    let jobId;
-    try {
-      jobId = await submit({ model, prompt, image, size });
-    } catch (err) {
+    const submitted = await attempt(() => submit({ model, prompt, image, size }));
+    if (!submitted.ok) {
+      const err = submitted.error;
       // A submit that never answered may still have created a job upstream,
       // and resubmitting pays for the image twice. Only a clean HTTP 5xx/429
       // (the server refused, so nothing was created) is safe to retry.
@@ -108,15 +108,14 @@ export async function generateImage({
       }
       throw err;
     }
+    const jobId = submitted.value;
     onPoll('submitted:' + jobId, 0);
     let pollFails = 0;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, POLL_MS));
-      let job;
-      try {
-        job = await pollOnce(jobId);
-        pollFails = 0;
-      } catch (err) {
+      const polled = await attempt(() => pollOnce(jobId));
+      if (!polled.ok) {
+        const err = polled.error;
         if (err.status && err.status < 500) throw err;
         // A stalled link used to be invisible here: the worker kept waiting and
         // the log went silent. Say so, but keep the job and its budget.
@@ -126,6 +125,8 @@ export async function generateImage({
         }
         continue; // transient poll error: keep waiting until the deadline
       }
+      const job = polled.value;
+      pollFails = 0;
       const elapsed = Math.round((timeoutMs - (deadline - Date.now())) / 1000);
       onPoll(job.status, elapsed);
       if (job.status === 'succeeded') {

@@ -16,6 +16,7 @@ import { ACTIONS } from '../../src/rules.js';
 import { validateAction } from '../../src/protocol.js';
 import { describeDsl, strategyTemplate, validateStrategy } from '../../src/strategy-dsl.js';
 import { getBuiltinAgent } from '../../src/agents.js';
+import { attempt } from '../lib/no-throw.mjs';
 
 const ACTION_LIST = ACTIONS.join(', ');
 
@@ -104,15 +105,15 @@ export function openaiAdapter(cfg = {}) {
         'Return ONLY the JSON strategy object (name, defaultAction, rules). Aim to beat aggressive, zoning and defensive opponents.',
       ].join('\n');
       let lastErr = null;
-      for (let attempt = 0; attempt <= conf.maxRetries; attempt += 1) {
-        try {
-          const text = await chat(conf, [
-            { role: 'system', content: AUTHOR_SYSTEM },
-            { role: 'user', content: user },
-            ...(lastErr ? [{ role: 'user', content: 'Previous attempt was invalid: ' + lastErr.message + '. Return a corrected JSON strategy only.' }] : []),
-          ], { maxTokens: 2000, timeoutMs: conf.authorTimeoutMs });
-          return validateStrategy(extractJson(text));
-        } catch (e) { lastErr = e; }
+      for (let retry = 0; retry <= conf.maxRetries; retry += 1) {
+        const outcome = await attempt(() => chat(conf, [
+          { role: 'system', content: AUTHOR_SYSTEM },
+          { role: 'user', content: user },
+          ...(lastErr ? [{ role: 'user', content: 'Previous attempt was invalid: ' + lastErr.message + '. Return a corrected JSON strategy only.' }] : []),
+        ], { maxTokens: 2000, timeoutMs: conf.authorTimeoutMs })
+          .then((text) => validateStrategy(extractJson(text))));
+        if (outcome.ok) return outcome.value;
+        lastErr = outcome.error;
       }
       throw new Error('authorStrategy failed after retries: ' + (lastErr && lastErr.message));
     },

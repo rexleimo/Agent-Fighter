@@ -14,6 +14,8 @@ const CHAPTERS = [
   { id: 'protocol', icon: 'i-book', label: '高级文档', sub: '自己写 Agent · 报文 · 部署', who: '深度接入' },
 ] as const;
 
+// Kept local: derived from the local `CHAPTERS` const via `typeof`, used only
+// in this page; moving it would decouple the type from its source of truth.
 type ChapterId = typeof CHAPTERS[number]['id'];
 
 export function GuidePage() {

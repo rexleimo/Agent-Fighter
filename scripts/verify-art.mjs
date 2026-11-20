@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { probeImage } from './lib/imageops.mjs';
+import { attempt, withFinally } from './lib/no-throw.mjs';
 
 const BASE = process.env.AFL_BASE || 'http://127.0.0.1:8787';
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -25,7 +26,8 @@ const ok = (label, cond, detail = '') => {
 
 let state;
 for (let i = 0; i < 40; i += 1) {
-  try { const r = await fetch(BASE + '/api/state'); if (r.ok) { state = await r.json(); break; } } catch { /* starting */ }
+  const probe = await attempt(() => fetch(BASE + '/api/state').then((r) => (r.ok ? r.json() : null)));
+  if (probe.ok && probe.value) { state = probe.value; break; }
   await sleep(200);
 }
 if (!state) { console.error('服务未启动：' + BASE); process.exit(1); }
@@ -87,7 +89,9 @@ const chrome = spawn(exe, [
 
 async function waitForDevtools() {
   for (let i = 0; i < 60; i += 1) {
-    try { const r = await fetch('http://127.0.0.1:' + PORT + '/json/list'); if (r.ok) return r.json(); } catch { /* wait */ }
+    const probe = await attempt(() => fetch('http://127.0.0.1:' + PORT + '/json/list')
+      .then((r) => (r.ok ? r.json() : null)));
+    if (probe.ok && probe.value) return probe.value;
     await sleep(150);
   }
   throw new Error('DevTools timeout');
@@ -123,7 +127,7 @@ function connect(url, exceptions) {
 
 let cdp;
 const exceptions = [];
-try {
+await withFinally(async () => {
   const targets = await waitForDevtools();
   cdp = await connect(targets.find((t) => t.type === 'page').webSocketDebuggerUrl, exceptions);
   await cdp.send('Page.enable');
@@ -367,15 +371,15 @@ try {
   fs.writeFileSync(path.join(ROOT, 'docs', 'preview-fighters.png'), Buffer.from(shot.data, 'base64'));
 
   ok('浏览器 0 JS 异常', exceptions.length === 0, exceptions.slice(0, 2).join(' | '));
-} catch (e) {
-  console.error('浏览器检查失败：' + e.message);
-  failures.push('浏览器检查');
-} finally {
+}, async () => {
   if (cdp) cdp.close();
   chrome.kill('SIGTERM');
   await sleep(250);
-  try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* ignore */ }
-}
+  await attempt(() => fs.rmSync(profile, { recursive: true, force: true })); // best effort
+}).catch((e) => {
+  console.error('浏览器检查失败：' + e.message);
+  failures.push('浏览器检查');
+});
 
 console.log('\n' + (failures.length ? `${failures.length} 项失败：` + failures.join(' / ') : '美术层检查全部通过'));
 console.log('截图：docs/preview-live.png, docs/preview-fighters.png');

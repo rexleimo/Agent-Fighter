@@ -1,9 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { MeResponse, MyAgentResponse } from '../../lib/types';
-
-type Step = { key: string; label: string; hint: string; done: boolean; to?: string };
+import type { GettingStartedStep, MeResponse, MyAgentResponse } from '../../lib/types';
 
 /** A live 4-step checklist: the shortest path from a fresh account to a real match. */
 export function GettingStartedCard({ me }: { me: MeResponse }) {
@@ -14,7 +12,7 @@ export function GettingStartedCard({ me }: { me: MeResponse }) {
   });
   const agent = agentQuery.data?.agent;
   const played = Boolean(agent && (agent.matches > 0 || (agent.practiceMatches ?? 0) > 0));
-  const steps: Step[] = [
+  const steps: GettingStartedStep[] = [
     {
       key: 'mcp',
       label: '领取 MCP 链接',

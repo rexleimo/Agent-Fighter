@@ -1,0 +1,1134 @@
+{
+  "season": "S1",
+  "ladderStartedAt": null,
+  "pairCursor": 16,
+  "queue": [],
+  "matches": [
+    {
+      "matchId": "r_demo_mwooqpof_1",
+      "season": "S1",
+      "startedAt": "2026-11-20T07:56:30.207Z",
+      "endedAt": "2026-11-20T07:56:38.958Z",
+      "a": {
+        "id": "duelist_rush",
+        "name": "Rush",
+        "versionHash": "0999d6f431fe",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "ember",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "b": {
+        "id": "duelist_rush",
+        "name": "Rush",
+        "versionHash": "0999d6f431fe",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "ember",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "roomId": "r_demo",
+      "mode": "demo",
+      "pairing": "showcase",
+      "stage": "stage_pyre",
+      "seed": 3438452600,
+      "cost": {
+        "billingClass": "free",
+        "training": false,
+        "ladder": false,
+        "practice": false,
+        "mode": "demo",
+        "llmUsed": false,
+        "declaredModelCalls": 0,
+        "serverActions": 0,
+        "timeouts": 0,
+        "budgetExceeded": 0,
+        "hostedTicksEvaluated": 0,
+        "externalSides": 0,
+        "hostedSides": 0,
+        "replayStored": true,
+        "budgetLimit": 8,
+        "note": "模型调用数由 Agent 自报，联赛只按服务端实测的决策数/超时/耗时披露成本；训练与陪练全程零 LLM、不收费。"
+      },
+      "format": "single",
+      "team": null,
+      "ranked": false,
+      "practice": false,
+      "fighters": {
+        "a": "ember",
+        "b": "ember"
+      },
+      "winner": "a",
+      "reason": "ko",
+      "winnerName": "Rush",
+      "hpA": 125,
+      "hpB": 0,
+      "ticks": 82,
+      "frame": 491,
+      "ratingDeltaA": 0,
+      "ratingDeltaB": 0,
+      "decisions": {
+        "a": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        },
+        "b": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        }
+      }
+    },
+    {
+      "matchId": "r_demo_mwop8vmz_1",
+      "season": "S1",
+      "startedAt": "2026-11-20T08:10:37.739Z",
+      "endedAt": "2026-11-20T08:10:46.176Z",
+      "a": {
+        "id": "duelist_rush",
+        "name": "Rush",
+        "versionHash": "0999d6f431fe",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "ember",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "b": {
+        "id": "duelist_rush",
+        "name": "Rush",
+        "versionHash": "0999d6f431fe",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "ember",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "roomId": "r_demo",
+      "mode": "demo",
+      "pairing": "showcase",
+      "stage": "stage_pyre",
+      "seed": 3272050732,
+      "cost": {
+        "billingClass": "free",
+        "training": false,
+        "ladder": false,
+        "practice": false,
+        "mode": "demo",
+        "llmUsed": false,
+        "declaredModelCalls": 0,
+        "serverActions": 0,
+        "timeouts": 0,
+        "budgetExceeded": 0,
+        "hostedTicksEvaluated": 0,
+        "externalSides": 0,
+        "hostedSides": 0,
+        "replayStored": true,
+        "budgetLimit": 8,
+        "note": "模型调用数由 Agent 自报，联赛只按服务端实测的决策数/超时/耗时披露成本；训练与陪练全程零 LLM、不收费。"
+      },
+      "format": "single",
+      "team": null,
+      "ranked": false,
+      "practice": false,
+      "fighters": {
+        "a": "ember",
+        "b": "ember"
+      },
+      "winner": "a",
+      "reason": "ko",
+      "winnerName": "Rush",
+      "hpA": 225,
+      "hpB": 0,
+      "ticks": 79,
+      "frame": 473,
+      "ratingDeltaA": 0,
+      "ratingDeltaB": 0,
+      "decisions": {
+        "a": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        },
+        "b": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        }
+      }
+    },
+    {
+      "matchId": "r_demo_mwop94gz_2",
+      "season": "S1",
+      "startedAt": "2026-11-20T08:10:49.187Z",
+      "endedAt": "2026-11-20T08:11:03.486Z",
+      "a": {
+        "id": "duelist_rush",
+        "name": "Rush",
+        "versionHash": "0999d6f431fe",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "tide",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "b": {
+        "id": "duelist_foot",
+        "name": "Volt",
+        "versionHash": "8c9fe719c1df",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "tide",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "roomId": "r_demo",
+      "mode": "demo",
+      "pairing": "showcase",
+      "stage": "stage_tide",
+      "seed": 2383335917,
+      "cost": {
+        "billingClass": "free",
+        "training": false,
+        "ladder": false,
+        "practice": false,
+        "mode": "demo",
+        "llmUsed": false,
+        "declaredModelCalls": 0,
+        "serverActions": 0,
+        "timeouts": 0,
+        "budgetExceeded": 0,
+        "hostedTicksEvaluated": 0,
+        "externalSides": 0,
+        "hostedSides": 0,
+        "replayStored": true,
+        "budgetLimit": 8,
+        "note": "模型调用数由 Agent 自报，联赛只按服务端实测的决策数/超时/耗时披露成本；训练与陪练全程零 LLM、不收费。"
+      },
+      "format": "single",
+      "team": null,
+      "ranked": false,
+      "practice": false,
+      "fighters": {
+        "a": "tide",
+        "b": "tide"
+      },
+      "winner": "b",
+      "reason": "ko",
+      "winnerName": "Volt",
+      "hpA": 0,
+      "hpB": 80,
+      "ticks": 137,
+      "frame": 821,
+      "ratingDeltaA": 0,
+      "ratingDeltaB": 0,
+      "decisions": {
+        "a": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        },
+        "b": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        }
+      }
+    },
+    {
+      "matchId": "r_demo_mwop9htz_3",
+      "season": "S1",
+      "startedAt": "2026-11-20T08:11:06.503Z",
+      "endedAt": "2026-11-20T08:11:40.450Z",
+      "a": {
+        "id": "duelist_foot",
+        "name": "Volt",
+        "versionHash": "8c9fe719c1df",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "basalt",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "b": {
+        "id": "duelist_rush",
+        "name": "Rush",
+        "versionHash": "0999d6f431fe",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "basalt",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "roomId": "r_demo",
+      "mode": "demo",
+      "pairing": "showcase",
+      "stage": "stage_steel",
+      "seed": 1225880210,
+      "cost": {
+        "billingClass": "free",
+        "training": false,
+        "ladder": false,
+        "practice": false,
+        "mode": "demo",
+        "llmUsed": false,
+        "declaredModelCalls": 0,
+        "serverActions": 0,
+        "timeouts": 0,
+        "budgetExceeded": 0,
+        "hostedTicksEvaluated": 0,
+        "externalSides": 0,
+        "hostedSides": 0,
+        "replayStored": true,
+        "budgetLimit": 8,
+        "note": "模型调用数由 Agent 自报，联赛只按服务端实测的决策数/超时/耗时披露成本；训练与陪练全程零 LLM、不收费。"
+      },
+      "format": "single",
+      "team": null,
+      "ranked": false,
+      "practice": false,
+      "fighters": {
+        "a": "basalt",
+        "b": "basalt"
+      },
+      "winner": "a",
+      "reason": "ko",
+      "winnerName": "Volt",
+      "hpA": 386,
+      "hpB": 0,
+      "ticks": 322,
+      "frame": 1931,
+      "ratingDeltaA": 0,
+      "ratingDeltaB": 0,
+      "decisions": {
+        "a": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        },
+        "b": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        }
+      }
+    },
+    {
+      "matchId": "r_demo_mwopaaed_4",
+      "season": "S1",
+      "startedAt": "2026-11-20T08:11:43.525Z",
+      "endedAt": "2026-11-20T08:11:51.054Z",
+      "a": {
+        "id": "duelist_rush",
+        "name": "Rush",
+        "versionHash": "0999d6f431fe",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "gale",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "b": {
+        "id": "duelist_rush",
+        "name": "Rush",
+        "versionHash": "0999d6f431fe",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "gale",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "roomId": "r_demo",
+      "mode": "demo",
+      "pairing": "showcase",
+      "stage": "stage_void",
+      "seed": 337338425,
+      "cost": {
+        "billingClass": "free",
+        "training": false,
+        "ladder": false,
+        "practice": false,
+        "mode": "demo",
+        "llmUsed": false,
+        "declaredModelCalls": 0,
+        "serverActions": 0,
+        "timeouts": 0,
+        "budgetExceeded": 0,
+        "hostedTicksEvaluated": 0,
+        "externalSides": 0,
+        "hostedSides": 0,
+        "replayStored": true,
+        "budgetLimit": 8,
+        "note": "模型调用数由 Agent 自报，联赛只按服务端实测的决策数/超时/耗时披露成本；训练与陪练全程零 LLM、不收费。"
+      },
+      "format": "single",
+      "team": null,
+      "ranked": false,
+      "practice": false,
+      "fighters": {
+        "a": "gale",
+        "b": "gale"
+      },
+      "winner": "a",
+      "reason": "ko",
+      "winnerName": "Rush",
+      "hpA": 563,
+      "hpB": 0,
+      "ticks": 71,
+      "frame": 424,
+      "ratingDeltaA": 0,
+      "ratingDeltaB": 0,
+      "decisions": {
+        "a": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        },
+        "b": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        }
+      }
+    },
+    {
+      "matchId": "r_team_demo_mwop8vn1_1",
+      "season": "S1",
+      "startedAt": "2026-11-20T08:10:37.741Z",
+      "endedAt": "2026-11-20T08:11:53.685Z",
+      "a": {
+        "id": "duelist_foot",
+        "name": "Volt",
+        "versionHash": "8c9fe719c1df",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "quartz",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "b": {
+        "id": "duelist_foot",
+        "name": "Volt",
+        "versionHash": "8c9fe719c1df",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "noct",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "roomId": "r_team_demo",
+      "mode": "demo",
+      "pairing": "showcase",
+      "stage": "stage_tide",
+      "seed": 3272050730,
+      "cost": {
+        "billingClass": "free",
+        "training": false,
+        "ladder": false,
+        "practice": false,
+        "mode": "demo",
+        "llmUsed": false,
+        "declaredModelCalls": 0,
+        "serverActions": 0,
+        "timeouts": 0,
+        "budgetExceeded": 0,
+        "hostedTicksEvaluated": 0,
+        "externalSides": 0,
+        "hostedSides": 0,
+        "replayStored": true,
+        "budgetLimit": 8,
+        "note": "模型调用数由 Agent 自报，联赛只按服务端实测的决策数/超时/耗时披露成本；训练与陪练全程零 LLM、不收费。"
+      },
+      "format": "team",
+      "team": {
+        "winner": "a",
+        "reason": "elimination",
+        "rounds": [
+          {
+            "round": 1,
+            "winner": "a",
+            "reason": "ko",
+            "eliminated": [
+              {
+                "side": "b",
+                "fighterId": "quartz"
+              }
+            ],
+            "healed": {
+              "side": "a",
+              "fighterId": "quartz",
+              "amount": 0
+            },
+            "alive": {
+              "a": 3,
+              "b": 2
+            },
+            "hp": {
+              "a": 1000,
+              "b": 1000
+            },
+            "matchOver": false,
+            "matchWinner": null
+          },
+          {
+            "round": 2,
+            "winner": "a",
+            "reason": "ko",
+            "eliminated": [
+              {
+                "side": "b",
+                "fighterId": "volt"
+              }
+            ],
+            "healed": {
+              "side": "a",
+              "fighterId": "quartz",
+              "amount": 0
+            },
+            "alive": {
+              "a": 3,
+              "b": 1
+            },
+            "hp": {
+              "a": 1000,
+              "b": 1000
+            },
+            "matchOver": false,
+            "matchWinner": null
+          },
+          {
+            "round": 3,
+            "winner": "a",
+            "reason": "ko",
+            "eliminated": [
+              {
+                "side": "b",
+                "fighterId": "noct"
+              }
+            ],
+            "healed": {
+              "side": "a",
+              "fighterId": "quartz",
+              "amount": 0
+            },
+            "alive": {
+              "a": 3,
+              "b": 0
+            },
+            "hp": {
+              "a": 1000,
+              "b": 0
+            },
+            "matchOver": true,
+            "matchWinner": "a"
+          }
+        ],
+        "survivors": {
+          "a": 3,
+          "b": 0
+        },
+        "fallen": {
+          "a": [],
+          "b": [
+            "quartz",
+            "volt",
+            "noct"
+          ]
+        }
+      },
+      "ranked": false,
+      "practice": false,
+      "fighters": {
+        "a": "quartz",
+        "b": "noct"
+      },
+      "winner": "a",
+      "reason": "elimination",
+      "winnerName": "Volt",
+      "hpA": 1000,
+      "hpB": 0,
+      "ticks": 567,
+      "frame": 3388,
+      "ratingDeltaA": 0,
+      "ratingDeltaB": 0,
+      "decisions": {
+        "a": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        },
+        "b": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        }
+      }
+    },
+    {
+      "matchId": "r_demo_mwopaijl_5",
+      "season": "S1",
+      "startedAt": "2026-11-20T08:11:54.081Z",
+      "endedAt": "2026-11-20T08:12:09.722Z",
+      "a": {
+        "id": "duelist_foot",
+        "name": "Volt",
+        "versionHash": "8c9fe719c1df",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "volt",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "b": {
+        "id": "duelist_foot",
+        "name": "Volt",
+        "versionHash": "8c9fe719c1df",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "volt",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "roomId": "r_demo",
+      "mode": "demo",
+      "pairing": "showcase",
+      "stage": "stage_void",
+      "seed": 3743218242,
+      "cost": {
+        "billingClass": "free",
+        "training": false,
+        "ladder": false,
+        "practice": false,
+        "mode": "demo",
+        "llmUsed": false,
+        "declaredModelCalls": 0,
+        "serverActions": 0,
+        "timeouts": 0,
+        "budgetExceeded": 0,
+        "hostedTicksEvaluated": 0,
+        "externalSides": 0,
+        "hostedSides": 0,
+        "replayStored": true,
+        "budgetLimit": 8,
+        "note": "模型调用数由 Agent 自报，联赛只按服务端实测的决策数/超时/耗时披露成本；训练与陪练全程零 LLM、不收费。"
+      },
+      "format": "single",
+      "team": null,
+      "ranked": false,
+      "practice": false,
+      "fighters": {
+        "a": "volt",
+        "b": "volt"
+      },
+      "winner": "b",
+      "reason": "ko",
+      "winnerName": "Volt",
+      "hpA": 0,
+      "hpB": 37,
+      "ticks": 149,
+      "frame": 893,
+      "ratingDeltaA": 0,
+      "ratingDeltaB": 0,
+      "decisions": {
+        "a": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        },
+        "b": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        }
+      }
+    },
+    {
+      "matchId": "r_demo_mwopawyo_6",
+      "season": "S1",
+      "startedAt": "2026-11-20T08:12:12.769Z",
+      "endedAt": "2026-11-20T08:12:28.617Z",
+      "a": {
+        "id": "duelist_foot",
+        "name": "Volt",
+        "versionHash": "8c9fe719c1df",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "noct",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "b": {
+        "id": "duelist_rush",
+        "name": "Rush",
+        "versionHash": "0999d6f431fe",
+        "kind": "rule",
+        "track": "rule_only",
+        "source": "builtin",
+        "fighterId": "noct",
+        "ratingBefore": 1500,
+        "competitor": false,
+        "official": true
+      },
+      "roomId": "r_demo",
+      "mode": "demo",
+      "pairing": "showcase",
+      "stage": "stage_void",
+      "seed": 2586119242,
+      "cost": {
+        "billingClass": "free",
+        "training": false,
+        "ladder": false,
+        "practice": false,
+        "mode": "demo",
+        "llmUsed": false,
+        "declaredModelCalls": 0,
+        "serverActions": 0,
+        "timeouts": 0,
+        "budgetExceeded": 0,
+        "hostedTicksEvaluated": 0,
+        "externalSides": 0,
+        "hostedSides": 0,
+        "replayStored": true,
+        "budgetLimit": 8,
+        "note": "模型调用数由 Agent 自报，联赛只按服务端实测的决策数/超时/耗时披露成本；训练与陪练全程零 LLM、不收费。"
+      },
+      "format": "single",
+      "team": null,
+      "ranked": false,
+      "practice": false,
+      "fighters": {
+        "a": "noct",
+        "b": "noct"
+      },
+      "winner": "b",
+      "reason": "ko",
+      "winnerName": "Rush",
+      "hpA": 0,
+      "hpB": 106,
+      "ticks": 152,
+      "frame": 911,
+      "ratingDeltaA": 0,
+      "ratingDeltaB": 0,
+      "decisions": {
+        "a": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        },
+        "b": {
+          "modelCalls": 0,
+          "timeouts": 0,
+          "decisions": 0,
+          "totalMs": 0,
+          "budgetExceeded": 0,
+          "avgDecisionMs": 0
+        }
+      }
+    }
+  ],
+  "agents": [
+    {
+      "id": "brawler",
+      "name": "Iron Rush",
+      "label": "钢铁压进",
+      "kind": "rule",
+      "track": "rule_only",
+      "description": "贴身强攻：命中取消接专属技 / 超必杀，攒满气直接开奥义，跳入用升龙对空",
+      "versionHash": "cb061941c692",
+      "token": "builtin-brawler",
+      "source": "builtin",
+      "defaultAction": "block",
+      "rating": 1500,
+      "rd": 350,
+      "sigma": 0.06,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0,
+      "matches": 0,
+      "practiceMatches": 0,
+      "modelCalls": 0,
+      "timeouts": 0,
+      "avgDecisionMs": 0,
+      "history": [],
+      "createdAt": "2026-11-20T07:55:46.986Z",
+      "team": [
+        "ember",
+        "forge",
+        "basalt"
+      ]
+    },
+    {
+      "id": "zoner",
+      "name": "Blue Wave",
+      "label": "波动牵制",
+      "kind": "rule",
+      "track": "rule_only",
+      "description": "中远距离发波攒气，满气开超必杀；中距用专属技，被近身后撤或对空",
+      "versionHash": "f9f17c7a2dce",
+      "token": "builtin-zoner",
+      "source": "builtin",
+      "defaultAction": "block",
+      "rating": 1500,
+      "rd": 350,
+      "sigma": 0.06,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0,
+      "matches": 0,
+      "practiceMatches": 0,
+      "modelCalls": 0,
+      "timeouts": 0,
+      "avgDecisionMs": 0,
+      "history": [],
+      "createdAt": "2026-11-20T07:55:46.986Z",
+      "team": [
+        "tide",
+        "gale",
+        "quartz"
+      ]
+    },
+    {
+      "id": "turtle",
+      "name": "Iron Wall",
+      "label": "铁壁防守",
+      "kind": "rule",
+      "track": "rule_only",
+      "description": "以防代攻：用 EX 霸体硬吃一招反击，满气超必收尾，等硬直再轻拳确反",
+      "versionHash": "5c0c509444b9",
+      "token": "builtin-turtle",
+      "source": "builtin",
+      "defaultAction": "block",
+      "rating": 1500,
+      "rd": 350,
+      "sigma": 0.06,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0,
+      "matches": 0,
+      "practiceMatches": 0,
+      "modelCalls": 0,
+      "timeouts": 0,
+      "avgDecisionMs": 0,
+      "history": [],
+      "createdAt": "2026-11-20T07:55:46.986Z",
+      "team": [
+        "basalt",
+        "quartz",
+        "noct"
+      ]
+    },
+    {
+      "id": "random",
+      "name": "Noise Bot",
+      "label": "混沌基准",
+      "kind": "rule",
+      "track": "rule_only",
+      "description": "按种子伪随机出招，作为排行榜的能力基线",
+      "versionHash": "2d35a168a34f",
+      "token": "builtin-random",
+      "source": "builtin",
+      "defaultAction": "block",
+      "rating": 1500,
+      "rd": 350,
+      "sigma": 0.06,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0,
+      "matches": 0,
+      "practiceMatches": 0,
+      "modelCalls": 0,
+      "timeouts": 0,
+      "avgDecisionMs": 0,
+      "history": [],
+      "createdAt": "2026-11-20T07:55:46.986Z",
+      "team": [
+        "volt",
+        "noct",
+        "gale"
+      ]
+    },
+    {
+      "id": "duelist_rush",
+      "name": "Rush",
+      "label": "疾风连打",
+      "kind": "rule",
+      "track": "rule_only",
+      "description": "全力压制：贴身快拳起手，命中确认后连段接专属技与超必杀，对空升龙、对手防御就改用投技",
+      "versionHash": "0999d6f431fe",
+      "token": "builtin-duelist_rush",
+      "source": "builtin",
+      "defaultAction": "block",
+      "rating": 1500,
+      "rd": 350,
+      "sigma": 0.06,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0,
+      "matches": 0,
+      "practiceMatches": 0,
+      "modelCalls": 0,
+      "timeouts": 0,
+      "avgDecisionMs": 0,
+      "history": [],
+      "createdAt": "2026-11-20T07:55:46.986Z",
+      "team": [
+        "quartz",
+        "volt",
+        "noct"
+      ],
+      "exhibitionMatches": 9,
+      "budgetExceeded": 0
+    },
+    {
+      "id": "duelist_foot",
+      "name": "Volt",
+      "label": "游走反击",
+      "kind": "rule",
+      "track": "rule_only",
+      "description": "距离博弈：中距离发波与牵制，抓对手挥空用重拳确反，近身后一样连段接超必杀",
+      "versionHash": "8c9fe719c1df",
+      "token": "builtin-duelist_foot",
+      "source": "builtin",
+      "defaultAction": "block",
+      "rating": 1500,
+      "rd": 350,
+      "sigma": 0.06,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0,
+      "matches": 0,
+      "practiceMatches": 0,
+      "modelCalls": 0,
+      "timeouts": 0,
+      "avgDecisionMs": 0,
+      "history": [],
+      "createdAt": "2026-11-20T07:55:46.986Z",
+      "team": [
+        "quartz",
+        "volt",
+        "noct"
+      ],
+      "exhibitionMatches": 7,
+      "budgetExceeded": 0
+    },
+    {
+      "id": "demo_hosted",
+      "name": "Hosted Baseline",
+      "label": "托管策略基线",
+      "kind": "rule",
+      "track": "rule_only",
+      "description": "官方托管策略演示：声明式 JSON 规则由服务端解释执行，无需常驻进程",
+      "fighterId": "quartz",
+      "versionHash": "d80b2807e6f6",
+      "strategyHash": "d80b2807e6f62c30",
+      "strategyNote": "anti-air-zoner",
+      "token": "builtin-demo-hosted",
+      "source": "hosted",
+      "defaultAction": "block",
+      "hostedStrategy": {
+        "version": "afl-strategy/1",
+        "name": "anti-air-zoner",
+        "defaultAction": "block",
+        "rules": [
+          {
+            "action": "block",
+            "when": {},
+            "whenAny": [
+              {
+                "self.hitstun": {
+                  "gt": 0
+                }
+              },
+              {
+                "self.blockstun": {
+                  "gt": 0
+                }
+              }
+            ],
+            "note": "硬直期间不浪费输入"
+          },
+          {
+            "action": "dp",
+            "when": {
+              "derived.threat": "jump_in",
+              "derived.inRange.dp": true
+            },
+            "note": "跳入必升龙"
+          },
+          {
+            "action": "throw",
+            "when": {
+              "derived.opponentBlocking": true,
+              "derived.distanceX": {
+                "lt": 52
+              },
+              "derived.inRange.throw": true
+            },
+            "note": "贴身破防"
+          },
+          {
+            "action": "block",
+            "when": {
+              "derived.projectileIncoming": true,
+              "derived.distanceX": {
+                "lt": 160
+              }
+            },
+            "note": "挡波"
+          },
+          {
+            "action": "mk",
+            "when": {
+              "derived.distanceX": {
+                "lt": 100
+              },
+              "self.inCorner": true,
+              "derived.inRange.mk": true
+            },
+            "note": "被逼版边改反击"
+          },
+          {
+            "action": "walk_b",
+            "when": {
+              "derived.distanceX": {
+                "lt": 100
+              }
+            },
+            "note": "拉开距离"
+          },
+          {
+            "action": "fireball",
+            "when": {
+              "derived.distanceX": {
+                "gte": 130
+              },
+              "self.actionable": true
+            },
+            "note": "远距发波"
+          },
+          {
+            "action": "hp",
+            "when": {
+              "derived.inRange.hp": true,
+              "derived.frameAdvantage": {
+                "gte": -3
+              }
+            },
+            "note": ""
+          },
+          {
+            "action": "mp",
+            "when": {
+              "derived.inRange.mp": true
+            },
+            "note": ""
+          },
+          {
+            "action": "block",
+            "when": {},
+            "note": "兜底防御"
+          }
+        ]
+      },
+      "autoRequeue": false,
+      "demo": true,
+      "team": [
+        "quartz",
+        "volt",
+        "ember"
+      ],
+      "teamName": "官方托管基队",
+      "rating": 1500,
+      "rd": 350,
+      "sigma": 0.06,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0,
+      "matches": 0,
+      "practiceMatches": 0,
+      "modelCalls": 0,
+      "timeouts": 0,
+      "avgDecisionMs": 0,
+      "history": [],
+      "createdAt": "2026-11-20T07:55:46.989Z"
+    }
+  ]
+}

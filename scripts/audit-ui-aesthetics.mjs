@@ -26,6 +26,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { attempt, withFinally } from './lib/no-throw.mjs';
 
 // Node resolves proxy env vars at startup, after imports. Detect the proxy in
 // this parent process and re-launch once with NODE_USE_ENV_PROXY=1 + HTTPS_PROXY
@@ -37,13 +38,15 @@ function detectProxy(override) {
   if (override) return override;
   if (process.env.HTTPS_PROXY || process.env.https_proxy) return null; // env already provided
   if (process.platform === 'darwin') {
-    try {
-      const out = execFileSync('networksetup', ['-getsecurewebproxy', 'Wi-Fi'], { encoding: 'utf8' });
+    // No networksetup / no Wi-Fi service: fall through with no proxy.
+    const probe = spawnSync('networksetup', ['-getsecurewebproxy', 'Wi-Fi'], { encoding: 'utf8' });
+    if (!probe.error && probe.status === 0) {
+      const out = probe.stdout || '';
       const enabled = /Enabled:\s*Yes/i.test(out);
       const server = (out.match(/Server:\s*(\S+)/) || [])[1];
       const port = (out.match(/Port:\s*(\S+)/) || [])[1];
       if (enabled && server && port) return `http://${server}:${port}`;
-    } catch { /* no networksetup / no service — fall through */ }
+    }
   }
   return null;
 }
@@ -194,8 +197,8 @@ function buildBody(imageB64, context) {
 
 async function callJev(body) {
   let lastErr;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
+  for (let tryNo = 1; tryNo <= 3; tryNo++) {
+    const outcome = await attempt(async () => {
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -212,16 +215,17 @@ async function callJev(body) {
         throw new Error(`Jev request failed (${res.status}): ${text.slice(0, 300)}`);
       }
       return res.json();
-    } catch (err) {
-      // Retry only transient transport errors (proxy resets/timeouts), not auth/region errors.
-      if (/ECONNRESET|ETIMEDOUT|UND_ERR|fetch failed/.test(err.message) && attempt < 3) {
-        console.error(`  transport error (attempt ${attempt}/3): ${err.message} — retrying`);
-        lastErr = err;
-        await new Promise((r) => setTimeout(r, 700 * attempt));
-        continue;
-      }
-      throw err;
+    });
+    if (outcome.ok) return outcome.value;
+    const err = outcome.error;
+    // Retry only transient transport errors (proxy resets/timeouts), not auth/region errors.
+    if (/ECONNRESET|ETIMEDOUT|UND_ERR|fetch failed/.test(err.message) && tryNo < 3) {
+      console.error(`  transport error (attempt ${tryNo}/3): ${err.message} — retrying`);
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 700 * tryNo));
+      continue;
     }
+    throw err;
   }
   throw lastErr;
 }
@@ -270,7 +274,7 @@ async function main() {
   if (process.env.HTTPS_PROXY) console.log(`Using proxy: ${process.env.HTTPS_PROXY}`);
 
   const workdir = mkdtempSync(join(tmpdir(), 'afl-audit-'));
-  try {
+  await withFinally(async () => {
     const imgPath = capture ? captureUrl(capture, workdir) : screenshot;
     const { data, w, h } = prepareImage(imgPath, workdir);
     console.log(`Image: ${w}x${h}, base64 ${(data.length / 1024).toFixed(0)} KB`);
@@ -292,9 +296,9 @@ async function main() {
       console.log(`\nGATE ${threshold}: ${pass ? 'PASS' : 'FAIL'} (composite ${result.composite})`);
       process.exitCode = pass ? 0 : 1;
     }
-  } finally {
+  }, () => {
     rmSync(workdir, { recursive: true, force: true });
-  }
+  });
 }
 
 main().catch((err) => {

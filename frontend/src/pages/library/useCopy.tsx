@@ -11,21 +11,31 @@ export function useCopy(timeout = 1600) {
 
   useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
 
-  const copy = useCallback(async (text: string, key?: string) => {
+  const copy = useCallback((text: string, key?: string) => {
     const id = key ?? text;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.cssText = 'position:fixed;opacity:0';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); } finally { ta.remove(); }
-    }
-    setCopied(id);
-    if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setCopied(null), timeout);
+    const clipboard = navigator.clipboard;
+    const write = clipboard
+      ? Promise.resolve().then(() => clipboard.writeText(text))
+      : Promise.reject();
+    return write
+      .catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        return Promise.resolve()
+          .then(() => document.execCommand('copy'))
+          .then(
+            () => { ta.remove(); },
+            (err: unknown) => { ta.remove(); throw err; },
+          );
+      })
+      .then(() => {
+        setCopied(id);
+        if (timer.current) window.clearTimeout(timer.current);
+        timer.current = window.setTimeout(() => setCopied(null), timeout);
+      });
   }, [timeout]);
 
   return { copied, copy };

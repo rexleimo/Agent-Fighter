@@ -60,14 +60,16 @@ async function main() {
     console.log('复用凭证  ' + token.slice(0, 10) + '…  （想换身份：删掉 .afl-token 或传 --token）');
   }
 
-  try {
-    const ver = await updateStrategy(MCP, {
+  // 正在打比赛时服务器会拒绝改版本，这不是错误：用当前版本继续上场。
+  const strategyUpdate = await Promise.resolve()
+    .then(() => updateStrategy(MCP, {
       token, note: NOTE, strategyHash: strategyHash(), defaultAction: 'block',
-    });
-    console.log('策略版本  ' + ver.versionHash + '  · 已锁定到本局回放');
-  } catch (e) {
-    // 正在打比赛时服务器会拒绝改版本，这不是错误：用当前版本继续上场。
-    console.log('策略版本  沿用当前版本（' + e.message + '）');
+    }))
+    .then((ver) => ({ ok: true, ver }), (e) => ({ ok: false, e }));
+  if (strategyUpdate.ok) {
+    console.log('策略版本  ' + strategyUpdate.ver.versionHash + '  · 已锁定到本局回放');
+  } else {
+    console.log('策略版本  沿用当前版本（' + strategyUpdate.e.message + '）');
   }
 
   await joinQueue(MCP, token);
@@ -89,23 +91,21 @@ async function main() {
     },
   });
 
-  try {
-    await client.connect();
-  } catch (e) {
-    console.error('\n连接失败：' + e.message);
+  const connectError = await Promise.resolve().then(() => client.connect()).then(() => null, (e) => e);
+  if (connectError) {
+    console.error('\n连接失败：' + connectError.message);
     console.error('排查：服务是否在跑？token 是否已失效（删 .afl-token 重试）？地址是否用了 ws:// 而不是 http://？');
     process.exit(1);
   }
   console.log('[league] 已连接，等待开赛…\n');
 
-  let end;
-  try {
-    end = await client.waitForMatchEnd();
-  } catch (e) {
-    console.error('\n等待对局结束超时：' + e.message);
+  const endResult = await Promise.resolve().then(() => client.waitForMatchEnd()).then((v) => ({ ok: true, v }), (e) => ({ ok: false, e }));
+  if (!endResult.ok) {
+    console.error('\n等待对局结束超时：' + endResult.e.message);
     console.error('如果服务刚重启或队列很长，可再加 --base 指向一个 AFL_TICK_MS=20 的加速实例。');
     process.exit(1);
   }
+  const end = endResult.v;
 
   const r = end.result;
   console.log('\n────────── 本局结果 ──────────');
@@ -116,10 +116,9 @@ async function main() {
   console.log('我的决策   ' + ticks + ' 拍 · 被拒 ' + client.rejects + ' 次');
 
   if (agentId) {
-    try {
-      const st = await getAgentStats(BASE, agentId);
-      console.log('累计战绩   ' + st.wins + ' 胜 / ' + st.losses + ' 负 · 评分 ' + st.rating + ' · 版本 ' + st.versionHash);
-    } catch { /* stats are optional */ }
+    // stats are optional
+    const st = await Promise.resolve().then(() => getAgentStats(BASE, agentId)).catch(() => null);
+    if (st) console.log('累计战绩   ' + st.wins + ' 胜 / ' + st.losses + ' 负 · 评分 ' + st.rating + ' · 版本 ' + st.versionHash);
   }
   console.log('\n下一步：打开 ' + BASE + '/?view=replay 看逐拍决策与 observation；');
   console.log('       改 strategy.config.json 的阈值 → npm test → npm start，对比胜率。');

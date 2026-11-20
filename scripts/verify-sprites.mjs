@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { OFF_MODEL_ART } from './sprites/sheets.mjs';
+import { attempt, withFinally } from './lib/no-throw.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const WEB = path.join(ROOT, 'web');
@@ -207,13 +208,11 @@ if (!chromePath) {
   ], { stdio: 'ignore' });
   const errors = [];
   let cdp;
-  try {
+  await withFinally(async () => {
     let target = null;
     for (let i = 0; i < 60 && !target; i += 1) {
-      try {
-        const list = await (await fetch('http://127.0.0.1:' + PORT + '/json/list')).json();
-        target = list.find((t) => t.type === 'page');
-      } catch { /* starting */ }
+      const listResult = await attempt(() => fetch('http://127.0.0.1:' + PORT + '/json/list').then((r) => r.json()));
+      if (listResult.ok) target = listResult.value.find((t) => t.type === 'page');
       if (!target) await sleep(150);
     }
     if (!target) throw new Error('devtools did not start');
@@ -286,14 +285,14 @@ if (!chromePath) {
       }
     }
     ok('no JS exceptions in the sprite lab', errors.length === 0, errors.slice(0, 3).join(' | '));
-  } catch (err) {
-    ok('sprite lab capture', false, err.message);
-  } finally {
+  }, async () => {
     if (cdp) cdp.close();
     chrome.kill('SIGTERM');
     await sleep(200);
-    try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* best effort */ }
-  }
+    await attempt(() => fs.rmSync(profile, { recursive: true, force: true })); // best effort
+  }).catch((err) => {
+    ok('sprite lab capture', false, err.message);
+  });
 }
 
 console.log(failures.length ? `\n${failures.length} failure(s)` : '\nall sprite checks passed');

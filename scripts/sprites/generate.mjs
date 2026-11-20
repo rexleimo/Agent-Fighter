@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { FIGHTERS } from '../../src/fighters.js';
 import { generateImage } from './rexai.mjs';
 import { SHEET_IDS, promptFor } from './sheets.mjs';
+import { attempt } from '../lib/no-throw.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const OUT = path.join(ROOT, 'assets', 'source', 'sprites');
@@ -56,26 +57,27 @@ async function worker(workerId) {
     const t0 = Date.now();
     const tag = `${item.id}/${item.sheet}`;
     console.log(`[w${workerId}] START ${tag} (${done + failures.length + 1}/${queue.length + done + failures.length + 1})`);
-    try {
-      const { jobId, buffer } = await generateImage({
-        model,
-        prompt: promptFor(item.sheet, item.id),
-        image: path.join(PLATES, item.id + '.png'),
-        size: '1024x1024',
-        timeoutMs: 540000,
-        onPoll: (status, sec) => {
-          if (status === 'succeeded' || status === 'failed' || sec % 20 < 4) {
-            console.log(`[w${workerId}] ${tag} ${status} ${sec}s`);
-          }
-        },
-      });
+    const generated = await attempt(() => generateImage({
+      model,
+      prompt: promptFor(item.sheet, item.id),
+      image: path.join(PLATES, item.id + '.png'),
+      size: '1024x1024',
+      timeoutMs: 540000,
+      onPoll: (status, sec) => {
+        if (status === 'succeeded' || status === 'failed' || sec % 20 < 4) {
+          console.log(`[w${workerId}] ${tag} ${status} ${sec}s`);
+        }
+      },
+    }));
+    if (generated.ok) {
+      const { jobId, buffer } = generated.value;
       fs.mkdirSync(path.dirname(item.file), { recursive: true });
       fs.writeFileSync(item.file, buffer);
       done += 1;
       console.log(`[w${workerId}] OK ${tag} job=${jobId} ${Math.round((Date.now() - t0) / 1000)}s bytes=${buffer.length}`);
-    } catch (err) {
-      failures.push({ ...item, error: err.message });
-      console.error(`[w${workerId}] FAIL ${tag}: ${err.message}`);
+    } else {
+      failures.push({ ...item, error: generated.error.message });
+      console.error(`[w${workerId}] FAIL ${tag}: ${generated.error.message}`);
     }
   }
 }

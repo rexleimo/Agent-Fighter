@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { attempt, withFinally } from './lib/no-throw.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const BASE = process.env.AFL_BASE || 'http://127.0.0.1:8787';
@@ -73,13 +74,11 @@ function connect(wsUrl, sink) {
 
 const errors = [];
 let cdp;
-try {
+await withFinally(async () => {
   let target = null;
   for (let i = 0; i < 60 && !target; i += 1) {
-    try {
-      const list = await (await fetch('http://127.0.0.1:' + PORT + '/json/list')).json();
-      target = list.find((t) => t.type === 'page');
-    } catch { /* starting */ }
+    const listResult = await attempt(() => fetch('http://127.0.0.1:' + PORT + '/json/list').then((r) => r.json()));
+    if (listResult.ok) target = listResult.value.find((t) => t.type === 'page');
     if (!target) await sleep(150);
   }
   if (!target) throw new Error('devtools did not start');
@@ -99,12 +98,12 @@ try {
   fs.writeFileSync(OUT, Buffer.from(shot.data, 'base64'));
   console.log('saved ' + path.relative(ROOT, OUT) + (errors.length ? '\n  errors:\n  ' + errors.slice(0, 5).join('\n  ') : ''));
   if (errors.length) process.exitCode = 1;
-} catch (err) {
-  console.error('capture failed:', err.message);
-  process.exitCode = 1;
-} finally {
+}, async () => {
   if (cdp) cdp.close();
   chrome.kill('SIGTERM');
   await sleep(200);
-  try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* best effort */ }
-}
+  await attempt(() => fs.rmSync(profile, { recursive: true, force: true })); // best effort
+}).catch((err) => {
+  console.error('capture failed:', err.message);
+  process.exitCode = 1;
+});

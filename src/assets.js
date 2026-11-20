@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseJsonResult } from './json-result.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WEB = path.join(ROOT, 'web');
@@ -25,32 +26,34 @@ const state = {
   ok: false,
 };
 
+function clearManifest() {
+  state.manifest = null;
+  state.byId = new Map();
+  state.ok = false;
+}
+
 function readManifest() {
-  let stat;
-  try {
-    stat = fs.statSync(MANIFEST_PATH);
-  } catch {
-    state.ok = false;
-    state.manifest = null;
-    state.byId = new Map();
+  const stat = fs.statSync(MANIFEST_PATH, { throwIfNoEntry: false });
+  if (!stat) { clearManifest(); return; }
+  if (state.manifest && stat.mtimeMs === state.mtimeMs) return;
+  const parsed = parseJsonResult(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+  if (!parsed.ok) {
+    console.error('[afl] asset manifest unavailable:', parsed.error.message);
+    clearManifest();
     return;
   }
-  if (state.manifest && stat.mtimeMs === state.mtimeMs) return;
-  try {
-    const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
-    if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.assets)) throw new Error('bad manifest schema');
-    const byId = new Map();
-    for (const asset of manifest.assets) byId.set(asset.id, asset);
-    state.manifest = manifest;
-    state.byId = byId;
-    state.mtimeMs = stat.mtimeMs;
-    state.ok = true;
-  } catch (error) {
-    console.error('[afl] asset manifest unavailable:', error.message);
-    state.manifest = null;
-    state.byId = new Map();
-    state.ok = false;
+  const manifest = parsed.value;
+  if (!manifest || manifest.schemaVersion !== 1 || !Array.isArray(manifest.assets)) {
+    console.error('[afl] asset manifest unavailable:', 'bad manifest schema');
+    clearManifest();
+    return;
   }
+  const byId = new Map();
+  for (const asset of manifest.assets) byId.set(asset.id, asset);
+  state.manifest = manifest;
+  state.byId = byId;
+  state.mtimeMs = stat.mtimeMs;
+  state.ok = true;
 }
 
 export function getManifest() {

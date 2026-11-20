@@ -10,16 +10,12 @@ export function useCaptcha() {
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(() => {
     setLoading(true);
-    try {
-      const data = await api<{ question: string; left: number; op: '+' | '-'; right: number }>('/api/captcha');
-      setQuestion(data.question);
-    } catch {
-      setQuestion('');
-    } finally {
-      setLoading(false);
-    }
+    return api<{ question: string; left: number; op: '+' | '-'; right: number }>('/api/captcha')
+      .then((data) => setQuestion(data.question))
+      .catch(() => setQuestion(''))
+      .then(() => setLoading(false));
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);

@@ -4,8 +4,7 @@ import { api } from '../../lib/api';
 import { PixelWord } from './PixelWord';
 import { CopyButton, useCopy } from './useCopy';
 import { CATEGORY_LABEL, type DocCategory, type DocEntry } from './types';
-
-type ClientChip = { id: string; name: string };
+import type { ClientChip } from '../../lib/types';
 
 const TABS: Array<{ id: 'all' | DocCategory; label: string }> = [
   { id: 'all', label: '全部' },

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { MarkdownReader, Toc, buildToc, stripFrontmatter, useScrollSpy } from './MarkdownReader';
 import { CopyButton, useCopy } from './useCopy';
 import { CATEGORY_LABEL, type DocEntry } from './types';
+import { parseJson } from '../../lib/json';
 
 async function loadDoc(url: string): Promise<string> {
   const res = await fetch(url, { cache: 'no-cache' });
@@ -13,17 +14,20 @@ async function loadDoc(url: string): Promise<string> {
 export function ReaderView({ doc, onBack }: { doc: DocEntry; onBack: () => void }) {
   const origin = window.location.origin;
   const { copied, copy } = useCopy();
+  const isJson = doc.path.endsWith('.json');
   const query = useQuery({
     queryKey: ['doc-content', doc.path],
-    queryFn: () => loadDoc(doc.url),
+    queryFn: async () => {
+      const text = await loadDoc(doc.url);
+      if (!isJson) return { raw: text, pretty: '' };
+      // Invalid JSON is shown verbatim, exactly as before.
+      const parsed = await parseJson(text);
+      return { raw: text, pretty: parsed.ok ? JSON.stringify(parsed.value, null, 2) : text };
+    },
     staleTime: 60_000,
   });
-  const raw = query.data ?? '';
-  const isJson = doc.path.endsWith('.json');
-  const pretty = useMemo(() => {
-    if (!isJson || !raw) return '';
-    try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
-  }, [isJson, raw]);
+  const raw = query.data?.raw ?? '';
+  const pretty = query.data?.pretty ?? '';
 
   const toc = useMemo(() => (isJson ? [] : buildToc(stripFrontmatter(raw))), [raw, isJson]);
   const active = useScrollSpy(toc.map((t) => t.id));

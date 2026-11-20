@@ -22,6 +22,7 @@ import { CONFIG } from './config.js';
 import { isValidFighter } from './fighters.js';
 import { hashObject } from './replay.js';
 import { replayMatch, renderReplay } from './engine.js';
+import { parseJsonResult } from './json-result.js';
 
 export const TEAM_SIZE = 3;
 export const TEAM_HEAL = Math.floor(CONFIG.MAX_HP * 0.15);
@@ -260,7 +261,8 @@ export function flattenTeamReplay(envelope) {
 }
 
 export function parseTeamReplay(text) {
-  let data;
-  try { data = JSON.parse(text); } catch { return null; }
+  const parsed = parseJsonResult(text);
+  if (!parsed.ok) return null;
+  const data = parsed.value;
   return data && data.format === 'afl-team-replay/1' ? data : null;
 }

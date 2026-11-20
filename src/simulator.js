@@ -5,18 +5,28 @@ import { CONFIG } from './rules.js';
 
 // Offline replay simulator: feed a downloaded JSONL replay through your own policy
 // and see tick by tick where your decisions diverge from the recorded ones.
-export function simulateReplay(text, policy, { side = 'a', matchId = 'local' } = {}) {
+export async function simulateReplay(text, policy, { side = 'a', matchId = 'local' } = {}) {
   const replay = parseReplay(text, matchId);
   let state = createInitialState(replay.seed, matchId, replay.fighters || {});
   const history = [];
   const diffs = [];
+  // A non-callable policy is the same as a policy that failed to decide: every
+  // tick is counted as a disagreement rather than aborting the simulation.
+  const decide = typeof policy === 'function' ? policy : null;
   for (const rec of replay.ticks) {
     const obs = buildObservation(state, side, rec.tick, CONFIG.TICK_MS, history, replay.seed);
     let predicted = null;
-    try {
-      const out = policy(obs);
-      predicted = typeof out === 'string' ? out : (out && out.action) || null;
-    } catch { /* policy failed: counted as disagreement */ }
+    if (decide) {
+      // A policy that throws is the same as one that failed to decide: the tick
+      // counts as a disagreement. Promise settlement expresses that without an
+      // exception boundary, so this helper is async.
+      const decided = await Promise.resolve()
+        .then(() => decide(obs))
+        .then((out) => ({ ok: true, out }), () => ({ ok: false }));
+      if (decided.ok) {
+        predicted = typeof decided.out === 'string' ? decided.out : (decided.out && decided.out.action) || null;
+      }
+    }
     const actual = side === 'a' ? rec.actionA : rec.actionB;
     if (predicted !== actual) diffs.push({ tick: rec.tick, predicted, actual, threat: obs.derived.threat, distanceX: obs.derived.distanceX });
     history.push({ tick: rec.tick, action: actual });

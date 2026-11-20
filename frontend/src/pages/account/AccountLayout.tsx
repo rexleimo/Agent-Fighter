@@ -2,17 +2,10 @@ import { createContext, useContext, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, post } from '../../lib/api';
-import type { McpService, MeResponse } from '../../lib/types';
+import type { AccountContextValue, AccountCredentials, McpService, MeResponse } from '../../lib/types';
 import { AuthCard } from '../../components/account/AuthCard';
 
-type Credentials = { username: string; password: string; displayName?: string; captcha: string };
-
-type AccountCtx = {
-  me: MeResponse;
-  issue: { mutate: () => void; isPending: boolean };
-  logout: { mutate: () => void; isPending: boolean };
-};
-const Ctx = createContext<AccountCtx | null>(null);
+const Ctx = createContext<AccountContextValue | null>(null);
 export function useAccount() {
   const value = useContext(Ctx);
   if (!value) throw new Error('useAccount must be used inside AccountLayout');
@@ -44,14 +37,14 @@ export function AccountLayout() {
   const me = unauthorized ? null : meQuery.data;
 
   const login = useMutation({
-    mutationFn: (values: Credentials) => post('/api/login', {
+    mutationFn: (values: AccountCredentials) => post('/api/login', {
       username: values.username, password: values.password, captchaAnswer: values.captcha,
     }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['me'] }),
     onError: refreshCaptcha,
   });
   const register = useMutation({
-    mutationFn: (values: Credentials) => post('/api/register', {
+    mutationFn: (values: AccountCredentials) => post('/api/register', {
       email: `${values.username}@players.local`,
       password: values.password,
       name: values.displayName || values.username,

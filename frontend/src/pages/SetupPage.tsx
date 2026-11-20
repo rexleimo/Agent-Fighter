@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, post } from '../lib/api';
 import { PasswordStrength } from '../components/account/PasswordStrength';
+import type { SetupStatus } from '../lib/types';
 
 /**
  * First-run setup: the ONE place an administrator is created. The server
@@ -24,8 +25,9 @@ const setupSchema = z.object({
   confirm: z.string(),
 }).refine((v) => v.password === v.confirm, { path: ['confirm'], message: '两次输入的密码不一致' });
 
+// Kept local: derived from the zod setupSchema declared above via `z.infer`,
+// used only in this page and not shared elsewhere.
 type FormValues = z.infer<typeof setupSchema>;
-type SetupStatus = { needsSetup: boolean };
 
 export function SetupPage() {
   const navigate = useNavigate();

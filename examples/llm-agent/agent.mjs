@@ -92,13 +92,15 @@ async function policy(obs) {
   const threatChanged = obs.derived.threat !== lastThreat;
   lastThreat = obs.derived.threat;
   if (shouldAsk(obs)) {
-    try {
-      lastAdvice = await askModel(obs);
+    const asked = await Promise.resolve()
+      .then(() => askModel(obs))
+      .then((advice) => ({ ok: true, advice }), () => ({ ok: false }));
+    if (asked.ok) {
+      lastAdvice = asked.advice;
       calls += 1;
       return { action: lastAdvice, modelCalls: 1 };
-    } catch {
-      fallbacks += 1; // 超时 / 报错 / 返回非法动作，一律降级
     }
+    fallbacks += 1; // 超时 / 报错 / 返回非法动作，一律降级
   }
   // 模型刚给过建议且局势没变，可以复用一拍，避免每拍都问。
   if (!threatChanged && lastAdvice && obs.derived.distanceX < 120) {
@@ -123,9 +125,10 @@ async function main() {
     fs.writeFileSync(TOKEN_FILE, token, 'utf8');
     console.log('[llm] 已注册 ' + reg.agentId);
   }
-  try {
-    await updateStrategy(MCP, { token, note: 'llm hybrid: ask on key states, rule fallback', defaultAction: 'block' });
-  } catch (e) { console.log('[llm] 版本沿用当前值（' + e.message + '）'); }
+  const strategyError = await Promise.resolve()
+    .then(() => updateStrategy(MCP, { token, note: 'llm hybrid: ask on key states, rule fallback', defaultAction: 'block' }))
+    .then(() => null, (e) => e);
+  if (strategyError) console.log('[llm] 版本沿用当前值（' + strategyError.message + '）');
   await joinQueue(MCP, token);
 
   const client = new AgentClient({
@@ -133,7 +136,8 @@ async function main() {
     onLog: (m) => console.log('[league] ' + m),
     onMatchStart: (m) => console.log('[league] 开局 ' + m.matchId + ' · ' + m.side + ' 方'),
   });
-  try { await client.connect(); } catch (e) { console.error('连接失败：' + e.message); process.exit(1); }
+  const connectError = await Promise.resolve().then(() => client.connect()).then(() => null, (e) => e);
+  if (connectError) { console.error('连接失败：' + connectError.message); process.exit(1); }
   const end = await client.waitForMatchEnd();
   console.log('\n结果 ' + end.result.winner + ' · ' + end.result.ticks + ' 拍 · 积分 ' + end.ratingDelta);
   console.log('模型调用 ' + calls + ' 次 · 超时/降级 ' + fallbacks + ' 次 · 决策 ' + client.actCount + ' 拍');

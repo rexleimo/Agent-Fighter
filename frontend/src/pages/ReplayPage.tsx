@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAppState } from '../hooks/useAppState';
 import { createStageRenderer } from '../game/stage.js';
-import type { Fighter, MatchSummary, StageRegistry } from '../lib/types';
+import type { Fighter, MatchSummary, ReplayTick, StageRegistry } from '../lib/types';
 
 const REASON_LABEL: Record<string, string> = { ko: 'KO', time_up: '时间到', elimination: '全队淘汰' };
 const ACTION_LABEL: Record<string, string> = {
@@ -18,14 +18,6 @@ const EVENT_LABEL: Record<string, string> = {
   move_start: '出招', hitstop: '命中停顿', evade: '闪避成功', parry: '招架成功',
 };
 
-type Tick = {
-  frames: any[];
-  actions: { a: string; b: string };
-  events: any[];
-  observation: any;
-  round?: number;
-};
-
 function ReplayCanvas({
   ticks,
   index,
@@ -34,7 +26,7 @@ function ReplayCanvas({
   fighters,
   stages,
 }: {
-  ticks: Tick[];
+  ticks: ReplayTick[];
   index: number;
   match: any;
   moves: Record<string, any>;
@@ -115,7 +107,7 @@ export function ReplayPage() {
     staleTime: Infinity,
   });
   const [matchId, setMatchId] = useState<string | null>(null);
-  const [replay, setReplay] = useState<{ match: any; ticks: Tick[] } | null>(null);
+  const [replay, setReplay] = useState<{ match: any; ticks: ReplayTick[] } | null>(null);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState('');
@@ -128,18 +120,17 @@ export function ReplayPage() {
     return map;
   }, [app.data?.stages]);
 
-  async function select(id: string) {
+  function select(id: string) {
     setPlaying(false);
     setError('');
-    try {
-      const data = await api<{ match: any; ticks: Tick[] }>(`/api/replay/${encodeURIComponent(id)}?render=1`);
-      setMatchId(id);
-      setReplay({ match: data.match, ticks: data.ticks ?? [] });
-      setIndex(0);
-      setParams((prev) => { const next = new URLSearchParams(prev); next.set('match', id); return next; }, { replace: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '回放载入失败');
-    }
+    return api<{ match: any; ticks: ReplayTick[] }>(`/api/replay/${encodeURIComponent(id)}?render=1`)
+      .then((data) => {
+        setMatchId(id);
+        setReplay({ match: data.match, ticks: data.ticks ?? [] });
+        setIndex(0);
+        setParams((prev) => { const next = new URLSearchParams(prev); next.set('match', id); return next; }, { replace: true });
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : '回放载入失败'));
   }
 
   useEffect(() => {

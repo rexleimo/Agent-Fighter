@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../../lib/api';
+import { parseJson } from '../../lib/json';
 import type { MyStrategyResponse } from '../../lib/types';
 import { JsonEditor } from './JsonEditor';
 
@@ -29,16 +30,20 @@ export function StrategyCard() {
 
   const save = async () => {
     setError(''); setSaved(false); setBusy(true);
-    let strategy: unknown;
-    try { strategy = JSON.parse(text); } catch (e) { setError(e instanceof Error ? e.message : 'JSON 解析失败'); setBusy(false); return; }
-    try {
-      await api('/api/me/strategy', { method: 'PUT', body: JSON.stringify({ strategy }) });
-      setSaved(true);
-      await client.invalidateQueries({ queryKey: ['my-strategy'] });
-      await client.invalidateQueries({ queryKey: ['my-agent'] });
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : '保存失败');
-    } finally { setBusy(false); }
+    const parsed = await parseJson(text);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      setBusy(false);
+      return;
+    }
+    await Promise.resolve()
+      .then(() => api('/api/me/strategy', { method: 'PUT', body: JSON.stringify({ strategy: parsed.value }) }))
+      .then(() => { setSaved(true); return client.invalidateQueries({ queryKey: ['my-strategy'] }); })
+      .then(() => client.invalidateQueries({ queryKey: ['my-agent'] }))
+      .catch((e: unknown) => {
+        setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : '保存失败');
+      });
+    setBusy(false);
   };
 
   return (

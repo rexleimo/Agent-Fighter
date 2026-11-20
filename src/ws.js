@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { parseJsonResult } from './json-result.js';
 
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
@@ -59,16 +60,14 @@ class WSConnection {
     if (opcode === 0x9) { this.sendFrame(0xa, payload); return true; }
     if (opcode === 0xa) return true;
     if (opcode === 0x1) {
-      try {
-        const msg = JSON.parse(payload.toString('utf8'));
-        if (this.onMessage) this.onMessage(msg);
-      } catch { /* malformed client message is ignored */ }
+      const msg = parseJsonResult(payload.toString('utf8'));
+      if (msg.ok && this.onMessage) this.onMessage(msg.value);
     }
     return true;
   }
 
   sendFrame(opcode, payload) {
-    if (!this.socket.writable || this.closed) return;
+    if (!this.socket.writable || this.socket.destroyed || this.closed) return;
     const len = payload.length;
     let header;
     if (len < 126) {
@@ -84,9 +83,9 @@ class WSConnection {
       header.writeBigUInt64BE(BigInt(len), 2);
     }
     header[0] = 0x80 | opcode;
-    try {
-      this.socket.write(Buffer.concat([header, payload]));
-    } catch { /* connection gone */ }
+    // The socket 'error' listener installed by the constructor absorbs async
+    // write failures; a destroyed socket is skipped up front.
+    if (!this.socket.destroyed) this.socket.write(Buffer.concat([header, payload]));
   }
 
   sendRaw(text) {
@@ -100,23 +99,19 @@ class WSConnection {
   close() {
     if (this.closed) return;
     this.closed = true;
-    try {
-      this.sendFrame(0x8, Buffer.alloc(0));
-      this.socket.end();
-    } catch { /* already gone */ }
+    this.sendFrame(0x8, Buffer.alloc(0));
+    if (!this.socket.destroyed) this.socket.end();
   }
 }
 
 export function attachWebSocketServer(httpServer, { onConnection, pathPrefix = '/ws' } = {}) {
   const clients = new Set();
   httpServer.on('upgrade', (req, socket, head) => {
-    let url;
-    try {
-      url = new URL(req.url, 'http://localhost');
-    } catch {
+    if (!URL.canParse(req.url, 'http://localhost')) {
       socket.destroy();
       return;
     }
+    const url = new URL(req.url, 'http://localhost');
     if (!url.pathname.startsWith(pathPrefix) || !req.headers['sec-websocket-key']) {
       socket.destroy();
       return;

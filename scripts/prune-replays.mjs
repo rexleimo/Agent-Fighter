@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REPLAY_RETENTION } from '../src/costs.js';
+import { attempt, parseOr } from './lib/no-throw.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dir = path.resolve(process.env.AFL_REPLAY_DIR || path.join(ROOT, 'data', 'replays'));
@@ -39,10 +40,9 @@ if (files.length <= keep) {
 const leaguePath = path.resolve(process.env.AFL_LEAGUE_FILE || path.join(ROOT, 'data', 'league.json'));
 let referenced = new Set();
 if (fs.existsSync(leaguePath)) {
-  try {
-    const league = JSON.parse(fs.readFileSync(leaguePath, 'utf8'));
-    referenced = new Set((league.matches || []).map((m) => m.matchId).filter(Boolean));
-  } catch { /* unreadable league file: nothing counts as referenced */ }
+  // Unreadable league file: nothing counts as referenced.
+  const league = await parseOr(fs.readFileSync(leaguePath, 'utf8'), null);
+  if (league) referenced = new Set((league.matches || []).map((m) => m.matchId).filter(Boolean));
 }
 const prunable = files.filter((f) => !referenced.has(f.name.replace(/\.jsonl$/, '')));
 const protectedFiles = files.length - prunable.length;
@@ -61,6 +61,7 @@ if (!apply) {
 }
 let removed = 0;
 for (const v of victims) {
-  try { fs.unlinkSync(v.full); removed += 1; } catch { /* raced */ }
+  const unlinked = await attempt(() => fs.unlinkSync(v.full));
+  if (unlinked.ok) removed += 1; // a file that raced away is not counted as removed
 }
 console.log(`\npruned ${removed} of ${victims.length} candidates; ${files.length - removed} replays remain, ${protectedFiles} of them kept because the schedule still references them.`);

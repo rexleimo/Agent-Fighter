@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useCaptcha } from '../../hooks/useCaptcha';
 import { PasswordStrength } from './PasswordStrength';
+import type { AuthCardProps } from '../../lib/types';
 
 const username = z.string()
   .trim()
@@ -26,19 +27,11 @@ const registerSchema = z.object({
   captcha,
 });
 
+// Kept local: derived from the zod registerSchema declared above via `z.infer`,
+// used only in this component and not shared elsewhere.
 type FormValues = z.infer<typeof registerSchema>;
-type SubmitValues = { username: string; password: string; displayName?: string; captcha: string };
 
-type Props = {
-  mode: 'login' | 'register';
-  onModeChange: (mode: 'login' | 'register') => void;
-  onSubmit: (values: SubmitValues) => void;
-  busy: boolean;
-  serverError: string;
-  captchaNonce: number;
-};
-
-export function AuthCard({ mode, onModeChange, onSubmit, busy, serverError, captchaNonce }: Props) {
+export function AuthCard({ mode, onModeChange, onSubmit, busy, serverError, captchaNonce }: AuthCardProps) {
   const register = mode === 'register';
   const [showPassword, setShowPassword] = useState(false);
   const { question, loading: captchaLoading, refresh: refreshCaptcha } = useCaptcha();

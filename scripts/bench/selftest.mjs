@@ -14,6 +14,7 @@ import { createMatch } from '../../src/engine.js';
 import { runSuite } from './suite.mjs';
 import { rank, entryFromBundle } from './leaderboard.mjs';
 import http from 'node:http';
+import { attempt, withFinally } from '../lib/no-throw.mjs';
 
 /** Spin up a local OpenAI-compatible /chat/completions mock so the real-model
  *  adapter path is exercised end-to-end without an API key or network. */
@@ -33,8 +34,9 @@ function mockLLM(handler) {
 
 let passed = 0, failed = 0;
 async function check(name, fn) {
-  try { await fn(); console.log('  PASS  ' + name); passed += 1; }
-  catch (e) { console.log('  FAIL  ' + name + '  |  ' + (e.message || e)); failed += 1; }
+  const r = await attempt(fn);
+  if (r.ok) { console.log('  PASS  ' + name); passed += 1; }
+  else { console.log('  FAIL  ' + name + '  |  ' + (r.error.message || r.error)); failed += 1; }
 }
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 const small = { seeds: 3, opponents: ['random', 'brawler'] };
@@ -132,39 +134,39 @@ await check('report: complete reproducible structure', async () => {
 // 9. OpenAI adapter authors a valid strategy through a real HTTP endpoint.
 await check('openai adapter: authors strategy via mock endpoint (hosted)', async () => {
   const { server, port } = await mockLLM(() => '```json\n' + JSON.stringify(strategyTemplate()) + '\n```');
-  try {
+  await withFinally(async () => {
     const adapter = openaiAdapter({ base: `http://127.0.0.1:${port}/v1`, key: 'test', model: 'mock' });
     const p = resolveProtocol({ mode: 'hosted', seeds: 2, opponents: ['random'] });
     const r = await runHosted({ protocol: p, adapter });
     assert(r.strategy.valid && r.strategy.ruleCount > 0, 'strategy not authored');
     assert(r.adapter.id === 'openai:mock', 'adapter id wrong');
     assert(r.reasoning.overall.games === 2, 'games mismatch');
-  } finally { server.close(); }
+  }, () => { server.close(); });
 });
 
 // 10. OpenAI adapter decides per-tick through a real HTTP endpoint.
 await check('openai adapter: decides per-tick via mock endpoint (realtime)', async () => {
   const { server, port } = await mockLLM((j) => (j.max_tokens <= 8 ? 'block' : JSON.stringify(strategyTemplate())));
-  try {
+  await withFinally(async () => {
     const adapter = openaiAdapter({ base: `http://127.0.0.1:${port}/v1`, key: 'test', model: 'mock' });
     const p = resolveProtocol({ mode: 'realtime', seeds: 1, opponents: ['random'], budget: 5, deadlineMs: 5000 });
     const r = await runRealtime({ protocol: p, adapter });
     assert(r.latency.modelCalls >= 5, 'model calls not counted');
     assert(r.latency.budgetExceeded > 0, 'budget not enforced for model adapter');
     assert(r.latency.decisions > 0, 'no decisions');
-  } finally { server.close(); }
+  }, () => { server.close(); });
 });
 
 // 11. OpenAI adapter retries an invalid first reply, then accepts a valid one.
 await check('openai adapter: retries invalid strategy reply', async () => {
   let n = 0;
   const { server, port } = await mockLLM(() => { n += 1; return n === 1 ? 'not json at all' : JSON.stringify(strategyTemplate()); });
-  try {
+  await withFinally(async () => {
     const adapter = openaiAdapter({ base: `http://127.0.0.1:${port}/v1`, key: 'test', model: 'mock', maxRetries: 2 });
     const s = await adapter.authorStrategy({ fighter: 'quartz', dsl: '' });
     assert(s.rules.length > 0, 'retry did not recover');
     assert(n >= 2, 'expected a retry, calls=' + n);
-  } finally { server.close(); }
+  }, () => { server.close(); });
 });
 
 // 12. Standard suite: runs all three evaluations and computes the latency cost.
@@ -191,20 +193,20 @@ await check('leaderboard: ranks by reasoning win rate', async () => {
 await check('openai adapter: sends seed and temperature 0 in request', async () => {
   const bodies = [];
   const { server, port } = await mockLLM((j) => { bodies.push(j); return 'block'; });
-  try {
+  await withFinally(async () => {
     const adapter = openaiAdapter({ base: `http://127.0.0.1:${port}/v1`, key: 'test', model: 'mock', seed: 123 });
     const obs = createMatch({ seed: 1, fighters: { a: 'quartz', b: 'quartz' } }).observations().a;
     await adapter.decide(obs);
     assert(bodies.length === 1, 'no request captured');
     assert(bodies[0].seed === 123, 'seed not sent: ' + bodies[0].seed);
     assert(bodies[0].temperature === 0, 'temperature not 0');
-  } finally { server.close(); }
+  }, () => { server.close(); });
 });
 
 // 15. Multi-model leaderboard path: two mock models -> suite -> rank (offline).
 await check('leaderboard: multi-model run via mock endpoint ranks both', async () => {
   const { server, port } = await mockLLM((j) => (j.max_tokens <= 8 ? 'block' : JSON.stringify(strategyTemplate())));
-  try {
+  await withFinally(async () => {
     const tiny = { name: 'test-tiny', seeds: 2, opponents: ['random'], fighter: 'quartz', ticks: 600, budget: 8, deadlineMs: 5000, oracleDeadlineMs: 100000, evals: ['hosted', 'realtime', 'oracle'] };
     const cfg = { base: `http://127.0.0.1:${port}/v1`, key: 'test' };
     const entries = [];
@@ -216,7 +218,7 @@ await check('leaderboard: multi-model run via mock endpoint ranks both', async (
     assert(ranked.length === 2, 'expected 2 entries');
     assert(ranked.every((e) => e.reasoningWinRate != null), 'reasoning win rate missing');
     assert(ranked.every((e) => e.preset === 'test-tiny'), 'preset not carried');
-  } finally { server.close(); }
+  }, () => { server.close(); });
 });
 
 console.log(`\n=== ${passed}/${passed + failed} self-test checks passed ===\n`);

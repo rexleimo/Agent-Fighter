@@ -15,6 +15,9 @@
 // Only four names are public surface: authEnv, onboardPlayer, mcpTool,
 // mcpInitialize. Everything else here is internal to this flow.
 
+import { parseOr } from './no-throw.mjs';
+import { fetchCaptcha } from './captcha-auth.mjs';
+
 /** Env block for spawning a test server that has auth configured. */
 export function authEnv(port, testDatabaseUrl) {
   const origin = 'http://localhost:' + port;
@@ -35,16 +38,17 @@ async function post(base, pathName, body, cookie) {
   if (cookie) headers.Cookie = cookie;
   const res = await fetch(base + pathName, { method: 'POST', headers, body: JSON.stringify(body) });
   const text = await res.text();
-  let data = null;
-  try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 200) }; }
+  const data = await parseOr(text, { raw: text.slice(0, 200) });
   const setCookie = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
   return { res, data, cookie: setCookie.map((c) => c.split(';')[0]).join('; ') };
 }
 
 async function signUpPlayer(base, { username, password, displayName }) {
-  const r = await post(base, '/api/auth/sign-up/email', {
+  const challenge = await fetchCaptcha(base);
+  const r = await post(base, '/api/register', {
     email: username + '@league.test', username, name: displayName, displayName, password,
-  });
+    captchaAnswer: challenge.answer,
+  }, challenge.cookie);
   if (r.res.ok && r.cookie) return r.cookie;
   throw new Error('signup failed ' + r.res.status + ' ' + JSON.stringify(r.data).slice(0, 160));
 }

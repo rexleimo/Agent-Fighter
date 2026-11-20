@@ -1,3 +1,5 @@
+import { parseJson } from './json';
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -20,7 +22,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const text = await res.text();
   let data: unknown = null;
   if (text) {
-    try { data = JSON.parse(text); } catch { data = text; }
+    // Non-JSON payloads are returned as plain text, same as before.
+    const parsed = await parseJson(text);
+    data = parsed.ok ? parsed.value : text;
   }
   if (!res.ok) {
     let message = res.statusText || `HTTP ${res.status}`;

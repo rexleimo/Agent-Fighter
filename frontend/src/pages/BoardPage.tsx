@@ -1,12 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import type { LeaderboardResponse, LeaderboardRow } from '../lib/types';
+import type { LeaderboardResponse, LeaderboardRow, LeaderboardTrack } from '../lib/types';
 import { useAppState } from '../hooks/useAppState';
 
-type Track = 'all' | 'open' | 'rule_only';
-
-const TRACK_TABS: Array<[Track, string]> = [
+const TRACK_TABS: Array<[LeaderboardTrack, string]> = [
   ['all', '总榜'],
   ['open', '开放赛道'],
   ['rule_only', '纯规则策略赛道'],
@@ -25,7 +23,7 @@ function TeamCell({ row }: { row: LeaderboardRow }) {
 }
 
 export function BoardPage() {
-  const [track, setTrack] = useState<Track>('all');
+  const [track, setTrack] = useState<LeaderboardTrack>('all');
   const query = useQuery({
     queryKey: ['leaderboard', track],
     queryFn: () => api<LeaderboardResponse>(`/api/leaderboard?track=${track}`),

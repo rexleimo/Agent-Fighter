@@ -5,6 +5,8 @@ import { api, post } from '../lib/api';
 import type {
   CostModel, DrillList, MyAgentResponse, TrainingCompare, TrainingHistory, TrainingReport,
 } from '../lib/types';
+import { DrillPicker, Findings, pct } from './training/parts';
+import { parseJson } from '../lib/json';
 
 /**
  * 训练场 — 自己的沙盒。
@@ -14,80 +16,12 @@ import type {
  * 动排行榜、评分或赛程。页面只显示玩家自己的真实训练数据，缺数据就显示空态。
  */
 
-const SEVERITY_ORDER = { high: 0, medium: 1, low: 2, info: 3 } as const;
-
 const VERDICT_LABEL: Record<TrainingCompare['verdict'], string> = {
   stronger: '变强了',
   weaker: '变差了',
   flat: '没有可分辨差距',
   inconclusive: '无法判定',
 };
-
-function pct(n: number | null | undefined) {
-  return n === null || n === undefined ? '—' : `${n}%`;
-}
-
-function DrillPicker({ drills, picked, toggle }: {
-  drills: DrillList | undefined;
-  picked: string[];
-  toggle: (id: string) => void;
-}) {
-  const [tab, setTab] = useState(0);
-  if (!drills) return <p className="muted">靶单加载中…</p>;
-  const groups = [
-    { title: '训练靶', hint: '联赛自有 bot', items: drills.drills },
-    { title: '镜像', hint: '照镜子', items: drills.mirror ? [drills.mirror] : [] },
-    { title: '官方基线', hint: '同样不进榜', items: drills.baselines },
-  ];
-  const active = groups[tab];
-  return (
-    <div className="tr-drills">
-      <div className="tr-drill-tabs" role="tablist">
-        {groups.map((g, i) => (
-          <button key={g.title} type="button" role="tab" aria-selected={i === tab}
-            className={'tr-drill-tab' + (i === tab ? ' active' : '')} onClick={() => setTab(i)}>
-            {g.title} <span className="mono">{g.items.length}</span>
-          </button>
-        ))}
-      </div>
-      <p className="tr-drill-tabhint">{active.hint}</p>
-      <div className="tr-drill-list">
-        {active.items.map((d) => (
-          <button
-            key={d.id}
-            type="button"
-            className={'tr-drill' + (picked.includes(d.id) ? ' on' : '')}
-            onClick={() => toggle(d.id)}
-            title={d.goal}
-          >
-            <span className="tr-drill-name">{d.name}</span>
-            <span className="mono tr-drill-tag">{d.id}</span>
-          </button>
-        ))}
-      </div>
-      <p className="muted tr-note">{drills.note}</p>
-    </div>
-  );
-}
-
-function Findings({ report }: { report: TrainingReport }) {
-  const sorted = [...report.findings].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
-  return (
-    <div className="tr-findings">
-      <h3>该怎么改</h3>
-      {sorted.map((f) => (
-        <div key={f.code + (f.ruleIndexes || []).join(',') + (f.opponent ?? '')} className={'tr-finding sev-' + f.severity}>
-          <div className="tr-finding-head">
-            <span className={'tr-sev tr-sev-' + f.severity}>{f.severity}</span>
-            <span className="mono">{f.code}</span>
-          </div>
-          <p>{f.message}</p>
-          {f.hint && <p className="tr-hint">{f.hint}</p>}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function TrainingPage() {
   const [picked, setPicked] = useState<string[]>(['dummy', 'blockwall', 'chaos']);
@@ -352,12 +286,11 @@ export function TrainingPage() {
                   const el = document.getElementById('tr-candidate-json') as HTMLTextAreaElement | null;
                   const raw = (el?.value || '').trim();
                   if (!raw) { setError('先粘贴候选策略 JSON'); return; }
-                  try {
-                    cmp.mutate(JSON.parse(raw));
+                  void parseJson(raw).then((parsed) => {
+                    if (!parsed.ok) { setError('候选策略不是合法 JSON：' + parsed.error); return; }
+                    cmp.mutate(parsed.value as object);
                     setError(null);
-                  } catch (e) {
-                    setError('候选策略不是合法 JSON：' + (e as Error).message);
-                  }
+                  });
                 }}
               >
                 {cmp.isPending ? '对比中…' : '跑 A/B 对比'}

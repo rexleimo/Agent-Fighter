@@ -1,7 +1,6 @@
 import { useEffect, useReducer, useRef, type MutableRefObject } from 'react';
-import type { AgentSummary, Fighter, MatchSummary, Room } from '../lib/types';
-
-type AnyRecord = Record<string, any>;
+import type { AgentSummary, AnyRecord, Fighter, MatchSummary, Room, SpectatorAction } from '../lib/types';
+import { parseJson } from '../lib/json';
 
 export type SpectatorState = {
   connected: boolean;
@@ -24,18 +23,6 @@ export type SpectatorState = {
   team: AnyRecord | null;
   intermission: AnyRecord | null;
 };
-
-type Action =
-  | { type: 'socket'; connected: boolean; roomId?: string | null }
-  | { type: 'hello'; msg: AnyRecord }
-  | { type: 'rooms'; msg: AnyRecord }
-  | { type: 'match_start'; msg: AnyRecord }
-  | { type: 'round_start'; msg: AnyRecord }
-  | { type: 'round_end'; msg: AnyRecord }
-  | { type: 'intermission'; msg: AnyRecord }
-  | { type: 'order_locked'; msg: AnyRecord }
-  | { type: 'tick'; msg: AnyRecord }
-  | { type: 'match_end'; msg: AnyRecord };
 
 const initial: SpectatorState = {
   connected: false,
@@ -61,7 +48,7 @@ const initial: SpectatorState = {
 
 const MAX_EVENTS = 70;
 
-function reducer(state: SpectatorState, action: Action): SpectatorState {
+function reducer(state: SpectatorState, action: SpectatorAction): SpectatorState {
   switch (action.type) {
     case 'socket':
       return { ...state, connected: action.connected, roomId: action.roomId ?? state.roomId };
@@ -204,9 +191,7 @@ export function useSpectator(roomId: string | null) {
         if (!closed) retry = window.setTimeout(connect, 2000);
       };
       socket.onerror = () => socket?.close();
-      socket.onmessage = (event) => {
-        let msg: AnyRecord;
-        try { msg = JSON.parse(event.data); } catch { return; }
+      const handleMessage = (msg: AnyRecord) => {
         if (msg.roomId && roomId && msg.roomId !== roomId && msg.type !== 'hello' && msg.type !== 'rooms') return;
         switch (msg.type) {
           case 'hello':
@@ -254,6 +239,11 @@ export function useSpectator(roomId: string | null) {
           default:
             break;
         }
+      };
+      socket.onmessage = (event) => {
+        void parseJson(event.data).then((parsed) => {
+          if (parsed.ok) handleMessage(parsed.value as AnyRecord);
+        });
       };
     };
 

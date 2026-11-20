@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { attempt, withFinally } from './lib/no-throw.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8801;
@@ -41,13 +42,14 @@ child.stderr.on('data', (d) => { serverLog += d; });
 
 async function waitReady() {
   for (let i = 0; i < 60; i++) {
-    try { const r = await fetch(BASE + '/healthz'); if (r.ok) return true; } catch { /* not up yet */ }
+    const probe = await attempt(() => fetch(BASE + '/healthz').then((r) => r.ok));
+    if (probe.ok && probe.value) return true;
     await sleep(200);
   }
   return false;
 }
 
-try {
+await withFinally(async () => {
   if (!(await waitReady())) { console.error('server did not start:\n' + serverLog); process.exit(1); }
 
   // S1 — health probe
@@ -71,10 +73,9 @@ try {
 
   // S4 — request-body cap → 413 (and a small body is NOT rejected)
   let bigStatus = 0, bigErr = '';
-  try {
-    const big = await fetch(BASE + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'x'.repeat(4096) });
-    bigStatus = big.status;
-  } catch (e) { bigErr = e.message; }
+  const bigResult = await attempt(() => fetch(BASE + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'x'.repeat(4096) }));
+  if (bigResult.ok) bigStatus = bigResult.value.status;
+  else bigErr = bigResult.error.message;
   const small = await fetch(BASE + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }) });
   check('S4 请求体超限返回 413，小 body 不被拒', bigStatus === 413 && small.status !== 413,
     `big=${bigStatus || bigErr} small=${small.status} cap=2048B`);
@@ -96,9 +97,9 @@ try {
     if (r.status === 429) authLimited++;
   }
   check('S6 认证端点独立限流（更严格）触发 429', authLimited > 0, `429×${authLimited}/8 (auth=3/min)`);
-} finally {
+}, () => {
   child.kill('SIGTERM');
-}
+});
 
 console.log(`\n=== ${passed}/${passed + failed} security checks passed ===`);
 process.exit(failed ? 1 : 0);

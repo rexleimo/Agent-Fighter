@@ -22,6 +22,7 @@ import { openaiAdapter } from './adapters.mjs';
 import { runSuite } from './suite.mjs';
 import { getPreset } from './presets.mjs';
 import { pct } from './stats.mjs';
+import { attempt } from '../lib/no-throw.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -127,8 +128,9 @@ async function main() {
     const files = collectFiles(args);
     if (!files.length) { console.error('No reports found. Pass --reports <dir> or report files, or --models a,b,c.'); process.exit(1); }
     for (const f of files) {
-      try { entries.push(entryFromJson(JSON.parse(fs.readFileSync(f, 'utf8')), path.relative(ROOT, f))); }
-      catch (e) { console.error(`[leaderboard] skip ${f}: ${e.message}`); }
+      const parsed = await attempt(() => entryFromJson(JSON.parse(fs.readFileSync(f, 'utf8')), path.relative(ROOT, f)));
+      if (parsed.ok) entries.push(parsed.value);
+      else console.error(`[leaderboard] skip ${f}: ${parsed.error.message}`);
     }
   }
 

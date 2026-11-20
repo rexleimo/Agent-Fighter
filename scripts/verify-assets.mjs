@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
+import { attempt, withFinally, parseOr } from './lib/no-throw.mjs';
 
 const BASE = process.env.AFL_BASE || 'http://127.0.0.1:8787';
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -29,7 +30,8 @@ const ok = (label, cond, detail = '') => {
 
 let state;
 for (let i = 0; i < 40; i += 1) {
-  try { const r = await fetch(BASE + '/api/state'); if (r.ok) { state = await r.json(); break; } } catch { /* starting */ }
+  const probe = await attempt(() => fetch(BASE + '/api/state').then((r) => (r.ok ? r.json() : null)));
+  if (probe.ok && probe.value) { state = probe.value; break; }
   await sleep(200);
 }
 if (!state) { console.error('服务未启动：' + BASE); process.exit(1); }
@@ -102,11 +104,9 @@ ok('server advertises the asset manifest', state.assets && state.assets.ok === t
   // A fresh clone is the real test. The plate pipeline's output is tracked; the
   // sprite pipeline's was not, so a clone rendered nothing until someone ran
   // slice.mjs by accident. Track-equality is the invariant, not file count.
-  let tracked = null;
-  try {
-    tracked = execFileSync('git', ['ls-files', 'web/assets/v/sprites'], { cwd: ROOT, encoding: 'utf8' })
-      .split('\n').filter(Boolean);
-  } catch { tracked = null; }
+  const trackedResult = await attempt(() => execFileSync('git', ['ls-files', 'web/assets/v/sprites'], { cwd: ROOT, encoding: 'utf8' })
+    .split('\n').filter(Boolean));
+  const tracked = trackedResult.ok ? trackedResult.value : null;
   if (tracked === null) {
     console.log('  SKIP  sprite 产物已随仓库分发（新克隆可直接渲染）  非 git 环境，无法核对跟踪状态');
   } else {
@@ -171,13 +171,11 @@ if (!chromePath) {
   ], { stdio: 'ignore' });
   const errors = [];
   let cdp;
-  try {
+  await withFinally(async () => {
     let target = null;
     for (let i = 0; i < 60 && !target; i += 1) {
-      try {
-        const list = await (await fetch('http://127.0.0.1:' + PORT + '/json/list')).json();
-        target = list.find((t) => t.type === 'page');
-      } catch { /* starting */ }
+      const listResult = await attempt(() => fetch('http://127.0.0.1:' + PORT + '/json/list').then((r) => r.json()));
+      if (listResult.ok) target = listResult.value.find((t) => t.type === 'page');
       if (!target) await sleep(150);
     }
     if (!target) throw new Error('devtools did not start');
@@ -325,14 +323,14 @@ if (!chromePath) {
     ok('gallery loads 16 cards on activation', gallery.cards.length === 16, gallery.cards.length + '/16');
     ok('gallery img elements decoded', gallery.loaded === 16, gallery.loaded + '/' + gallery.total);
     ok('gallery has no JS exceptions', errors.length === 0, errors.slice(0, 2).join(' | '));
-  } catch (err) {
-    ok('browser asset probe', false, err.message);
-  } finally {
+  }, async () => {
     if (cdp) cdp.close();
     chrome.kill('SIGTERM');
     await sleep(200);
-    try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* best effort */ }
-  }
+    await attempt(() => fs.rmSync(profile, { recursive: true, force: true })); // best effort
+  }).catch((err) => {
+    ok('browser asset probe', false, err.message);
+  });
 }
 
 console.log(failures.length ? `\n${failures.length} asset delivery failure(s)` : '\nall asset delivery checks passed');

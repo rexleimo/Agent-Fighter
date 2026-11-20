@@ -2,17 +2,11 @@ import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
-
-type Props = {
-  title: string;
-  url: string;
-  kind?: 'markdown' | 'json' | 'text';
-  onClose: () => void;
-};
+import type { ResourceViewerProps } from '../lib/types';
 
 /** Inline document viewer: fetch a project resource and show it in a modal
  *  overlay so the user never leaves the current page. */
-export function ResourceViewer({ title, url, kind = 'markdown', onClose }: Props) {
+export function ResourceViewer({ title, url, kind = 'markdown', onClose }: ResourceViewerProps) {
   const [text, setText] = useState('');
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -35,8 +29,15 @@ export function ResourceViewer({ title, url, kind = 'markdown', onClose }: Props
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
   }, [onClose]);
 
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(text); setCopied(true); window.setTimeout(() => setCopied(false), 1400); } catch { /* noop */ }
+  const copy = () => {
+    const clipboard = navigator.clipboard;
+    if (!clipboard) return;
+    void Promise.resolve()
+      .then(() => clipboard.writeText(text))
+      .then(
+        () => { setCopied(true); window.setTimeout(() => setCopied(false), 1400); },
+        () => { /* clipboard unavailable: keep the previous button state */ },
+      );
   };
 
   const isJson = kind === 'json' || url.endsWith('.json');

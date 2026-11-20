@@ -1,28 +1,11 @@
-import { useEffect, useRef, type MutableRefObject } from 'react';
+import { useEffect, useRef } from 'react';
 import { createStageRenderer } from '../../game/stage.js';
-import type { StageRegistry } from '../../lib/types';
-import type { Fighter } from '../../lib/types';
+import type { StageCanvasProps } from '../../lib/types';
 
-export type ToolState = {
-  showBoxes: boolean;
-  showBones: boolean;
-  showFx: boolean;
-  showRuler: boolean;
-  showGrid: boolean;
-};
+// Kept for the existing `import { type ToolState } from '.../StageCanvas'` path.
+export type { ToolState } from '../../lib/types';
 
-type Props = {
-  frameQueue: MutableRefObject<any[]>;
-  current: MutableRefObject<any | null>;
-  match: any;
-  moves: Record<string, any>;
-  fighters: Fighter[];
-  tools: ToolState;
-  lastResult: any;
-  stages: StageRegistry | null;
-};
-
-export function StageCanvas({ frameQueue, current, match, moves, fighters, tools, lastResult, stages }: Props) {
+export function StageCanvas({ frameQueue, current, match, moves, fighters, tools, lastResult, stages }: StageCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<any>(null);
   const matchRef = useRef(match);

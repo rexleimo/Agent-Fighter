@@ -12,6 +12,8 @@ const schema = z.object({
   displayName: z.string().trim().max(32, '最多 32 位').optional(),
   password: z.string().min(8, '至少 8 位').max(128, '最多 128 位'),
 });
+// Kept local: derived from the zod schema declared immediately above via
+// `z.infer`, used only in this component and not shared elsewhere.
 type FormValues = z.infer<typeof schema>;
 
 export function AdminPanel() {
@@ -42,12 +44,15 @@ export function AdminPanel() {
     },
   });
 
-  async function copy(url: string) {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(url);
-      window.setTimeout(() => setCopied(null), 1400);
-    } catch { /* clipboard unavailable */ }
+  function copy(url: string) {
+    const clipboard = navigator.clipboard;
+    if (!clipboard) return;
+    void Promise.resolve()
+      .then(() => clipboard.writeText(url))
+      .then(
+        () => { setCopied(url); window.setTimeout(() => setCopied(null), 1400); },
+        () => { /* clipboard unavailable: keep the previous button state */ },
+      );
   }
 
   const players = query.data?.players ?? [];

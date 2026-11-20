@@ -16,9 +16,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { FIGHTERS } from '../src/fighters.js';
 import { hashFile, shortHash, readPNG, cropRGBA } from './lib/imageops.mjs';
+import { attempt } from './lib/no-throw.mjs';
 import {
   CELL_COUNT, SHEET_IDS, FACING, facingReview, shipsFlipped,
 } from './sprites/sheets.mjs';
@@ -88,9 +89,8 @@ console.log(`  note    overridden cells: ${flip.reduce((n, key) => n + FACING[ke
   + ' --fighters <id> --sheet <s>');
 
 // 6. facingReview must stay the only door: a typo'd sheet id has to throw.
-let threw = false;
-try { facingReview('abyss', 'nope'); } catch { threw = true; }
-ok('an unadjudicated sheet cannot be baked', threw);
+const reviewResult = await attempt(() => facingReview('abyss', 'nope'));
+ok('an unadjudicated sheet cannot be baked', !reviewResult.ok);
 
 // 7. The cell-level redraw tool. It exists so a single bad frame can be
 //    replaced without re-rolling the sheet, and its entire promise is that the
@@ -122,16 +122,18 @@ ok('an unadjudicated sheet cannot be baked', threw);
   const standIn = path.join(fakeSource, id, 'base.png');
   const named = [5, 12];
   const out = path.join(tmp, 'spliced.png');
-  const run = (args) => execFileSync(process.execPath,
-    [path.join(ROOT, 'scripts', 'sprites', 'redraw-row.mjs'), ...args],
-    { encoding: 'utf8', env });
+  const run = (args) => {
+    const child = spawnSync(process.execPath,
+      [path.join(ROOT, 'scripts', 'sprites', 'redraw-row.mjs'), ...args],
+      { encoding: 'utf8', env });
+    if (child.error) return { ok: false, stdout: '', stderr: child.error.message };
+    return { ok: child.status === 0, stdout: child.stdout || '', stderr: child.stderr || '' };
+  };
 
-  let spliceLog = '';
-  let splicedOk = true;
-  try {
-    spliceLog = run(['--fighter', id, '--sheet', sheetId, '--cells', named.join(','),
-      '--from', standIn, '--out', out]);
-  } catch (e) { splicedOk = false; spliceLog = String(e.stderr || e.message); }
+  const spliced = run(['--fighter', id, '--sheet', sheetId, '--cells', named.join(','),
+    '--from', standIn, '--out', out]);
+  const splicedOk = spliced.ok;
+  const spliceLog = spliced.ok ? spliced.stdout : String(spliced.stderr || 'threw');
   ok('逐格重绘能跑通（不付费、不碰源图）', splicedOk && fs.existsSync(out), spliceLog.split('\n').find((l) => /Error/i.test(l)) || '');
 
   if (splicedOk && fs.existsSync(out)) {
@@ -148,30 +150,29 @@ ok('an unadjudicated sheet cannot be baked', threw);
 
   // The write path is the one that was broken, so run it for real - against
   // the copy, never the repository.
-  let wrote = false;
-  let writeDetail = '';
-  try {
-    const log = run(['--fighter', id, '--sheet', sheetId, '--cells', '12', '--from', standIn, '--write']);
-    wrote = fs.existsSync(target) && !/Error/.test(log);
+  const written = run(['--fighter', id, '--sheet', sheetId, '--cells', '12', '--from', standIn, '--write']);
+  if (written.ok) {
+    const log = written.stdout;
+    const wrote = fs.existsSync(target) && !/Error/.test(log);
     const predicted = (log.match(/new sheet sha would be ([0-9a-f]+)/) || [])[1];
     const actual = shortHash(hashFile(target));
-    writeDetail = `预告 ${predicted} / 实写 ${actual}`;
-    ok('--write 真的落盘，且落盘 sha 与 dry-run 预告一致', wrote && predicted === actual, writeDetail);
-  } catch (e) {
+    ok('--write 真的落盘，且落盘 sha 与 dry-run 预告一致', wrote && predicted === actual, `预告 ${predicted} / 实写 ${actual}`);
+  } else {
     ok('--write 真的落盘，且落盘 sha 与 dry-run 预告一致', false,
-      String(e.stderr || e.message).split('\n').find((l) => /Error/.test(l)) || 'threw');
+      String(written.stderr).split('\n').find((l) => /Error/.test(l)) || 'threw');
   }
 
   // Replacing a cell that the ledger says to mirror means the override now
   // describes a drawing nobody read. The tool has to say so out loud.
   const flipCell = (FACING[`${id}/${sheetId}`] || {}).flip?.[0];
   if (Number.isInteger(flipCell)) {
-    const warnLog = run(['--fighter', id, '--sheet', sheetId, '--cells', String(flipCell),
+    const warned = run(['--fighter', id, '--sheet', sheetId, '--cells', String(flipCell),
       '--from', standIn, '--out', path.join(tmp, 'w.png')]);
-    ok('替换被 flip 覆盖的格时警告台账条目已失效', /WARN replaced flipped cell/.test(warnLog),
+    if (!warned.ok) throw new Error(warned.stderr || 'redraw-row failed');
+    ok('替换被 flip 覆盖的格时警告台账条目已失效', /WARN replaced flipped cell/.test(warned.stdout),
       `cell ${flipCell} 在 FACING['${id}/${sheetId}'].flip 里`);
   }
-  fs.rmSync(tmp, { recursive: true, force: true });
+  await attempt(() => fs.rmSync(tmp, { recursive: true, force: true })); // best effort
 }
 
 process.exitCode = failures.length ? 1 : 0;
