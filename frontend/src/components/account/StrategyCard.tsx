@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../../lib/api';
 import type { MyStrategyResponse } from '../../lib/types';
+import { JsonEditor } from './JsonEditor';
 
 const TEMPLATE = {
   name: 'my-strategy',
@@ -49,7 +50,7 @@ export function StrategyCard() {
         </span>
       </div>
       <p className="acc-muted acc-copy">这是服务端解释执行的声明式 JSON（不是代码）。保存后对局中会被锁定；同一份数据也可以由 Agent 通过 MCP <code>submit_strategy</code> 提交。</p>
-      <textarea className="acc-strategy-editor mono" value={text} onChange={(e) => { setText(e.target.value); setSaved(false); }} spellCheck={false} aria-label="策略 JSON" />
+      <JsonEditor value={text} onChange={(v) => { setText(v); setSaved(false); }} rows={18} ariaLabel="策略 JSON" />
       {error && <div className="acc-error">{error}</div>}
       <div className="acc-actions">
         <button className="ghost-btn" type="button" disabled={busy} onClick={save}>{busy ? '校验并保存…' : '校验并保存'}</button>

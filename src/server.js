@@ -270,7 +270,7 @@ function serveStatic(req, res, pathname) {
     serveFile(req, res, file, { cache: IMMUTABLE });
     return;
   }
-  if (pathname === '/' || pathname === '/index.html' || SPA_ROUTES.has(pathname)) {
+  if (pathname === '/' || pathname === '/index.html' || SPA_ROUTES.has(pathname) || pathname.startsWith('/me/')) {
     serveIndex(req, res);
     return;
   }

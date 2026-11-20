@@ -22,12 +22,31 @@
 }
 .acc-avatar-preset:hover { border-color: var(--accent); background: var(--accent-soft); }
 
-.acc-strategy-editor {
-  width: 100%; min-height: 190px; resize: vertical;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
-  color: var(--text); font-size: 13px; line-height: 1.6; padding: 10px 12px;
+/* JSON editor: transparent textarea over a syntax-highlighted pre.
+   Both layers must share identical font, size, padding and line-height. */
+.je-wrap {
+  position: relative; width: 100%; height: calc(var(--je-rows, 18) * 1.6em + 24px);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
 }
-.acc-strategy-editor:focus { border-color: var(--accent); outline: none; }
+.je-wrap:focus-within { border-color: var(--accent); }
+.je-highlight, .je-input {
+  margin: 0; padding: 12px; border: 0;
+  font-family: var(--mono); font-size: 16px; line-height: 1.6;
+  white-space: pre; tab-size: 2;
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  overflow: auto;
+}
+.je-highlight { color: var(--muted); pointer-events: none; }
+.je-input {
+  background: transparent; color: transparent; caret-color: var(--text);
+  resize: none; outline: none;
+}
+.je-input::selection { background: rgba(0,217,146,.3); }
+.je-key { color: #7fd1ff; }
+.je-str { color: #a8e6a0; }
+.je-num { color: #ffcf7f; }
+.je-bool { color: #d7a8ff; }
+.je-punc { color: var(--dim); }
 .acc-filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 2px; }
 .acc-filter {
   border: 1px solid var(--line); border-radius: 4px; background: var(--surface-2);
@@ -63,10 +82,47 @@
   .acc-training-row { grid-template-columns: 1fr 1fr; }
 }
 
-/* User center — the player's own data, session-bound. */
-.acc-center-head { margin: 2px 0 18px; }
-.acc-center-head h1 { font-size: 24px; font-weight: 500; letter-spacing: .01em; color: var(--text); }
-.acc-center-head p { margin-top: 6px; font-size: 13px; color: var(--muted); }
+/* User center shell — sidebar + content, one route per section. */
+.acc-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; align-items: start; }
+.acc-sidebar {
+  position: sticky; top: 82px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 16px 12px;
+}
+.acc-side-head { padding: 0 8px 14px; border-bottom: 1px solid var(--line-soft); margin-bottom: 10px; }
+.acc-side-kicker { font-size: 13px; letter-spacing: .14em; color: var(--accent); }
+.acc-side-title { font-size: 18px; font-weight: 600; color: var(--text); margin: 4px 0 14px; }
+.acc-side-user { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.acc-side-avatar {
+  flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent-soft); border: 1px solid var(--accent-soft); color: var(--accent); font-size: 14px;
+}
+.acc-side-user b { display: block; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-side-user small { display: block; font-size: 13px; color: var(--dim); }
+.acc-nav { display: flex; flex-direction: column; gap: 3px; }
+.acc-nav-item {
+  display: flex; align-items: center; gap: 11px; padding: 9px 10px;
+  border-radius: 6px; text-decoration: none; color: var(--muted);
+}
+.acc-nav-item .ic { width: 17px; height: 17px; flex: none; }
+.acc-nav-item b { display: block; font-size: 13px; font-weight: 500; }
+.acc-nav-item small { display: block; font-size: 13px; color: var(--dim); }
+.acc-nav-item:hover { background: var(--surface-2); color: var(--text); }
+.acc-nav-item.active { background: var(--accent-soft); color: var(--accent); }
+.acc-nav-item.active small { color: var(--accent); opacity: .8; }
+.acc-side-logout { width: 100%; margin-top: 12px; justify-content: center; }
+.acc-content { min-width: 0; }
+.acc-content-head { margin: 0 0 16px; }
+.acc-content-head h1 { font-size: 22px; font-weight: 500; color: var(--text); }
+.acc-content-head p { margin-top: 5px; font-size: 13px; color: var(--muted); }
+.acc-overview-user { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.acc-overview-meta { flex: 1; min-width: 0; }
+@media (max-width: 900px) {
+  .acc-shell { grid-template-columns: 1fr; }
+  .acc-sidebar { position: static; }
+  .acc-nav { flex-direction: row; flex-wrap: wrap; }
+  .acc-nav-item small { display: none; }
+}
 
 .acc-my-list { border-top: 1px solid var(--line-soft); margin-top: 10px; }
 .acc-my-match {
@@ -89,6 +145,22 @@
 .acc-my-go { font-size: 13px; text-align: right; color: var(--accent); }
 .acc-my-more { margin-top: 12px; }
 .acc-my-empty { padding: 10px 0; }
+
+/* Account security is a dense form page: use a readable system sans here,
+   keeping the arcade pixel font for headings/nav elsewhere. */
+#account-security,
+#account-security input,
+#account-security button,
+#account-security .acc-security-title,
+#account-security .acc-security-row,
+#account-security .acc-session,
+#account-security .acc-muted,
+#account-security p {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+#account-security .acc-security-title { font-size: 14px; }
+#account-security .acc-security-row input { font-size: 14px; padding: 9px 11px; }
+#account-security .acc-session { font-size: 13px; }
 
 .acc-security-block { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
 .acc-security-block:last-child { border-bottom: 0; }

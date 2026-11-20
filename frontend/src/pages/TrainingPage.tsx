@@ -32,34 +32,39 @@ function DrillPicker({ drills, picked, toggle }: {
   picked: string[];
   toggle: (id: string) => void;
 }) {
+  const [tab, setTab] = useState(0);
   if (!drills) return <p className="muted">靶单加载中…</p>;
   const groups = [
-    { title: '训练靶（联赛自有 bot）', items: drills.drills },
-    { title: '镜像', items: drills.mirror ? [drills.mirror] : [] },
-    { title: '官方基线（同样不进榜）', items: drills.baselines },
+    { title: '训练靶', hint: '联赛自有 bot', items: drills.drills },
+    { title: '镜像', hint: '照镜子', items: drills.mirror ? [drills.mirror] : [] },
+    { title: '官方基线', hint: '同样不进榜', items: drills.baselines },
   ];
+  const active = groups[tab];
   return (
     <div className="tr-drills">
-      {groups.map((g) => (
-        <div key={g.title} className="tr-drill-group">
-          <h4>{g.title}</h4>
-          <div className="tr-drill-list">
-            {g.items.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                className={'tr-drill' + (picked.includes(d.id) ? ' on' : '')}
-                onClick={() => toggle(d.id)}
-                title={d.goal}
-              >
-                <span className="tr-drill-name">{d.name}</span>
-                <span className="tr-drill-goal">{d.goal}</span>
-                <span className="mono tr-drill-tag">{d.id} · 非LLM</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
+      <div className="tr-drill-tabs" role="tablist">
+        {groups.map((g, i) => (
+          <button key={g.title} type="button" role="tab" aria-selected={i === tab}
+            className={'tr-drill-tab' + (i === tab ? ' active' : '')} onClick={() => setTab(i)}>
+            {g.title} <span className="mono">{g.items.length}</span>
+          </button>
+        ))}
+      </div>
+      <p className="tr-drill-tabhint">{active.hint}</p>
+      <div className="tr-drill-list">
+        {active.items.map((d) => (
+          <button
+            key={d.id}
+            type="button"
+            className={'tr-drill' + (picked.includes(d.id) ? ' on' : '')}
+            onClick={() => toggle(d.id)}
+            title={d.goal}
+          >
+            <span className="tr-drill-name">{d.name}</span>
+            <span className="mono tr-drill-tag">{d.id}</span>
+          </button>
+        ))}
+      </div>
       <p className="muted tr-note">{drills.note}</p>
     </div>
   );
@@ -191,30 +196,47 @@ export function TrainingPage() {
 
       {!signedOut && (
         <>
+          <nav className="tr-flow" aria-label="训练步骤">
+            <a href="#tr-setup" className="tr-flow-item"><b>01</b><span>配置靶与 seed</span></a>
+            <a href="#tr-result" className="tr-flow-item"><b>02</b><span>看诊断结果</span></a>
+            <a href="#tr-ab" className="tr-flow-item"><b>03</b><span>版本 A/B 对比</span></a>
+            <a href="#tr-history" className="tr-flow-item"><b>04</b><span>历史记录</span></a>
+          </nav>
+
+          <section id="tr-setup" className="tr-section">
+            <div className="tr-section-head"><h2>配置一次训练</h2><p>选靶、填 seed，点开始。真实内核逐拍打完，零成本、不计榜。</p></div>
           <div className="panel tr-setup">
-            <div className="tr-params">
-              <label className="field">
-                <span>练习的靶</span>
+            <div className="tr-setup-grid">
+              <div className="tr-setup-picker">
                 <DrillPicker
                   drills={drills.data}
                   picked={picked}
                   toggle={(id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))}
                 />
-              </label>
-              <div className="tr-row">
+              </div>
+              <div className="tr-setup-launch">
+                <div className="tr-setup-launch-title">开始一次训练</div>
                 <label className="field">
                   <span>seed 列表（逗号分隔，最多 20 个）</span>
                   <input className="mono" value={seeds} onChange={(e) => setSeeds(e.target.value)} />
                 </label>
-                <div className="tr-actions">
-                  <button className="primary-btn" type="button" disabled={run.isPending || !picked.length || needsStrategy} onClick={() => run.mutate()}>
-                    {run.isPending ? '训练中…' : '开始训练'}
-                  </button>
-                  <span className="muted">
-                    {agent && !needsStrategy
-                      ? `当前策略 ${agent.versionHash || '—'} · ${agent.ruleCount ?? '—'} 条规则 · 已训练 ${agent.trainingRuns ?? 0} 次`
-                      : '等待策略提交'}
-                  </span>
+                <div className="tr-selected">
+                  <span>已选靶 <b>{picked.length}</b></span>
+                  <div className="tr-selected-chips">
+                    {picked.length ? picked.map((id) => {
+                      const all = drills.data ? [...drills.data.drills, ...(drills.data.mirror ? [drills.data.mirror] : []), ...drills.data.baselines] : [];
+                      const d = all.find((x) => x.id === id);
+                      return <button key={id} type="button" className="tr-selected-chip" onClick={() => setPicked((p) => p.filter((x) => x !== id))} title="点击移除">{d?.name || id} ×</button>;
+                    }) : <span className="muted">还没选靶</span>}
+                  </div>
+                </div>
+                <button className="primary-btn tr-run-btn" type="button" disabled={run.isPending || !picked.length || needsStrategy} onClick={() => run.mutate()}>
+                  {run.isPending ? '训练中…' : '开始训练'}
+                </button>
+                <div className="tr-agent-state">
+                  {agent && !needsStrategy
+                    ? <>策略 <b className="mono">{agent.versionHash || '—'}</b> · {agent.ruleCount ?? '—'} 条规则 · 已训练 {agent.trainingRuns ?? 0} 次</>
+                    : '等待策略提交'}
                 </div>
               </div>
             </div>
@@ -228,9 +250,11 @@ export function TrainingPage() {
           )}
 
           {error && <div className="panel tr-error">{error}</div>}
+          </section>
 
           {report && (
-            <>
+          <section id="tr-result" className="tr-section">
+            <div className="tr-section-head"><h2>这次训练的诊断</h2><p>先看关键指标与对手表现，再看规则命中与逐条改进建议。</p></div>
               <div className="panel tr-summary">
                 <div className="tr-kpis">
                   <div><span className="k">强度指数</span><strong>{report.strengthIndex === null ? '—' : report.strengthIndex}</strong></div>
@@ -303,11 +327,12 @@ export function TrainingPage() {
                   <p className="muted tr-method">{report.methodology.seedDiversity}</p>
                 </div>
               </div>
-            </>
+          </section>
           )}
 
+          <section id="tr-ab" className="tr-section">
+            <div className="tr-section-head"><h2>版本 A/B 对比</h2><p>把候选策略粘进来，同靶同 seed 各打一轮，只看差值——flat 就别上线。</p></div>
           <div className="panel tr-ab">
-            <h3>版本 A/B：这次改动有没有变强</h3>
             <p className="muted">
               基线 A 是你当前提交的策略；把候选版本 B 的 strategy JSON 粘进来，同一批靶、同一批 seed 各打一轮，
               只看差值。flat 就不要上线。
@@ -374,7 +399,10 @@ export function TrainingPage() {
               </div>
             )}
           </div>
+          </section>
 
+          <section id="tr-history" className="tr-section">
+            <div className="tr-section-head"><h2>历史记录</h2><p>只留最近 30 次摘要，不写回放文件。</p></div>
           <div className="panel tr-history">
             <h3>训练记录</h3>
             {history.data && history.data.runs.length ? (
@@ -396,6 +424,7 @@ export function TrainingPage() {
               </table>
             ) : <p className="muted">还没有训练记录。训练结果只留最近 30 次摘要，不写回放文件。</p>}
           </div>
+          </section>
         </>
       )}
     </>

@@ -5,7 +5,13 @@ import { api } from './lib/api';
 import { Sprite } from './components/Sprite';
 import { TopBar } from './components/TopBar';
 import { Footer } from './components/Footer';
-import { AccountPage } from './pages/AccountPage';
+import { AccountLayout } from './pages/account/AccountLayout';
+import { OverviewPage } from './pages/account/OverviewPage';
+import { AgentPage } from './pages/account/AgentPage';
+import { MatchesPage } from './pages/account/MatchesPage';
+import { AccessPage } from './pages/account/AccessPage';
+import { SecurityPage } from './pages/account/SecurityPage';
+import { AdminPage } from './pages/account/AdminPage';
 import { GuidePage } from './pages/GuidePage';
 import { LibraryPage } from './pages/LibraryPage';
 import { LobbyPage } from './pages/LobbyPage';
@@ -77,8 +83,15 @@ export function App() {
           <Route path="/replay" element={<Page id="view-replay"><ReplayPage /></Page>} />
           <Route path="/training" element={<Page id="view-training"><TrainingPage /></Page>} />
           <Route path="/connect" element={<Page id="view-connect"><ConnectPage /></Page>} />
-          <Route path="/account" element={<AccountPage />} />
-          <Route path="/me" element={<AccountPage />} />
+          <Route path="/account" element={<Navigate to="/me" replace />} />
+          <Route path="/me" element={<AccountLayout />}>
+            <Route index element={<OverviewPage />} />
+            <Route path="agent" element={<AgentPage />} />
+            <Route path="matches" element={<MatchesPage />} />
+            <Route path="access" element={<AccessPage />} />
+            <Route path="security" element={<SecurityPage />} />
+            <Route path="admin" element={<AdminPage />} />
+          </Route>
           <Route path="/guide" element={<GuidePage />} />
           <Route path="/library" element={<Page id="view-library"><LibraryPage /></Page>} />
           <Route path="*" element={<Navigate to="/" replace />} />
