@@ -1,0 +1,216 @@
+{
+  "schemaVersion": 1,
+  "kind": "rex.delivery-ticket.v1",
+  "status": "ready",
+  "objective": "按硬规则（禁止 try-catch，含存量）与软件工程规范，对 Agent-Fighter 全项目分批重构，并以真实验收证据收口。",
+  "decisionTicketRef": "artifact:decision-ticket:decision-refactor-2026-11-20",
+  "workItems": [
+    {
+      "id": "work-1",
+      "title": "质量门禁基线",
+      "outcome": "config/standards.json 可运行且基线数字落档",
+      "completionCriteria": [
+        "budgets 配置存在",
+        "当前 7 个超限文件与 56 处 try-catch 已记录"
+      ],
+      "verification": [
+        "node /Users/rex/.nvm/versions/node/v24.22.2/bin/node /Users/rex/codes/harness-cli/scripts/aios.mjs standards check --root . --json",
+        "git diff --stat"
+      ],
+      "evidenceRefs": [
+        "artifact:config:standards-json",
+        "artifact:plan-doc:refactor-graph#已确认事实"
+      ],
+      "dependsOn": []
+    },
+    {
+      "id": "work-2",
+      "title": "认证入口分层与去 try-catch",
+      "outcome": "captcha/login/register 业务逻辑移出 server.js，本批 try-catch 为 0",
+      "completionCriteria": [
+        "server.js 仅保留路由与错误映射",
+        "新增服务模块有单一职责"
+      ],
+      "verification": [
+        "pnpm verify:accounts",
+        "pnpm build:web",
+        "grep -c 'try {' src/server.js"
+      ],
+      "evidenceRefs": [
+        "command:pnpm-verify-accounts:25-pass",
+        "artifact:source:src-server-js"
+      ],
+      "dependsOn": [
+        "work-1"
+      ]
+    },
+    {
+      "id": "work-3",
+      "title": "前端类型与组件职责",
+      "outcome": "内联 type 外移，超限组件按职责拆分",
+      "completionCriteria": [
+        "AuthCard 无内联业务 type",
+        "frontend 单文件不超过预算"
+      ],
+      "verification": [
+        "pnpm build:web",
+        "pnpm lint:web",
+        "pnpm test:web"
+      ],
+      "evidenceRefs": [
+        "artifact:source:frontend-lib-types-ts"
+      ],
+      "dependsOn": [
+        "work-1"
+      ]
+    },
+    {
+      "id": "work-4",
+      "title": "HTTP 适配层职责收敛",
+      "outcome": "server.js 降到 400 行以内，路由/静态/WS/API 分组独立",
+      "completionCriteria": [
+        "server.js 行数达标",
+        "行为不变"
+      ],
+      "verification": [
+        "pnpm verify",
+        "pnpm verify:security",
+        "pnpm verify:accounts"
+      ],
+      "evidenceRefs": [
+        "artifact:source:src-server-js"
+      ],
+      "dependsOn": [
+        "work-2"
+      ]
+    },
+    {
+      "id": "work-5",
+      "title": "后端领域文件拆分",
+      "outcome": "6 个超限领域文件各自降到 400 行以内",
+      "completionCriteria": [
+        "league/rooms/engine/training/combat/mcp 达标",
+        "依赖方向不外指"
+      ],
+      "verification": [
+        "pnpm verify:combat",
+        "pnpm verify:ladder",
+        "pnpm verify:team",
+        "pnpm verify"
+      ],
+      "evidenceRefs": [
+        "artifact:source:src-domain-files"
+      ],
+      "dependsOn": [
+        "work-1"
+      ]
+    },
+    {
+      "id": "work-6",
+      "title": "try-catch 清零",
+      "outcome": "src/frontend/src/scripts 中 try-catch 为 0",
+      "completionCriteria": [
+        "grep 结果为 0",
+        "错误路径均为显式结果或边界映射"
+      ],
+      "verification": [
+        "grep -rnE '\\btry[[:space:]]*\\{' src frontend/src scripts",
+        "全量 verify 集合"
+      ],
+      "evidenceRefs": [
+        "artifact:decision-ticket:decision-refactor-2026-11-20#d1"
+      ],
+      "dependsOn": [
+        "work-2",
+        "work-3",
+        "work-4",
+        "work-5"
+      ]
+    },
+    {
+      "id": "work-7",
+      "title": "收敛验收与文档同步",
+      "outcome": "所有验收全绿，边界与门禁写入文档",
+      "completionCriteria": [
+        "全部 dependsOn 满足",
+        "证据齐备"
+      ],
+      "verification": [
+        "pnpm verify && pnpm verify:accounts && pnpm verify:security && pnpm build:web && pnpm lint:web && pnpm test:web",
+        "aios doctor"
+      ],
+      "evidenceRefs": [
+        "artifact:plan-doc:refactor-graph#convergence-gate"
+      ],
+      "dependsOn": [
+        "work-6"
+      ]
+    }
+  ],
+  "frontier": {
+    "ready": [
+      "work-1"
+    ],
+    "blocked": [
+      {
+        "workItemId": "work-2",
+        "reason": "等待 work-1 建立门禁基线",
+        "evidenceRefs": [
+          "artifact:plan-doc:refactor-graph#work-items"
+        ]
+      },
+      {
+        "workItemId": "work-3",
+        "reason": "等待 work-1 建立门禁基线",
+        "evidenceRefs": [
+          "artifact:plan-doc:refactor-graph#work-items"
+        ]
+      },
+      {
+        "workItemId": "work-4",
+        "reason": "等待 work-2（同改 server.js，不可并行）",
+        "evidenceRefs": [
+          "artifact:plan-doc:refactor-graph#work-items"
+        ]
+      },
+      {
+        "workItemId": "work-5",
+        "reason": "等待 work-1 建立门禁基线",
+        "evidenceRefs": [
+          "artifact:plan-doc:refactor-graph#work-items"
+        ]
+      },
+      {
+        "workItemId": "work-6",
+        "reason": "等待 work-2/3/4/5 完成（try-catch 分布在这些文件）",
+        "evidenceRefs": [
+          "artifact:plan-doc:refactor-graph#work-items"
+        ]
+      },
+      {
+        "workItemId": "work-7",
+        "reason": "等待 work-6 收敛验收",
+        "evidenceRefs": [
+          "artifact:plan-doc:refactor-graph#work-items"
+        ]
+      }
+    ]
+  },
+  "parallelGroups": [
+    [
+      "work-2",
+      "work-3",
+      "work-5"
+    ]
+  ],
+  "convergenceGate": {
+    "requiredEvidenceRefs": [
+      "artifact:config:standards-json",
+      "artifact:plan-doc:refactor-graph#convergence-gate"
+    ],
+    "verification": "全量 verify 集合 + try-catch grep 为 0",
+    "joinCondition": "work-6 与 work-7 完成且所有依赖已满足"
+  },
+  "completionClaim": "soft",
+  "runtimeArtifactContract": null
+}

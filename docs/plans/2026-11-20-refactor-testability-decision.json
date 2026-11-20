@@ -1,0 +1,16 @@
+{
+  "kind": "behavior-preserving-hardening",
+  "decisionRef": "artifact:testability-decision:refactor-2026-11-20",
+  "baseline": {
+    "publicEntry": "POST /api/register, POST /api/login, GET /api/me, /mcp/<key>",
+    "setup": "独立测试库 afl_test；verify-accounts 自行 spawn 服务；固定 admin + 随机玩家用户名；无需人工登录",
+    "command": {
+      "executable": "node",
+      "args": ["scripts/verify-accounts.mjs"],
+      "cwd": "/Users/rex/codes/Agent-Fighter"
+    },
+    "expected": "exit 0；25/25 验收通过；注册/登录/验证码防绕过/MCP 绑定均通过",
+    "observed": "exit 0；25/25 验收通过；注册/登录/验证码防绕过/MCP 绑定均通过",
+    "receiptRef": "receipt:5040b7d1-ddd5-4e02-a9f3-beb7996c9a17"
+  }
+}

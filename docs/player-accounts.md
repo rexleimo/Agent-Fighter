@@ -24,14 +24,19 @@
 1. **注册玩家**：`/?view=account` → 用户名 + 密码（+ 可选显示名）。不选战队、不填战队名。
 2. **分配 MCP 服务**：登录后点「生成 MCP 服务链接」，或由管理员在「后台 · 玩家管理」里分配 / 轮换。把 `http://<站点>/mcp/<key>` 交给 Agent。
 
-注册/登录由 better-auth 的标准端点处理：
+注册/登录由 better-auth 处理，但对外只暴露带算术验证码的包装端点：
 
 | 端点 | 用途 |
 | :--- | :--- |
-| `POST /api/auth/sign-up/email` | 注册；页面用 `用户名@players.local` 作为内部登录邮箱 |
-| `POST /api/auth/sign-in/username` | 用户名 + 密码登录（username 插件） |
+| `GET /api/captcha` | 签发一次性算术题；返回题面与结构化操作数 `left`/`op`/`right` 供自动化答题，**不返回答案**；答案与 httpOnly token cookie 留在服务端 |
+| `POST /api/register` | 注册；题面答案放 `captchaAnswer`，其余字段交给 better-auth；页面用 `用户名@players.local` 作为内部登录邮箱 |
+| `POST /api/login` | 用户名 + 密码登录（username 插件），同样要求 `captchaAnswer` |
 | `POST /api/auth/sign-out` | 退出，better-auth 清理 session cookie |
 | `GET /api/auth/get-session` | 调试用；应用侧读 `/api/me` |
+
+裸端点 `POST /api/auth/sign-up/email` 与 `/api/auth/sign-in/username` 已关闭（403），
+避免绕过验证码。验证码是内存态、单实例的一次性挑战，默认 5 分钟过期
+（`AFL_CAPTCHA_TTL_MS`）；多实例部署需和限流一起搬进共享存储。
 
 管理员账号在首次部署时通过 **setup 页面**创建（唯一入口）：
 
@@ -127,6 +132,7 @@ pnpm db:studio    # Drizzle Studio
 ## 6. 安全边界
 
 - better-auth 负责密码哈希、session、cookie 与 CSRF origin 校验；`BETTER_AUTH_SECRET` 必须至少 32 字符，公网必须 HTTPS。
-- 还没有邮箱验证、找回密码、OAuth、登录限流与审计日志；公网部署前要补。
+- 公网认证面有两层防护：算术验证码（一次性 httpOnly token）+ 按 IP 限流（`AFL_RATE_AUTH`）。验证码只提高脚本注册成本，不能替代限流；登录与注册都必须先通过它。
+- 还没有邮箱验证、找回密码、OAuth 与审计日志；公网部署前要补。
 - 管理员可以创建玩家、分配 MCP，但不能读取玩家密码（better-auth 只存哈希）。
 - MCP URL 等同于该玩家的服务凭证；泄露后由本人或管理员轮换即可。

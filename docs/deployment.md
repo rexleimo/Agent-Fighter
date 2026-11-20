@@ -60,6 +60,7 @@ docker compose -f docker-compose.yml -f docker-compose.bundled-db.yml up -d --bu
 | `AFL_MAX_BODY_BYTES` | `1048576`（1 MiB） | 请求体字节上限，超限返回 **413** 并关闭连接，防内存耗尽 | 按最大合法请求体收紧（策略 DSL 很小，可降至 `262144`） |
 | `AFL_RATE_AUTH` | `300` /分钟/IP | 认证端点（`/api/auth/*`）与首跑 `POST /api/setup` 限流，超限 **429 + Retry-After**，防暴力破解/抢注 | 收紧到 `10`–`30` |
 | `AFL_RATE_GLOBAL` | `3000` /分钟/IP | 其余请求全局限流 | 按容量收紧到 `300`–`600` |
+| `AFL_CAPTCHA_TTL_MS` | `300000`（5 分钟） | 算术验证码挑战的有效期；提交一次后即失效 | 保持默认或缩短到 `120000` |
 | `AFL_TRUST_PROXY` | `0` | 为 `1` 时信任 `X-Forwarded-For` 取真实客户端 IP | 置于反代之后时设 `1` |
 
 默认值偏宽松，以兼容正常对战与 bundled 测试套件；**公网部署务必收紧**（尤其 `AFL_RATE_AUTH`）。
@@ -121,7 +122,7 @@ pnpm verify:accounts   # 账号流程 20/20（需 AFL_TEST_DATABASE_URL；建管
 ## 7. 已知边界（本档不覆盖）
 
 - **单实例持久化**：对局 / 队列 / 回放是内存 + 文件（`data/league.json` 同步写盘 + JSONL），
-  限流也是内存滑窗。**不能水平扩展**；多实例需把状态与限流搬进 DB/Redis（架构级改动）。
+  限流与验证码挑战也是内存态。**不能水平扩展**；多实例需把状态、限流与验证码搬进 DB/Redis（架构级改动）。
 - **WebSocket 连接数 / 背压**：WS 通道已要求合法 token + 玩家身份，但尚无连接数上限与背压保护。
 - **可观测性**：尚无指标导出（Prometheus 等）与结构化日志；线上排障依赖 stdout。
 - **CSP**：含 `'unsafe-inline'`，待前端 nonce/hash 化后收紧。

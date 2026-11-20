@@ -87,11 +87,24 @@ async function request(pathname, { method = 'GET', body, cookie, key } = {}) {
   return { res, data, cookie: cookieHeader(res) };
 }
 
-async function login(credentials) {
-  const { res, data, cookie } = await request('/api/auth/sign-in/username', {
+async function captchaChallenge() {
+  const { res, data, cookie } = await request('/api/captcha');
+  assert.equal(res.status, 200, 'captcha fetch failed: ' + JSON.stringify(data));
+  const answer = data.op === '+' ? data.left + data.right : data.left - data.right;
+  return { answer, cookie };
+}
+
+async function loginRequest(credentials) {
+  const cap = await captchaChallenge();
+  return request('/api/login', {
     method: 'POST',
-    body: credentials,
+    body: { ...credentials, captchaAnswer: cap.answer },
+    cookie: cap.cookie,
   });
+}
+
+async function login(credentials) {
+  const { res, data, cookie } = await loginRequest(credentials);
   assert.equal(res.status, 200, 'login failed: ' + JSON.stringify(data));
   return { data, cookie };
 }
@@ -164,6 +177,24 @@ async function run() {
   });
   check('A3 duplicate username rejected', dup.res.status === 400, JSON.stringify(dup.data));
 
+  // Captcha guard: the raw better-auth credential endpoints must stay closed,
+  // and guarded wrappers must refuse a submission that did not solve a puzzle.
+  const rawSignIn = await request('/api/auth/sign-in/username', { method: 'POST', body: PLAYER });
+  check('A3a raw better-auth sign-in is captcha-closed', rawSignIn.res.status === 403, rawSignIn.res.status);
+  const rawSignUp = await request('/api/auth/sign-up/email', { method: 'POST', body: { email: PLAYER.username + '@players.local', password: PLAYER.password, name: PLAYER.displayName, username: PLAYER.username } });
+  check('A3b raw better-auth sign-up is captcha-closed', rawSignUp.res.status === 403, rawSignUp.res.status);
+  const noCaptchaLogin = await request('/api/login', { method: 'POST', body: PLAYER });
+  check('A3c login without captcha is rejected', noCaptchaLogin.res.status === 400 && noCaptchaLogin.data.code === 'CAPTCHA_INVALID', JSON.stringify(noCaptchaLogin.data));
+  const noCaptchaReg = await request('/api/register', { method: 'POST', body: { email: PLAYER.username + '@players.local', password: PLAYER.password, name: PLAYER.displayName, username: PLAYER.username } });
+  check('A3d registration without captcha is rejected', noCaptchaReg.res.status === 400 && noCaptchaReg.data.code === 'CAPTCHA_INVALID', JSON.stringify(noCaptchaReg.data));
+  const solved = await captchaChallenge();
+  const solvedReg = await request('/api/register', {
+    method: 'POST',
+    cookie: solved.cookie,
+    body: { email: PLAYER.username + '@players.local', password: PLAYER.password, name: PLAYER.displayName, username: PLAYER.username, captchaAnswer: solved.answer },
+  });
+  check('A3e solved captcha reaches registration logic (duplicate username rejected)', solvedReg.res.status === 400, JSON.stringify(solvedReg.data));
+
   const playerLogin = await login(PLAYER);
   const player = { cookie: playerLogin.cookie };
   const playerMe = await request('/api/me', { cookie: player.cookie });
@@ -232,10 +263,7 @@ async function run() {
     oldInit.res.status === 401 && nextKey !== key && nextKey.startsWith('mcp_') && newInit.res.status === 200,
     'old=' + oldInit.res.status + ' new=' + newInit.res.status);
 
-  const wrong = await request('/api/auth/sign-in/username', {
-    method: 'POST',
-    body: { username: PLAYER.username, password: 'wrong-password' },
-  });
+  const wrong = await loginRequest({ username: PLAYER.username, password: 'wrong-password' });
   check('A17 wrong password rejected', wrong.res.status === 401, wrong.res.status);
 
   const logout = await request('/api/auth/sign-out', { method: 'POST', body: {}, cookie: player.cookie });

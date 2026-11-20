@@ -5,7 +5,7 @@ import { ApiError, api, post } from '../../lib/api';
 import type { McpService, MeResponse } from '../../lib/types';
 import { AuthCard } from '../../components/account/AuthCard';
 
-type Credentials = { username: string; password: string; displayName?: string };
+type Credentials = { username: string; password: string; displayName?: string; captcha: string };
 
 type AccountCtx = {
   me: MeResponse;
@@ -31,6 +31,8 @@ const NAV = [
 export function AccountLayout() {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [captchaNonce, setCaptchaNonce] = useState(0);
+  const refreshCaptcha = () => setCaptchaNonce((n) => n + 1);
   const location = useLocation();
 
   const meQuery = useQuery({
@@ -42,19 +44,22 @@ export function AccountLayout() {
   const me = unauthorized ? null : meQuery.data;
 
   const login = useMutation({
-    mutationFn: (values: Credentials) => post('/api/auth/sign-in/username', {
-      username: values.username, password: values.password,
+    mutationFn: (values: Credentials) => post('/api/login', {
+      username: values.username, password: values.password, captchaAnswer: values.captcha,
     }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['me'] }),
+    onError: refreshCaptcha,
   });
   const register = useMutation({
-    mutationFn: (values: Credentials) => post('/api/auth/sign-up/email', {
+    mutationFn: (values: Credentials) => post('/api/register', {
       email: `${values.username}@players.local`,
       password: values.password,
       name: values.displayName || values.username,
       username: values.username,
+      captchaAnswer: values.captcha,
     }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['me'] }),
+    onError: refreshCaptcha,
   });
   const logout = useMutation({
     mutationFn: () => post('/api/auth/sign-out'),
@@ -87,6 +92,7 @@ export function AccountLayout() {
         onModeChange={(next) => { login.reset(); register.reset(); setMode(next); }}
         busy={login.isPending || register.isPending}
         serverError={(login.error ?? register.error)?.message ?? ''}
+        captchaNonce={captchaNonce}
         onSubmit={(values) => (mode === 'register' ? register.mutate(values) : login.mutate(values))}
       />
     );

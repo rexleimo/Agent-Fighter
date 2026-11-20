@@ -1,0 +1,19 @@
+{
+  "budgets": {
+    "fileLines": 400,
+    "directoryEntries": 8
+  },
+  "baselines": {
+    "fileLines": [
+      { "path": "src/league.js", "lines": 1073, "reason": "历史存量：work-5 按领域拆分后收缩" },
+      { "path": "src/rooms.js", "lines": 1003, "reason": "历史存量：work-5 按领域拆分后收缩" },
+      { "path": "src/engine.js", "lines": 912, "reason": "历史存量：work-5 按领域拆分后收缩" },
+      { "path": "src/server.js", "lines": 828, "reason": "历史存量：work-4 按路由/静态/WS/API 分组拆分后收缩" },
+      { "path": "src/training.js", "lines": 661, "reason": "历史存量：work-5 按领域拆分后收缩" },
+      { "path": "src/combat.js", "lines": 565, "reason": "历史存量：work-5 按领域拆分后收缩" },
+      { "path": "src/mcp.js", "lines": 552, "reason": "历史存量：work-5 按领域拆分后收缩" },
+      { "path": "frontend/src/lib/types.ts", "lines": 500, "reason": "历史存量：work-3 拆分类型定义后收缩" },
+      { "path": "frontend/src/pages/TrainingPage.tsx", "lines": 432, "reason": "历史存量：work-3 按职责拆子组件后收缩" }
+    ]
+  }
+}

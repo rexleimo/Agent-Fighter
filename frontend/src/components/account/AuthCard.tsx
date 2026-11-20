@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useCaptcha } from '../../hooks/useCaptcha';
 import { PasswordStrength } from './PasswordStrength';
 
 const username = z.string()
@@ -10,35 +11,50 @@ const username = z.string()
   .max(32, '用户名最多 32 位')
   .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, '只能使用字母、数字、_ 或 -，且以字母或数字开头');
 
+const captcha = z.string().trim().min(1, '请输入验证码结果');
+
 const loginSchema = z.object({
   username,
   password: z.string().min(1, '请输入密码'),
+  captcha,
 });
 
 const registerSchema = z.object({
   username,
   displayName: z.string().trim().max(32, '显示名最多 32 位').optional(),
   password: z.string().min(8, '密码至少 8 位').max(128, '密码最多 128 位'),
+  captcha,
 });
 
 type FormValues = z.infer<typeof registerSchema>;
+type SubmitValues = { username: string; password: string; displayName?: string; captcha: string };
 
 type Props = {
   mode: 'login' | 'register';
   onModeChange: (mode: 'login' | 'register') => void;
-  onSubmit: (values: { username: string; password: string; displayName?: string }) => void;
+  onSubmit: (values: SubmitValues) => void;
   busy: boolean;
   serverError: string;
+  captchaNonce: number;
 };
 
-export function AuthCard({ mode, onModeChange, onSubmit, busy, serverError }: Props) {
+export function AuthCard({ mode, onModeChange, onSubmit, busy, serverError, captchaNonce }: Props) {
   const register = mode === 'register';
   const [showPassword, setShowPassword] = useState(false);
+  const { question, loading: captchaLoading, refresh: refreshCaptcha } = useCaptcha();
   const form = useForm<FormValues>({
     resolver: zodResolver(register ? registerSchema : loginSchema) as Resolver<FormValues>,
-    defaultValues: { username: '', password: '', displayName: '' },
+    defaultValues: { username: '', password: '', displayName: '', captcha: '' },
     mode: 'onBlur',
   });
+  const setValue = form.setValue;
+  const initialNonce = useRef(captchaNonce);
+  useEffect(() => {
+    if (initialNonce.current === captchaNonce) return;
+    initialNonce.current = captchaNonce;
+    setValue('captcha', '');
+    void refreshCaptcha();
+  }, [captchaNonce, refreshCaptcha, setValue]);
   const password = form.watch('password') ?? '';
   const errors = form.formState.errors;
 
@@ -129,6 +145,32 @@ export function AuthCard({ mode, onModeChange, onSubmit, busy, serverError }: Pr
             </div>
             {errors.password ? <small className="auth-field-error">{errors.password.message}</small> : <small>密码由 better-auth 哈希保存，服务端不存明文</small>}
             {register && <PasswordStrength value={password} />}
+          </label>
+
+          <label className="auth-field">
+            <span>验证码</span>
+            <div className="auth-input">
+              <svg className="ic"><use href="#i-check" /></svg>
+              <input
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={4}
+                placeholder="请输入结果"
+                {...form.register('captcha')}
+              />
+              <button
+                type="button"
+                className="auth-captcha"
+                title="换一题"
+                aria-label="换一道验证码题"
+                onClick={() => { setValue('captcha', ''); void refreshCaptcha(); }}
+              >
+                {captchaLoading ? '…' : (question || '点击刷新')}
+              </button>
+            </div>
+            {errors.captcha
+              ? <small className="auth-field-error">{errors.captcha.message}</small>
+              : <small>请计算上方算术题的结果</small>}
           </label>
 
           {serverError && <div className="auth-error" role="alert">{serverError}</div>}

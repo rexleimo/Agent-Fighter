@@ -20,7 +20,9 @@ import { createMCPHandler } from './mcp.js';
 import { docsManifest } from './docs-index.js';
 import { strategyTemplate } from './strategy-dsl.js';
 import { MAX_MODEL_CALLS_PER_MATCH } from './costs.js';
-import { BODY_LIMIT, BodyTooLargeError, readBodyCapped, applySecurityHeaders, clientIp, createLimiters } from './security.js';
+import { BODY_LIMIT, BodyTooLargeError, readBodyCapped, applySecurityHeaders, clientIp, isSecure, createLimiters } from './security.js';
+import { captchaCookie, captchaFromRequest } from './captcha.js';
+import { issueChallenge, submitCredentials, isConfigured } from './auth-entry.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_DIR = path.join(ROOT, 'web');
@@ -298,7 +300,9 @@ const server = http.createServer(async (req, res) => {
   }
   // Per-IP rate limit: stricter on auth + first-run setup (brute force /
   // land-grab), generous elsewhere.
-  const limiter = (p.startsWith('/api/auth/') || p === '/api/setup') ? limiters.auth : limiters.global;
+  const guardedAuth = p.startsWith('/api/auth/') || p === '/api/setup'
+    || p === '/api/login' || p === '/api/register' || p === '/api/captcha';
+  const limiter = guardedAuth ? limiters.auth : limiters.global;
   const rl = limiter.check(clientIp(req));
   if (!rl.allowed) {
     json(res, 429, { error: 'rate limit exceeded', retryAfterSec: rl.retryAfter }, { 'Retry-After': String(rl.retryAfter) });
@@ -306,7 +310,43 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+  // HTTP boundary only: the challenge policy lives in auth-entry.js.
+  if (p === '/api/captcha' && req.method === 'GET') {
+    if (!isConfigured()) { json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' }); return; }
+    const challenge = issueChallenge();
+    const { token, ...payload } = challenge;
+    json(res, 200, payload, { 'Set-Cookie': captchaCookie(token, isSecure(req)) });
+    return;
+  }
+  // Both credential entry points are captcha-guarded. Raw better-auth
+  // endpoints are blocked below so the check cannot be bypassed.
+  if ((p === '/api/login' || p === '/api/register') && req.method === 'POST') {
+    if (!isConfigured()) { json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' }); return; }
+    const args = await readJson(req) ?? {};
+    const { captchaAnswer, ...credentials } = args;
+    const outcome = await submitCredentials({
+      kind: p === '/api/register' ? 'register' : 'login',
+      captchaToken: captchaFromRequest(req),
+      captchaAnswer,
+      credentials,
+    });
+    if (!outcome.ok) {
+      json(res, outcome.status, { error: outcome.error, code: outcome.code });
+      return;
+    }
+    const headers = outcome.result.headers;
+    const cookies = typeof headers?.getSetCookie === 'function'
+      ? headers.getSetCookie()
+      : (headers?.get?.('set-cookie') ? [headers.get('set-cookie')] : []);
+    const user = outcome.result.response?.user ?? outcome.result.user ?? null;
+    json(res, 200, { ok: true, user }, cookies.length ? { 'Set-Cookie': cookies } : {});
+    return;
+  }
   if (p.startsWith('/api/auth/')) {
+    if (p === '/api/auth/sign-up/email' || p === '/api/auth/sign-in/username') {
+      json(res, 403, { error: 'credential endpoints are captcha-guarded: use /api/register or /api/login' });
+      return;
+    }
     if (!handleAuth) {
       json(res, 503, { error: 'auth is not configured: set DATABASE_URL and run pnpm db:migrate' });
       return;
@@ -767,7 +807,8 @@ attachWebSocketServer(server, {
 
 server.listen(PORT, () => {
   console.log('[afl] server listening on http://localhost:' + PORT);
-  if (auth) console.log('[afl] Better Auth         POST /api/auth/*  (sign-up/email, sign-in/username, sign-out)');
+  if (auth) console.log('[afl] Better Auth         POST /api/auth/*  (sign-out and session endpoints)');
+  if (auth) console.log('[afl] captcha-guarded     GET  /api/captcha  POST /api/login  POST /api/register');
   if (auth) console.log('[afl] first-run setup     GET  /api/setup/status  POST /api/setup  (locked once an admin exists)');
   console.log('[afl] per-player MCP     POST /mcp/<key>  (assign in 玩家入口)');
   console.log('[afl] ' + (auth ? 'legacy MCP         POST /mcp  (closed: player accounts active)' : 'legacy MCP         POST /mcp  (anonymous dev sandbox)'));
