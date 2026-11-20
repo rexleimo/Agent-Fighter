@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import type { MeResponse } from '../lib/types';
+import { ResourceViewer } from '../components/ResourceViewer';
+
+type Resource = { title: string; url: string; kind: 'markdown' | 'json' | 'text' };
 
 type ClientConfig = {
   id: string;
@@ -41,6 +44,7 @@ export function ConnectPage() {
   const configs = useMcpConfigs();
   const me = useMe();
   const [clientIndex, setClientIndex] = useState(0);
+  const [resource, setResource] = useState<Resource | null>(null);
   const origin = window.location.origin;
   const endpoint = me.data?.mcp?.url ?? `${origin}/mcp/<玩家 key>`;
   const client = configs.data?.clients[clientIndex];
@@ -115,13 +119,13 @@ export function ConnectPage() {
         </div>
 
         <div className="af-links">
-          <Link className="primary-btn" to="/library?file=skills%2Fafl-league%2FSKILL.md">
+          <button className="primary-btn" type="button" onClick={() => setResource({ title: '给 Agent 读的 SKILL.md', url: '/skills/afl-league/SKILL.md', kind: 'markdown' })}>
             <svg className="ic"><use href="#i-book" /></svg>
             给 Agent 读的 SKILL.md
-          </Link>
-          <a className="ghost-btn" href="/examples/hosted-agent/strategy.json" target="_blank" rel="noreferrer">示例策略 JSON</a>
-          <a className="ghost-btn" href="/examples/hosted-agent/README.md" target="_blank" rel="noreferrer">托管赛道说明</a>
-          <a className="ghost-btn" href="/skills/afl-league/mcp-configs.json" target="_blank" rel="noreferrer">全部客户端配置</a>
+          </button>
+          <button className="ghost-btn" type="button" onClick={() => setResource({ title: '示例策略 JSON', url: '/examples/hosted-agent/strategy.json', kind: 'json' })}>示例策略 JSON</button>
+          <button className="ghost-btn" type="button" onClick={() => setResource({ title: '托管赛道说明', url: '/examples/hosted-agent/README.md', kind: 'markdown' })}>托管赛道说明</button>
+          <button className="ghost-btn" type="button" onClick={() => setResource({ title: '全部客户端配置', url: '/skills/afl-league/mcp-configs.json', kind: 'json' })}>全部客户端配置</button>
         </div>
 
         <div className="af-flow">
@@ -146,11 +150,12 @@ export function ConnectPage() {
           </div>
         </div>
         <div className="gc-links">
-          <a className="primary-btn" href="/guide"><svg className="ic"><use href="#i-book" /></svg>读手册中心</a>
-          <a className="ghost-btn" href="/examples/starter/SKILL.md" target="_blank" rel="noreferrer">SKILL.md 策略契约</a>
-          <a className="ghost-btn" href="/examples/starter/agent.mjs" target="_blank" rel="noreferrer">示例 Agent 源码</a>
-          <a className="ghost-btn" href="/docs/quickstart.md" download>下载快速入门 Markdown</a>
-          <a className="ghost-btn" href="/docs/advanced.md" download>下载高级文档 Markdown</a>
+          <button className="primary-btn" type="button" onClick={() => setResource({ title: '快速入门', url: '/docs/quickstart.md', kind: 'markdown' })}>
+            <svg className="ic"><use href="#i-book" /></svg>快速入门
+          </button>
+          <button className="ghost-btn" type="button" onClick={() => setResource({ title: 'SKILL.md 策略契约', url: '/examples/starter/SKILL.md', kind: 'markdown' })}>SKILL.md 策略契约</button>
+          <button className="ghost-btn" type="button" onClick={() => setResource({ title: '示例 Agent 源码', url: '/examples/starter/agent.mjs', kind: 'text' })}>示例 Agent 源码</button>
+          <button className="ghost-btn" type="button" onClick={() => setResource({ title: '高级文档', url: '/docs/advanced.md', kind: 'markdown' })}>高级文档</button>
         </div>
       </div>
 
@@ -171,6 +176,8 @@ export function ConnectPage() {
           </div>
         </div>
       </div>
+
+      {resource && <ResourceViewer title={resource.title} url={resource.url} kind={resource.kind} onClose={() => setResource(null)} />}
     </>
   );
 }

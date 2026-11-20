@@ -344,7 +344,7 @@ export function TrainingPage() {
               onChange={() => undefined}
               id="tr-candidate-json"
             />
-            <div className="tr-actions">
+            <div className="tr-actions tr-ab-actions">
               <button
                 type="button"
                 disabled={cmp.isPending || !picked.length || needsStrategy}
