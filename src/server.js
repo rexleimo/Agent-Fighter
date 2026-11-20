@@ -4,7 +4,7 @@
  * All route bodies live in src/http/*.js; this file only builds the shared
  * context, wires the request handler and the WebSocket server, starts
  * listening and handles shutdown. The dispatch order is defined in
- * src/http/index.js and is part of the HTTP contract.
+ * src/http/router.js and is part of the HTTP contract.
  */
 import http from 'node:http';
 import fs from 'node:fs';
@@ -14,6 +14,8 @@ import { toNodeHandler } from 'better-auth/node';
 import { League } from './league.js';
 import { RoomManager } from './rooms.js';
 import { auth } from './auth.js';
+import { createAuthEntry } from './auth-entry.js';
+import { createAuthGateway } from './auth-gateway.js';
 import { needsSetup } from './auth-bootstrap.js';
 import { getPlayerStore } from './players.js';
 import { attachWebSocketServer } from './ws.js';
@@ -23,8 +25,8 @@ import { MAX_MODEL_CALLS_PER_MATCH } from './costs.js';
 import { applySecurityHeaders, createLimiters, BODY_LIMIT, BodyTooLargeError } from './security.js';
 import { json } from './http/shared.js';
 import { createStaticServer } from './http/static.js';
-import { createRequestHandler } from './http/index.js';
-import { createWsConnectionHandler } from './http/ws-wiring.js';
+import { createRequestHandler } from './http/router.js';
+import { createWsConnectionHandler } from './http/realtime.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_DIR = path.join(ROOT, 'web');
@@ -50,9 +52,13 @@ const handleMCP = createMCPHandler(league, manager, players);
 // so the board can never fill up with the league playing itself.
 league.ensureHostedDemo(strategyTemplate());
 
+// Application-layer credential policy receives its framework dependency as a
+// port; the adapter that talks to better-auth is created at the composition root.
+const authEntry = createAuthEntry({ credentialGateway: createAuthGateway() });
+
 const ctx = {
   ROOT, WEB_DIR, WEB_DIST, WEB_DIST_INDEX, PORT, VERSION, serverInfo,
-  league, players, auth, manager, handleAuth, handleMCP,
+  league, players, auth, manager, handleAuth, handleMCP, authEntry,
   MAX_MODEL_CALLS_PER_MATCH,
   limiters: createLimiters(),
 };

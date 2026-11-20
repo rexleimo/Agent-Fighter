@@ -6,18 +6,9 @@
 import { clientIp } from '../security.js';
 import { json } from './shared.js';
 import { handleCredentialRoutes, handleSetupRoutes } from './auth-routes.js';
-import { handleMcpRoutes } from './mcp-routes.js';
-import { handleMeRoutes } from './me-routes.js';
-import { handleTrainingRoutes } from './training-routes.js';
-import { handleAdminRoutes } from './admin-routes.js';
+import { handleMcpRoutes } from './realtime.js';
 import { handlePublicRoutes } from './public-routes.js';
-
-const GROUPS = [
-  handleMeRoutes,
-  handleTrainingRoutes,
-  handleAdminRoutes,
-  handlePublicRoutes,
-];
+import { handleApiRoutes } from './api.js';
 
 export function createRequestHandler(ctx) {
   return async function requestHandler(req, res, url) {
@@ -52,9 +43,8 @@ export function createRequestHandler(ctx) {
     }
 
     if (await handleSetupRoutes(ctx, req, res, url, p)) return;
-    for (const group of GROUPS) {
-      if (await group(ctx, req, res, url, p)) return;
-    }
+    if (await handlePublicRoutes(ctx, req, res, url, p)) return;
+    if (await handleApiRoutes(ctx, req, res, url, p)) return;
     ctx.serveStatic(req, res, p);
   };
 }

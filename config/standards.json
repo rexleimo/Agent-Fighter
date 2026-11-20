@@ -5,5 +5,44 @@
   },
   "baselines": {
     "fileLines": []
+  },
+  "layers": {
+    "order": [
+      "composition",
+      "adapters",
+      "application",
+      "domain"
+    ],
+    "prefixes": {
+      "src/server.js": "composition",
+
+      "src/http": "adapters",
+      "src/db": "adapters",
+      "src/auth.js": "adapters",
+      "src/auth-bootstrap.js": "adapters",
+      "src/auth-gateway.js": "adapters",
+      "src/players-postgres.js": "adapters",
+      "src/assets.js": "adapters",
+      "src/mcp": "adapters",
+      "src/ws.js": "adapters",
+      "src/docs-index.js": "adapters",
+
+      "src/auth-entry.js": "application",
+      "src/captcha.js": "application",
+      "src/simulator.js": "application",
+      "src/league": "application",
+      "src/rooms": "application",
+
+      "src/engine": "domain",
+      "src/rules.js": "domain",
+      "src/protocol.js": "domain",
+      "src/fighters.js": "domain",
+      "src/combat": "domain",
+      "src/training": "domain",
+      "src/strategy-dsl.js": "domain",
+      "src/costs.js": "domain",
+      "src/player-shared.js": "domain"
+    },
+    "layersNote": "分层是声明事实：order 为外层→内层，引擎只判内层指向外层的反向边。prefixes 按最长路径前缀归属（与宿主示例 src/src/kernel 一致）；目录前缀同时覆盖同名入口文件（如 src/combat 覆盖 src/combat.js）。auth-gateway 是 auth-entry 端口的 Better Auth 适配器，归 adapters。未列出的路径不猜测分层（SKIP），不是豁免。"
   }
 }

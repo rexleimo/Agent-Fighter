@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Repository pre-commit gate: lint + fast test suite.
+# Activate once per clone with `pnpm hooks:install` (sets core.hooksPath=.github/hooks).
+# Uses only the repository's existing scripts; no new tools or parallel rules.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+pnpm check:fast

@@ -8,7 +8,11 @@
 - 全项目 `try-catch`：**0 处**（`src/`、`frontend/src/`、`scripts/`、`sdk/`、`examples/`、`web/`、`bench/`）。
 - 全项目代码文件：**全部 ≤400 行**，最大 394 行（`scripts/sprites/slice-audit.mjs`）。
 - 预算门禁唯一事实源：`config/standards.json`（`fileLines=400`、`directoryEntries=8`）。
-  - 注意：本机 AIOS 安装的 `standards check` 子命令因缺少 `runStandardsArgs` 导出而不可用，属环境缺陷；预算文件已落档，实际判定用行数统计。
+- 分层门禁事实源：同一文件的 `layers` 段（外层→内层 `composition → adapters → application → domain`，
+  25 条路径前缀）。结构来源见 `docs/add-2026-11-20-layer-architecture.md`。
+  - 注意：本机宿主入口实测 `aios standards check` 报 `runStandardsArgs is not a function`
+    （`rex-harness/bin` 下也无可用的同入口），属环境缺陷，故本次未能执行 standards check；
+    预算与分层声明均已落档，CI 也未接入该入口以免常亮误报。实际判定用行数统计 + lint/test。
 
 ## 新边界
 
@@ -51,3 +55,41 @@
 | `pnpm build:web` / `lint:web` / `test:web` | PASS（10 tests） |
 | `pnpm assets:check` | PASS（21 assets） |
 | `pnpm bench:selftest` | 15/15 PASS |
+
+### 本次补充验证
+
+| 命令 | 结果 |
+| :--- | :--- |
+| `node -e "JSON.parse(...)"`（standards.json + package.json） | PASS |
+| `bash -n .github/hooks/pre-commit` | PASS |
+| `pnpm lint:web` | PASS |
+| `pnpm test:web` | PASS（2 files / 10 tests） |
+| `aios standards check --root . --json`（宿主入口） | 不可用：`runStandardsArgs is not a function`（环境缺陷，非门禁红） |
+
+## 架构层决策（本次补充）
+
+完整决策、适用条件与权衡见 `docs/add-2026-11-20-layer-architecture.md`。要点：
+
+- **依赖倒置**：`src/auth-entry.js` 的 `createAuthEntry({ credentialGateway, captchaStore })` 只依赖端口；
+  `src/auth-gateway.js` 把 better-auth 抛错翻译为 typed Result；`src/server.js` 在组合根接线。
+- **HTTP 适配器合并为深层模块**：薄转发文件（index / me-routes / training-routes / admin-routes /
+  mcp-routes / ws-wiring）收敛为 `src/http/{api,router,realtime,shared,static}.js`（最大 314 行，
+  仍在 400 行预算内）。
+- **组合替代继承**：`src/rooms/`、`src/league/`、`src/http/` 已无 `extends`，共享行为改为显式持有协作者。
+- **layers 门禁**：`config/standards.json` 声明四层与 25 条路径前缀；引擎只拦内层→外层反向边，
+  未登记路径 SKIP（不猜测、不豁免）。`src/auth-gateway.js` 作为端口适配器归入 adapters。
+- **被拒选项**：按行数机械拆分（会产生无语义浅模块）、继续用继承、只在文档里写规范（无门禁即无约束）。
+
+## 工具链基线状态（§6）
+
+| 基线项 | 状态 | 落地位置 |
+| :--- | :--- | :--- |
+| Lint / 格式化配置 | 既有 | `eslint.config.js` + `pnpm lint:web`（未另起炉灶） |
+| Pre-commit hooks（lint + 快速测试） | 本次新增 | `.github/hooks/pre-commit` → `pnpm check:fast`；`pnpm hooks:install` 一次性激活 |
+| CI（lint + 静态检查 + 全量测试） | 本次新增 | `.github/workflows/ci.yml`：`lint:web` → `tsc --noEmit` → `test:web` → `pnpm verify` |
+| 测试框架 + 核心路径测试 | 既有 | vitest（10 tests）+ `pnpm verify` 验收套件 |
+| 结构化日志 | 部分（缺项已记） | 既有 `[afl]` 前缀 `console.log`/`console.error`，可检索但无正式分级；按 §6「已有仓库」条款记录，不擅自并行引入日志框架 |
+
+`package.json` 只新增 `check:fast`、`hooks:install` 两个脚本，未改动任何既有脚本定义；
+未引入新依赖。`.github/hooks/pre-commit` 需在每个 clone 执行一次 `pnpm hooks:install`
+才会被 git 使用（git 配置不随仓库提交）。

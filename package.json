@@ -35,6 +35,8 @@
     "dev:web": "vite --config frontend/vite.config.ts",
     "test:web": "vitest run --config frontend/vitest.config.ts",
     "lint:web": "eslint frontend/src",
+    "check:fast": "pnpm lint:web && pnpm test:web",
+    "hooks:install": "git config core.hooksPath .github/hooks",
     "db:up": "docker run -d --name afl-pg -e POSTGRES_USER=afl -e POSTGRES_PASSWORD=afl_dev_password -e POSTGRES_DB=afl -e PGDATA=/var/lib/postgresql/data/pgdata -p 55433:5432 -v afl-pg-data:/var/lib/postgresql/data postgres:16-alpine",
     "db:down": "docker rm -f afl-pg",
     "db:generate": "drizzle-kit generate",

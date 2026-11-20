@@ -5,28 +5,27 @@
  */
 import { needsSetup, createFirstAdmin } from '../auth-bootstrap.js';
 import { captchaCookie, captchaFromRequest } from '../captcha.js';
-import { issueChallenge, submitCredentials, isConfigured } from '../auth-entry.js';
 import { authUnavailable, isSecureRequest, json, readJson } from './shared.js';
 
 const NOT_CONFIGURED = 'auth is not configured: set DATABASE_URL and run pnpm db:migrate';
 
 /** Credential entry and Better Auth passthrough. Returns true when handled. */
 export async function handleCredentialRoutes(ctx, req, res, url, p) {
-  const { players, auth, handleAuth } = ctx;
+  const { players, auth, handleAuth, authEntry } = ctx;
 
   if (p === '/api/captcha' && req.method === 'GET') {
-    if (!isConfigured()) { json(res, 503, { error: NOT_CONFIGURED }); return true; }
-    const challenge = issueChallenge();
+    if (!authEntry.isConfigured()) { json(res, 503, { error: NOT_CONFIGURED }); return true; }
+    const challenge = authEntry.issueChallenge();
     const { token, ...payload } = challenge;
     json(res, 200, payload, { 'Set-Cookie': captchaCookie(token, isSecureRequest(req)) });
     return true;
   }
 
   if ((p === '/api/login' || p === '/api/register') && req.method === 'POST') {
-    if (!isConfigured()) { json(res, 503, { error: NOT_CONFIGURED }); return true; }
+    if (!authEntry.isConfigured()) { json(res, 503, { error: NOT_CONFIGURED }); return true; }
     const args = await readJson(req) ?? {};
     const { captchaAnswer, ...credentials } = args;
-    const outcome = await submitCredentials({
+    const outcome = await authEntry.submitCredentials({
       kind: p === '/api/register' ? 'register' : 'login',
       captchaToken: captchaFromRequest(req),
       captchaAnswer,

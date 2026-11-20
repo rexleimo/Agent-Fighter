@@ -1,56 +1,38 @@
-import { auth } from './auth.js';
 import { createCaptchaStore } from './captcha.js';
 
 /**
- * auth-entry.js — credential entry policy for the public surface.
+ * Credential-entry policy (application layer).
  *
- * Owns the captcha challenge lifecycle and the decision of which better-auth
- * endpoint serves registration vs. login. Expected failures are returned as
- * typed results so the HTTP adapter needs no exception handling.
+ * Owns the captcha challenge lifecycle and the rule that a challenge must be
+ * consumed before any credential submission. It knows nothing about
+ * better-auth, HTTP, or sessions: `credentialGateway` is the port through which
+ * the outer adapter performs the actual authentication. This keeps the policy
+ * independently testable and makes the dependency direction point inward.
  */
-
-const captcha = createCaptchaStore();
-
-export function issueChallenge() {
-  return captcha.issue();
-}
-
-export function isConfigured() {
-  return Boolean(auth);
-}
-
-/**
- * Consume the challenge and submit credentials. Returns { ok: false, status,
- * error, code } for expected failures instead of throwing.
- */
-export async function submitCredentials({ kind, captchaToken, captchaAnswer, credentials }) {
-  if (!captcha.verify(captchaToken, captchaAnswer)) {
-    return {
-      ok: false,
-      status: 400,
-      error: '验证码错误或已过期，请重新输入',
-      code: 'CAPTCHA_INVALID',
-    };
+export function createAuthEntry({ credentialGateway, captchaStore = createCaptchaStore() }) {
+  function issueChallenge() {
+    return captchaStore.issue();
   }
 
-  const operation = kind === 'register'
-    ? auth.api.signUpEmail({ body: credentials, returnHeaders: true })
-    : auth.api.signInUsername({ body: credentials, returnHeaders: true });
-
-  const settled = await operation.then(
-    (result) => ({ ok: true, result }),
-    (error) => ({ ok: false, error }),
-  );
-
-  if (!settled.ok) {
-    const err = settled.error;
-    return {
-      ok: false,
-      status: err?.statusCode ?? (typeof err?.status === 'number' ? err.status : 400),
-      error: err?.body?.message ?? err?.message ?? (kind === 'register' ? 'registration failed' : 'login failed'),
-      code: err?.body?.code,
-    };
+  function isConfigured() {
+    return credentialGateway.isConfigured();
   }
 
-  return { ok: true, result: settled.result };
+  /**
+   * Consume the challenge, then delegate to the gateway. Expected failures come
+   * back as typed results so no caller needs an exception boundary.
+   */
+  async function submitCredentials({ kind, captchaToken, captchaAnswer, credentials }) {
+    if (!captchaStore.verify(captchaToken, captchaAnswer)) {
+      return {
+        ok: false,
+        status: 400,
+        error: '验证码错误或已过期，请重新输入',
+        code: 'CAPTCHA_INVALID',
+      };
+    }
+    return credentialGateway.submit(kind, credentials);
+  }
+
+  return { issueChallenge, isConfigured, submitCredentials };
 }
